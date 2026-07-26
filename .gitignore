@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# VS Code
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Database
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+
+# Data cache
+data/cache/
+
+# OS
+.DS_Store
+Thumbs.db

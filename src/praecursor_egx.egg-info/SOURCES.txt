@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+src/praecursor/collectors/csv_loader.py
+src/praecursor/core/__init__.py
+src/praecursor/core/config.py
+src/praecursor/core/constants.py
+src/praecursor/core/indicators.py
+src/praecursor/core/price_bar.py
+src/praecursor/core/stock.py
+src/praecursor/storage/__init__.py
+src/praecursor/storage/database.py
+src/praecursor/storage/manager.py
+src/praecursor/storage/schema.py
+src/praecursor_egx.egg-info/PKG-INFO
+src/praecursor_egx.egg-info/SOURCES.txt
+src/praecursor_egx.egg-info/dependency_links.txt
+src/praecursor_egx.egg-info/top_level.txt

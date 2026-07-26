@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: praecursor-egx
+Version: 0.1.0
+Summary: Open-source EGX stock opportunity scanner
+Requires-Python: >=3.11

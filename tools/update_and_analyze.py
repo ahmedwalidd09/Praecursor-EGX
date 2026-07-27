@@ -4,13 +4,13 @@ from math import isnan
 from praecursor.collectors.yahoo_finance_source import YahooFinanceSource
 from praecursor.data.data_manager import DataManager
 from praecursor.data.stock_builder import CachedStockBuilder
+from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.analyzer import Analyzer
 from praecursor.scoring.ema import EMAIndicator
 from praecursor.scoring.rsi import RSIIndicator
 from praecursor.storage.price_cache import PriceCache
 
 
-SYMBOLS = ["COMI", "HRHO"]
 LOOKBACK_DAYS = 120
 MINIMUM_BARS = 10
 SOURCE_NAME = "yahoo_finance"
@@ -21,14 +21,18 @@ def main() -> int:
     end_date = date.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
 
+    symbol_mapper = SymbolMapper.from_csv()
+    symbols = symbol_mapper.get_yahoo_symbols()
+
     cache = PriceCache()
     data_manager = DataManager(
-        sources=[YahooFinanceSource()],
+        sources=[YahooFinanceSource(symbol_mapper=symbol_mapper)],
         minimum_bars=MINIMUM_BARS,
         price_cache=cache,
     )
     stock_builder = CachedStockBuilder(
         price_cache=cache,
+        symbol_mapper=symbol_mapper,
         source_name=SOURCE_NAME,
     )
     analyzer = create_analyzer()
@@ -36,12 +40,13 @@ def main() -> int:
     print("Updating and analyzing real EGX price data")
     print(f"Database: {cache.path}")
     print(f"Source: {SOURCE_NAME}")
+    print(f"Configured symbols: {', '.join(symbols)}")
     print(f"Date range: {start_date} to {end_date}")
     print()
 
     analyzed_symbols = 0
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         try:
             update_result = data_manager.fetch_history(symbol, start_date, end_date)
             stock = stock_builder.build(symbol, start_date, end_date)

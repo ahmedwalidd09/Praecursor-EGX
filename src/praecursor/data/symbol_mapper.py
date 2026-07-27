@@ -51,6 +51,18 @@ class SymbolMapper:
 
         return cls(mappings)
 
+    def get_symbols(self) -> list[str]:
+        """Return every EGX symbol configured in the mapping file."""
+        return list(self._mappings.keys())
+
+    def get_yahoo_symbols(self) -> list[str]:
+        """Return EGX symbols that have a Yahoo Finance mapping."""
+        return [
+            mapping.egx_symbol
+            for mapping in self._mappings.values()
+            if mapping.yahoo_symbol
+        ]
+
     def get_yahoo_symbol(self, egx_symbol: str) -> str:
         symbol = egx_symbol.strip().upper()
 

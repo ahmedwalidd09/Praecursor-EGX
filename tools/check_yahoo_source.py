@@ -2,9 +2,9 @@ from datetime import date, timedelta
 
 from praecursor.collectors.yahoo_finance_source import YahooFinanceSource
 from praecursor.data.data_manager import DataManager
+from praecursor.data.symbol_mapper import SymbolMapper
 
 
-SYMBOLS = ["COMI", "HRHO"]
 LOOKBACK_DAYS = 120
 MINIMUM_BARS = 10
 
@@ -13,18 +13,22 @@ def main() -> int:
     end_date = date.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
 
+    symbol_mapper = SymbolMapper.from_csv()
+    symbols = symbol_mapper.get_yahoo_symbols()
+
     manager = DataManager(
-        sources=[YahooFinanceSource()],
+        sources=[YahooFinanceSource(symbol_mapper=symbol_mapper)],
         minimum_bars=MINIMUM_BARS,
     )
 
     print("Checking Yahoo Finance source")
+    print(f"Configured symbols: {', '.join(symbols)}")
     print(f"Date range: {start_date} to {end_date}")
     print()
 
     successful_symbols = 0
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         try:
             result = manager.fetch_history(symbol, start_date, end_date)
             latest_bar = result.price_bars[-1]

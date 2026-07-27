@@ -2,13 +2,13 @@ from datetime import date, timedelta
 from math import isnan
 
 from praecursor.data.stock_builder import CachedStockBuilder
+from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.analyzer import Analyzer
 from praecursor.scoring.ema import EMAIndicator
 from praecursor.scoring.rsi import RSIIndicator
 from praecursor.storage.price_cache import PriceCache
 
 
-SYMBOLS = ["COMI", "HRHO"]
 LOOKBACK_DAYS = 120
 SOURCE_NAME = "yahoo_finance"
 
@@ -17,9 +17,13 @@ def main() -> int:
     end_date = date.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
 
+    symbol_mapper = SymbolMapper.from_csv()
+    symbols = symbol_mapper.get_yahoo_symbols()
+
     cache = PriceCache()
     stock_builder = CachedStockBuilder(
         price_cache=cache,
+        symbol_mapper=symbol_mapper,
         source_name=SOURCE_NAME,
     )
 
@@ -30,12 +34,13 @@ def main() -> int:
     print("Analyzing cached real price data")
     print(f"Database: {cache.path}")
     print(f"Source: {SOURCE_NAME}")
+    print(f"Configured symbols: {', '.join(symbols)}")
     print(f"Date range: {start_date} to {end_date}")
     print()
 
     analyzed_symbols = 0
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         try:
             stock = stock_builder.build(symbol, start_date, end_date)
             analyzed_symbols += 1

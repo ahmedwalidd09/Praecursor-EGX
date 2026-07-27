@@ -3,6 +3,7 @@ from math import isnan
 
 from praecursor.data.stock_builder import CachedStockBuilder
 from praecursor.data.symbol_mapper import SymbolMapper
+from praecursor.reporting.csv_report import OpportunityRankingCSVWriter
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
 from praecursor.storage.price_cache import PriceCache
 
@@ -24,6 +25,7 @@ def main() -> int:
         source_name=SOURCE_NAME,
     )
     scorer = OpportunityScorer()
+    report_writer = OpportunityRankingCSVWriter()
 
     print("Ranking cached EGX opportunities")
     print(f"Database: {cache.path}")
@@ -50,6 +52,10 @@ def main() -> int:
 
     ranked_scores = sorted(scores, key=lambda score: score.total_score, reverse=True)
     print_ranked_scores(ranked_scores)
+
+    report_path = report_writer.write(ranked_scores)
+    print(f"CSV report saved to: {report_path}")
+
     return 0
 
 

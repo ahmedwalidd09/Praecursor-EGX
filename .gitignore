@@ -25,3 +25,6 @@ data/cache/
 # OS
 .DS_Store
 Thumbs.db
+# Generated reports
+reports/*
+!reports/.gitkeep

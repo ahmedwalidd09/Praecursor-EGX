@@ -1,7 +1,7 @@
 from math import isnan
 
 from praecursor.scoring.opportunity_score import OpportunityScore
-from praecursor.workflows.scanner import ScannerRunResult, ScannerWorkflow
+from praecursor.workflows.scanner import ScannerRunResult, SymbolScanResult, ScannerWorkflow
 
 
 WARNING_PREVIEW_LIMIT = 3
@@ -13,7 +13,7 @@ def main() -> int:
 
     print_header(result)
     print_update_summary(result)
-    print_ranking(result.ranked_scores)
+    print_ranking(result.symbol_results)
     print_errors(result)
     print_report_location(result)
 
@@ -26,7 +26,8 @@ def main() -> int:
 def print_header(result: ScannerRunResult) -> None:
     print("Praecursor-EGX scanner complete")
     print(f"Database: {result.database_path}")
-    print(f"Source: {result.source_name}")
+    print(f"Primary source: {result.source_name}")
+    print("Consensus source: stockanalysis")
     print(f"Configured symbols: {', '.join(result.symbols)}")
     print(f"Date range: {result.start_date} to {result.end_date}")
     print(f"Successful symbols: {result.success_count}")
@@ -43,9 +44,11 @@ def print_update_summary(result: ScannerRunResult) -> None:
         print("=" * 40)
         print(symbol_result.symbol)
         print(score.company)
-        print(f"Downloaded bars: {symbol_result.downloaded_bars}")
+        print(f"Primary downloaded bars: {symbol_result.downloaded_bars}")
+        print(f"Consensus downloaded bars: {symbol_result.consensus_downloaded_bars}")
         print(f"Cached bars in date range: {symbol_result.cached_bars}")
-        print(f"Total cached rows for source: {symbol_result.total_cached_rows}")
+        print(f"Total cached primary rows: {symbol_result.total_cached_rows}")
+        print_consensus_summary(symbol_result)
         print(f"Warnings: {len(symbol_result.warnings)}")
 
         for warning in symbol_result.warnings[:WARNING_PREVIEW_LIMIT]:
@@ -59,16 +62,34 @@ def print_update_summary(result: ScannerRunResult) -> None:
         print()
 
 
-def print_ranking(scores: list[OpportunityScore]) -> None:
+def print_consensus_summary(symbol_result: SymbolScanResult) -> None:
+    consensus = symbol_result.consensus_result
+
+    if consensus is None:
+        print(f"Close consensus: unavailable ({symbol_result.consensus_error})")
+        return
+
+    print(
+        "Close consensus: "
+        f"{consensus.consensus_close:.2f} on {consensus.trade_date} | "
+        f"{consensus.agreeing_source_count}/{consensus.source_count} sources agree | "
+        f"confidence {consensus.confidence_percent:.0f}% | "
+        f"accepted={consensus.accepted}"
+    )
+
+
+def print_ranking(results: list[SymbolScanResult]) -> None:
     print("Opportunity ranking")
     print()
 
-    for rank, score in enumerate(scores, start=1):
+    for rank, symbol_result in enumerate(results, start=1):
+        score = symbol_result.opportunity_score
         print("=" * 40)
         print(f"#{rank} {score.symbol}")
         print(score.company)
         print(f"Score: {score.total_score:.0f}/{score.max_score:.0f} ({score.score_percent:.0f}%)")
         print(f"Latest Close: {score.latest_close:.2f}")
+        print_consensus_summary(symbol_result)
         print_indicator_values(score)
         print("Components:")
 
@@ -105,9 +126,13 @@ def print_errors(result: ScannerRunResult) -> None:
 def print_report_location(result: ScannerRunResult) -> None:
     if result.report_path is None:
         print("No CSV report was generated because no symbols were successfully analyzed.")
-        return
+    else:
+        print(f"CSV report saved to: {result.report_path}")
 
-    print(f"CSV report saved to: {result.report_path}")
+    if result.markdown_report_path is None:
+        print("No Markdown report was generated because no symbols were successfully analyzed.")
+    else:
+        print(f"Markdown report saved to: {result.markdown_report_path}")
 
 
 def format_value(value: float) -> str:

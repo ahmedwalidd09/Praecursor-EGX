@@ -5,9 +5,12 @@ from praecursor.core.stock import Stock
 from praecursor.scoring.analyzer import Analyzer
 from praecursor.scoring.average_volume import AverageVolumeIndicator
 from praecursor.scoring.ema import EMAIndicator
+from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator, MACDSignalIndicator
+from praecursor.scoring.price_momentum import PriceMomentumIndicator
 from praecursor.scoring.relative_volume import RelativeVolumeIndicator
 from praecursor.scoring.result import IndicatorResult
 from praecursor.scoring.rsi import RSIIndicator
+from praecursor.scoring.trend_strength import TrendStrengthIndicator
 
 
 @dataclass(frozen=True)
@@ -44,13 +47,12 @@ class OpportunityScorer:
     """
     Calculate an explainable opportunity score.
 
-    Current first practical model:
-    - Trend: 45 points
-    - Momentum: 35 points
-    - Volume confirmation: 20 points
-
-    The model is intentionally transparent and will evolve as more validated
-    sources and indicators are added.
+    Current model:
+    - Trend structure: 30 points
+    - RSI momentum: 25 points
+    - MACD confirmation: 15 points
+    - 20-bar price momentum: 15 points
+    - Relative volume confirmation: 15 points
     """
 
     MAX_SCORE = 100.0
@@ -63,6 +65,11 @@ class OpportunityScorer:
         self.analyzer.add_indicator(RSIIndicator(14))
         self.analyzer.add_indicator(AverageVolumeIndicator(20))
         self.analyzer.add_indicator(RelativeVolumeIndicator(20))
+        self.analyzer.add_indicator(MACDLineIndicator())
+        self.analyzer.add_indicator(MACDSignalIndicator())
+        self.analyzer.add_indicator(MACDHistogramIndicator())
+        self.analyzer.add_indicator(PriceMomentumIndicator(20))
+        self.analyzer.add_indicator(TrendStrengthIndicator())
 
     def score(self, stock: Stock) -> OpportunityScore:
         latest_close = stock.latest().close
@@ -94,38 +101,33 @@ class OpportunityScorer:
         ema200 = indicator_values.get("EMA200", float("nan"))
         rsi14 = indicator_values.get("RSI14", float("nan"))
         relative_volume20 = indicator_values.get("RelVolume20", float("nan"))
+        macd = indicator_values.get("MACD", float("nan"))
+        macd_histogram = indicator_values.get("MACDHistogram", float("nan"))
+        momentum20 = indicator_values.get("Momentum20", float("nan"))
 
         return [
             self._score_close_above_ema20(latest_close, ema20),
             self._score_ema20_above_ema50(ema20, ema50),
             self._score_ema50_above_ema200(ema50, ema200),
             self._score_rsi14(rsi14),
+            self._score_macd(macd, macd_histogram),
+            self._score_momentum20(momentum20),
             self._score_relative_volume20(relative_volume20),
         ]
 
     def _score_close_above_ema20(self, latest_close: float, ema20: float) -> ScoreComponent:
-        max_score = 15.0
+        max_score = 10.0
 
         if self._missing(ema20):
             return ScoreComponent("Close > EMA20", 0.0, max_score, "EMA20 is unavailable.")
 
         if latest_close > ema20:
-            return ScoreComponent(
-                "Close > EMA20",
-                max_score,
-                max_score,
-                "Price is above short-term trend.",
-            )
+            return ScoreComponent("Close > EMA20", max_score, max_score, "Price is above short-term trend.")
 
-        return ScoreComponent(
-            "Close > EMA20",
-            0.0,
-            max_score,
-            "Price is not above short-term trend.",
-        )
+        return ScoreComponent("Close > EMA20", 0.0, max_score, "Price is not above short-term trend.")
 
     def _score_ema20_above_ema50(self, ema20: float, ema50: float) -> ScoreComponent:
-        max_score = 15.0
+        max_score = 10.0
 
         if self._missing(ema20) or self._missing(ema50):
             return ScoreComponent("EMA20 > EMA50", 0.0, max_score, "EMA20 or EMA50 is unavailable.")
@@ -146,7 +148,7 @@ class OpportunityScorer:
         )
 
     def _score_ema50_above_ema200(self, ema50: float, ema200: float) -> ScoreComponent:
-        max_score = 15.0
+        max_score = 10.0
 
         if self._missing(ema50) or self._missing(ema200):
             return ScoreComponent("EMA50 > EMA200", 0.0, max_score, "EMA50 or EMA200 is unavailable.")
@@ -167,23 +169,18 @@ class OpportunityScorer:
         )
 
     def _score_rsi14(self, rsi14: float) -> ScoreComponent:
-        max_score = 35.0
+        max_score = 25.0
 
         if self._missing(rsi14):
             return ScoreComponent("RSI14 momentum", 0.0, max_score, "RSI14 is unavailable.")
 
         if 50 <= rsi14 <= 70:
-            return ScoreComponent(
-                "RSI14 momentum",
-                35.0,
-                max_score,
-                "RSI is in a healthy bullish range.",
-            )
+            return ScoreComponent("RSI14 momentum", 25.0, max_score, "RSI is in a healthy bullish range.")
 
         if 70 < rsi14 <= 75:
             return ScoreComponent(
                 "RSI14 momentum",
-                22.0,
+                16.0,
                 max_score,
                 "RSI shows strong momentum but is becoming extended.",
             )
@@ -191,28 +188,67 @@ class OpportunityScorer:
         if rsi14 > 75:
             return ScoreComponent(
                 "RSI14 momentum",
-                8.0,
+                6.0,
                 max_score,
                 "RSI is overextended; risk of pullback is higher.",
             )
 
         if 40 <= rsi14 < 50:
+            return ScoreComponent("RSI14 momentum", 8.0, max_score, "RSI is neutral to slightly weak.")
+
+        return ScoreComponent("RSI14 momentum", 0.0, max_score, "RSI is weak.")
+
+    def _score_macd(self, macd: float, macd_histogram: float) -> ScoreComponent:
+        max_score = 15.0
+
+        if self._missing(macd) or self._missing(macd_histogram):
+            return ScoreComponent("MACD confirmation", 0.0, max_score, "MACD is unavailable.")
+
+        if macd > 0 and macd_histogram > 0:
             return ScoreComponent(
-                "RSI14 momentum",
-                10.0,
+                "MACD confirmation",
+                15.0,
                 max_score,
-                "RSI is neutral to slightly weak.",
+                "MACD is positive and histogram confirms bullish momentum.",
             )
 
-        return ScoreComponent(
-            "RSI14 momentum",
-            0.0,
-            max_score,
-            "RSI is weak.",
-        )
+        if macd_histogram > 0:
+            return ScoreComponent(
+                "MACD confirmation",
+                10.0,
+                max_score,
+                "MACD histogram is positive, but MACD line is not yet above zero.",
+            )
+
+        if macd > 0:
+            return ScoreComponent(
+                "MACD confirmation",
+                5.0,
+                max_score,
+                "MACD is positive, but histogram is not confirming acceleration.",
+            )
+
+        return ScoreComponent("MACD confirmation", 0.0, max_score, "MACD is not bullish.")
+
+    def _score_momentum20(self, momentum20: float) -> ScoreComponent:
+        max_score = 15.0
+
+        if self._missing(momentum20):
+            return ScoreComponent("Momentum20", 0.0, max_score, "20-bar momentum is unavailable.")
+
+        if momentum20 >= 10:
+            return ScoreComponent("Momentum20", 15.0, max_score, "20-bar price momentum is strong.")
+
+        if momentum20 >= 3:
+            return ScoreComponent("Momentum20", 12.0, max_score, "20-bar price momentum is positive.")
+
+        if momentum20 >= 0:
+            return ScoreComponent("Momentum20", 7.0, max_score, "20-bar price momentum is mildly positive.")
+
+        return ScoreComponent("Momentum20", 0.0, max_score, "20-bar price momentum is negative.")
 
     def _score_relative_volume20(self, relative_volume20: float) -> ScoreComponent:
-        max_score = 20.0
+        max_score = 15.0
 
         if self._missing(relative_volume20):
             return ScoreComponent("Relative Volume20", 0.0, max_score, "Relative volume is unavailable.")
@@ -220,7 +256,7 @@ class OpportunityScorer:
         if relative_volume20 >= 1.5:
             return ScoreComponent(
                 "Relative Volume20",
-                20.0,
+                15.0,
                 max_score,
                 "Volume is strongly above its 20-day average.",
             )
@@ -228,7 +264,7 @@ class OpportunityScorer:
         if relative_volume20 >= 1.0:
             return ScoreComponent(
                 "Relative Volume20",
-                15.0,
+                11.0,
                 max_score,
                 "Volume is above or near its 20-day average.",
             )
@@ -236,7 +272,7 @@ class OpportunityScorer:
         if relative_volume20 >= 0.75:
             return ScoreComponent(
                 "Relative Volume20",
-                8.0,
+                6.0,
                 max_score,
                 "Volume is slightly below its 20-day average.",
             )

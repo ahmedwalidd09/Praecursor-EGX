@@ -6,8 +6,11 @@ from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.analyzer import Analyzer
 from praecursor.scoring.average_volume import AverageVolumeIndicator
 from praecursor.scoring.ema import EMAIndicator
+from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator, MACDSignalIndicator
+from praecursor.scoring.price_momentum import PriceMomentumIndicator
 from praecursor.scoring.rsi import RSIIndicator
 from praecursor.scoring.relative_volume import RelativeVolumeIndicator
+from praecursor.scoring.trend_strength import TrendStrengthIndicator
 from praecursor.storage.price_cache import PriceCache
 
 
@@ -36,6 +39,11 @@ def main() -> int:
     analyzer.add_indicator(RSIIndicator(14))
     analyzer.add_indicator(AverageVolumeIndicator(20))
     analyzer.add_indicator(RelativeVolumeIndicator(20))
+    analyzer.add_indicator(MACDLineIndicator())
+    analyzer.add_indicator(MACDSignalIndicator())
+    analyzer.add_indicator(MACDHistogramIndicator())
+    analyzer.add_indicator(PriceMomentumIndicator(20))
+    analyzer.add_indicator(TrendStrengthIndicator())
 
     print("Analyzing cached real price data")
     print(f"Database: {cache.path}")

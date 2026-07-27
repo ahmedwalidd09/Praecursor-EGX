@@ -1,3 +1,4 @@
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 import sqlite3
@@ -22,7 +23,7 @@ class PriceCache:
 
     def initialize(self) -> None:
         """Create the cache table if it does not already exist."""
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.executescript(PRICE_CACHE_SCHEMA)
             connection.commit()
 
@@ -52,7 +53,7 @@ class PriceCache:
             for bar in result.price_bars
         ]
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.executemany(
                 """
                 INSERT INTO source_prices (
@@ -94,7 +95,7 @@ class PriceCache:
         start_text = start_date.isoformat()
         end_text = end_date.isoformat()
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 """
@@ -112,7 +113,7 @@ class PriceCache:
 
     def count(self, symbol: str, source_name: str) -> int:
         """Count cached rows for one symbol and source."""
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             row = connection.execute(
                 """
                 SELECT COUNT(*)

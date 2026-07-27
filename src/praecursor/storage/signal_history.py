@@ -1,3 +1,4 @@
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -51,13 +52,13 @@ class SignalHistoryStore:
         self.initialize()
 
     def initialize(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.executescript(SIGNAL_HISTORY_SCHEMA)
             connection.commit()
 
     def latest_ranks(self) -> dict[str, int]:
         """Return symbol -> rank for the most recent stored scanner run."""
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.row_factory = sqlite3.Row
             latest_run = connection.execute(
                 "SELECT id FROM scanner_runs ORDER BY id DESC LIMIT 1"
@@ -81,7 +82,7 @@ class SignalHistoryStore:
         """Save a completed ScannerRunResult and return scanner_runs.id."""
         generated_at = result.generated_at.isoformat()
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             cursor = connection.execute(
                 """
                 INSERT INTO scanner_runs (

@@ -11,7 +11,7 @@ from praecursor.scoring.rsi import RSIIndicator
 from praecursor.storage.price_cache import PriceCache
 
 
-LOOKBACK_DAYS = 120
+LOOKBACK_DAYS = 450
 MINIMUM_BARS = 10
 SOURCE_NAME = "yahoo_finance"
 WARNING_PREVIEW_LIMIT = 5
@@ -81,6 +81,8 @@ def main() -> int:
 def create_analyzer() -> Analyzer:
     analyzer = Analyzer()
     analyzer.add_indicator(EMAIndicator(20))
+    analyzer.add_indicator(EMAIndicator(50))
+    analyzer.add_indicator(EMAIndicator(200))
     analyzer.add_indicator(RSIIndicator(14))
     return analyzer
 

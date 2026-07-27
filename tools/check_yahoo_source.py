@@ -5,7 +5,7 @@ from praecursor.data.data_manager import DataManager
 from praecursor.data.symbol_mapper import SymbolMapper
 
 
-LOOKBACK_DAYS = 120
+LOOKBACK_DAYS = 450
 MINIMUM_BARS = 10
 
 

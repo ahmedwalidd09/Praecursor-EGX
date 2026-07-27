@@ -6,7 +6,7 @@ from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.storage.price_cache import PriceCache
 
 
-LOOKBACK_DAYS = 120
+LOOKBACK_DAYS = 450
 MINIMUM_BARS = 10
 SOURCE_NAME = "yahoo_finance"
 

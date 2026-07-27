@@ -9,7 +9,7 @@ from praecursor.scoring.rsi import RSIIndicator
 from praecursor.storage.price_cache import PriceCache
 
 
-LOOKBACK_DAYS = 120
+LOOKBACK_DAYS = 450
 SOURCE_NAME = "yahoo_finance"
 
 
@@ -29,6 +29,8 @@ def main() -> int:
 
     analyzer = Analyzer()
     analyzer.add_indicator(EMAIndicator(20))
+    analyzer.add_indicator(EMAIndicator(50))
+    analyzer.add_indicator(EMAIndicator(200))
     analyzer.add_indicator(RSIIndicator(14))
 
     print("Analyzing cached real price data")

@@ -53,13 +53,13 @@ SOURCE_REGISTRY: tuple[SourceCapabilities, ...] = (
     SourceCapabilities(
         name="mubasher",
         display_name="Mubasher Info",
-        status="planned",
+        status="implemented_latest_quote",
         supports_history=False,
         supports_latest_quote=True,
         supports_consensus=True,
-        implemented=False,
-        role="Regional market-data cross-check source.",
-        notes="Pages show delayed quotes; suitable candidate for latest quote validation.",
+        implemented=True,
+        role="Delayed/latest quote cross-check source.",
+        notes="Returns latest delayed page quote; may not share the same date as end-of-day sources.",
     ),
     SourceCapabilities(
         name="tradingview",

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from praecursor.collectors.collection_result import CollectionResult
 from praecursor.collectors.market_data_source import MarketDataSource
+from praecursor.collectors.mubasher_source import MubasherSource
 from praecursor.collectors.stockanalysis_source import StockAnalysisSource
 from praecursor.collectors.yahoo_finance_source import YahooFinanceSource
 from praecursor.consensus.price_consensus import PriceConsensusEngine, PriceConsensusResult, SourcePrice
@@ -28,6 +29,8 @@ class SymbolScanResult:
     warnings: list[str]
     opportunity_score: OpportunityScore
     consensus_downloaded_bars: int = 0
+    consensus_source_names: list[str] = field(default_factory=list)
+    consensus_source_errors: dict[str, str] = field(default_factory=dict)
     consensus_result: PriceConsensusResult | None = None
     consensus_error: str | None = None
 
@@ -94,6 +97,23 @@ class SymbolScanResult:
 
         return "do_not_use"
 
+    @property
+    def consensus_source_names_text(self) -> str:
+        if not self.consensus_result:
+            return ""
+
+        return ", ".join(agreement.source_name for agreement in self.consensus_result.agreements)
+
+    @property
+    def consensus_source_errors_text(self) -> str:
+        if not self.consensus_source_errors:
+            return ""
+
+        return "; ".join(
+            f"{source}: {error}"
+            for source, error in self.consensus_source_errors.items()
+        )
+
 
 @dataclass(frozen=True)
 class ScannerRunResult:
@@ -102,6 +122,7 @@ class ScannerRunResult:
     start_date: date
     end_date: date
     source_name: str
+    consensus_source_names: list[str]
     database_path: Path
     report_path: Path | None
     markdown_report_path: Path | None
@@ -126,9 +147,8 @@ class ScannerWorkflow:
     """
     Run the complete Praecursor-EGX scanner workflow.
 
-    The workflow updates market data, validates it, caches it, scores the
-    configured symbols, checks latest-close consensus, ranks opportunities,
-    and writes CSV/Markdown reports.
+    The workflow updates market data, validates it, caches it, scores symbols,
+    checks latest-close consensus, ranks opportunities, and writes reports.
     """
 
     def __init__(
@@ -140,7 +160,7 @@ class ScannerWorkflow:
         symbol_mapper: SymbolMapper | None = None,
         price_cache: PriceCache | None = None,
         market_data_source: MarketDataSource | None = None,
-        consensus_data_source: MarketDataSource | None = None,
+        consensus_data_sources: list[MarketDataSource] | None = None,
         consensus_engine: PriceConsensusEngine | None = None,
         scorer: OpportunityScorer | None = None,
         report_writer: ScannerCSVReportWriter | None = None,
@@ -157,10 +177,13 @@ class ScannerWorkflow:
             symbol_mapper=self.symbol_mapper
         )
         self.enable_consensus = enable_consensus
-        self.consensus_data_source = consensus_data_source
+        self.consensus_data_sources = consensus_data_sources
 
-        if self.enable_consensus and self.consensus_data_source is None:
-            self.consensus_data_source = StockAnalysisSource(symbol_mapper=self.symbol_mapper)
+        if self.enable_consensus and self.consensus_data_sources is None:
+            self.consensus_data_sources = [
+                StockAnalysisSource(symbol_mapper=self.symbol_mapper),
+                MubasherSource(),
+            ]
 
         self.consensus_engine = consensus_engine or PriceConsensusEngine(
             tolerance_percent=0.5,
@@ -188,7 +211,6 @@ class ScannerWorkflow:
             minimum_bars=self.minimum_bars,
             price_cache=self.price_cache,
         )
-        consensus_manager = self._build_consensus_manager()
         stock_builder = CachedStockBuilder(
             price_cache=self.price_cache,
             symbol_mapper=self.symbol_mapper,
@@ -201,8 +223,7 @@ class ScannerWorkflow:
         for symbol in selected_symbols:
             try:
                 primary_result = primary_manager.fetch_history(symbol, start_date, selected_end_date)
-                consensus_result_data = self._fetch_consensus_result(
-                    consensus_manager,
+                consensus_results, consensus_source_errors = self._fetch_consensus_results(
                     symbol,
                     consensus_start_date,
                     selected_end_date,
@@ -219,15 +240,18 @@ class ScannerWorkflow:
                 consensus_result, consensus_error = self._calculate_consensus(
                     symbol,
                     primary_result,
-                    consensus_result_data,
+                    consensus_results,
                 )
 
                 warnings = list(primary_result.warnings)
                 consensus_downloaded_bars = 0
 
-                if consensus_result_data is not None:
+                for consensus_result_data in consensus_results:
                     warnings.extend(consensus_result_data.warnings)
-                    consensus_downloaded_bars = len(consensus_result_data.price_bars)
+                    consensus_downloaded_bars += len(consensus_result_data.price_bars)
+
+                for source_name, error in consensus_source_errors.items():
+                    warnings.append(f"Consensus source {source_name} unavailable: {error}")
 
                 if consensus_result is not None:
                     warnings.extend(consensus_result.warnings)
@@ -241,6 +265,8 @@ class ScannerWorkflow:
                         warnings=warnings,
                         opportunity_score=opportunity_score,
                         consensus_downloaded_bars=consensus_downloaded_bars,
+                        consensus_source_names=[result.source_name for result in consensus_results],
+                        consensus_source_errors=consensus_source_errors,
                         consensus_result=consensus_result,
                         consensus_error=consensus_error,
                     )
@@ -267,6 +293,7 @@ class ScannerWorkflow:
             start_date=start_date,
             end_date=selected_end_date,
             source_name=self.source_name,
+            consensus_source_names=[source.name for source in self.consensus_data_sources or []],
             database_path=self.price_cache.path,
             report_path=saved_report_path,
             markdown_report_path=saved_markdown_report_path,
@@ -275,60 +302,64 @@ class ScannerWorkflow:
             errors=errors,
         )
 
-    def _build_consensus_manager(self) -> DataManager | None:
-        if not self.enable_consensus or self.consensus_data_source is None:
-            return None
-
-        return DataManager(
-            sources=[self.consensus_data_source],
-            minimum_bars=self.minimum_bars,
-            price_cache=self.price_cache,
-        )
-
-    def _fetch_consensus_result(
+    def _fetch_consensus_results(
         self,
-        consensus_manager: DataManager | None,
         symbol: str,
         start_date: date,
         end_date: date,
-    ) -> CollectionResult | None:
-        if consensus_manager is None:
-            return None
+    ) -> tuple[list[CollectionResult], dict[str, str]]:
+        if not self.enable_consensus or not self.consensus_data_sources:
+            return [], {}
 
-        return consensus_manager.fetch_history(symbol, start_date, end_date)
+        results: list[CollectionResult] = []
+        errors: dict[str, str] = {}
+
+        for source in self.consensus_data_sources:
+            try:
+                manager = DataManager(
+                    sources=[source],
+                    minimum_bars=1,
+                    price_cache=self.price_cache,
+                )
+                result = manager.fetch_history(symbol, start_date, end_date)
+
+                if result.price_bars:
+                    results.append(result)
+                else:
+                    errors[source.name] = "source returned no price bars"
+            except Exception as error:
+                errors[source.name] = str(error)
+
+        return results, errors
 
     def _calculate_consensus(
         self,
         symbol: str,
         primary_result: CollectionResult,
-        consensus_result_data: CollectionResult | None,
+        consensus_results: list[CollectionResult],
     ) -> tuple[PriceConsensusResult | None, str | None]:
-        if consensus_result_data is None:
-            return None, "Consensus source is disabled."
+        if not consensus_results:
+            return None, "No consensus sources returned data."
 
-        common_date = self._find_latest_common_date(primary_result, consensus_result_data)
+        candidate_dates = sorted(
+            {bar.date.date() for bar in primary_result.price_bars},
+            reverse=True,
+        )
 
-        if common_date is None:
-            return None, "No common trade date found between primary and consensus source."
+        for candidate_date in candidate_dates:
+            source_prices = self._build_source_prices(
+                symbol,
+                candidate_date,
+                [primary_result, *consensus_results],
+            )
 
-        source_prices = self._build_source_prices(symbol, common_date, [primary_result, consensus_result_data])
+            if len(source_prices) >= 2:
+                try:
+                    return self.consensus_engine.calculate(symbol, candidate_date, source_prices), None
+                except Exception as error:
+                    return None, str(error)
 
-        try:
-            return self.consensus_engine.calculate(symbol, common_date, source_prices), None
-        except Exception as error:
-            return None, str(error)
-
-    def _find_latest_common_date(self, *results: CollectionResult) -> date | None:
-        date_sets = [
-            {bar.date.date() for bar in result.price_bars}
-            for result in results
-        ]
-        common_dates = set.intersection(*date_sets)
-
-        if not common_dates:
-            return None
-
-        return max(common_dates)
+        return None, "No trade date had at least two source prices for consensus."
 
     def _build_source_prices(
         self,

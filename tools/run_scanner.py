@@ -27,7 +27,7 @@ def print_header(result: ScannerRunResult) -> None:
     print("Praecursor-EGX scanner complete")
     print(f"Database: {result.database_path}")
     print(f"Primary source: {result.source_name}")
-    print("Consensus source: stockanalysis")
+    print(f"Consensus sources: {', '.join(result.consensus_source_names)}")
     print(f"Configured symbols: {', '.join(result.symbols)}")
     print(f"Date range: {result.start_date} to {result.end_date}")
     print(f"Successful symbols: {result.success_count}")
@@ -49,6 +49,8 @@ def print_update_summary(result: ScannerRunResult) -> None:
         print(f"Cached bars in date range: {symbol_result.cached_bars}")
         print(f"Total cached primary rows: {symbol_result.total_cached_rows}")
         print_consensus_summary(symbol_result)
+        if symbol_result.consensus_source_errors:
+            print(f"Consensus source errors: {symbol_result.consensus_source_errors_text}")
         print(f"Data quality: {symbol_result.data_quality_score:.0f}% ({symbol_result.data_quality_label})")
         print(f"High/low quality: {symbol_result.high_low_quality_score:.0f}% ({symbol_result.high_low_quality_label})")
         print(f"ATR reliability: {symbol_result.atr_reliability_label}")
@@ -72,12 +74,14 @@ def print_consensus_summary(symbol_result: SymbolScanResult) -> None:
         print(f"Close consensus: unavailable ({symbol_result.consensus_error})")
         return
 
+    source_names = symbol_result.consensus_source_names_text
     print(
         "Close consensus: "
         f"{consensus.consensus_close:.2f} on {consensus.trade_date} | "
         f"{consensus.agreeing_source_count}/{consensus.source_count} sources agree | "
         f"confidence {consensus.confidence_percent:.0f}% ({consensus.confidence_label}) | "
-        f"accepted={consensus.accepted}"
+        f"accepted={consensus.accepted} | "
+        f"sources={source_names}"
     )
 
 

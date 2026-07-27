@@ -87,11 +87,15 @@ class ScannerMarkdownReportWriter:
                     [
                         f"- Consensus close: **{consensus.consensus_close:.2f}** on {consensus.trade_date}",
                         f"- Consensus agreement: **{consensus.agreeing_source_count}/{consensus.source_count} sources ({consensus.agreement_percent:.0f}%)**",
+                        f"- Consensus sources used: **{result.consensus_source_names_text}**",
                         f"- Confidence vs 5-source target: **{consensus.confidence_percent:.0f}% ({consensus.confidence_label})**",
                     ]
                 )
             elif result.consensus_error:
                 lines.append(f"- Consensus error: {result.consensus_error}")
+
+            if result.consensus_source_errors:
+                lines.append(f"- Consensus source errors: {result.consensus_source_errors_text}")
 
             lines.append("- Components:")
             for component in score.components:

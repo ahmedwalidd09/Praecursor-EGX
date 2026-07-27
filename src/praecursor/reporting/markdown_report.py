@@ -18,8 +18,8 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Consensus | Consensus Confidence | Data Quality |",
-            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |",
+            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
+            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
         ]
 
         for rank, result in enumerate(results, start=1):
@@ -28,6 +28,7 @@ class ScannerMarkdownReportWriter:
             consensus_status = "Accepted" if consensus and consensus.accepted else "Not accepted"
             confidence = f"{consensus.confidence_percent:.0f}% ({consensus.confidence_label})" if consensus else "N/A"
             data_quality = f"{result.data_quality_score:.0f}% ({result.data_quality_label})"
+            high_low_quality = f"{result.high_low_quality_score:.0f}% ({result.high_low_quality_label})"
 
             lines.append(
                 "| "
@@ -42,9 +43,11 @@ class ScannerMarkdownReportWriter:
                 f"{self._format_value(score.indicator_values.get('MACDHistogram', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('Momentum20', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('RelVolume20', float('nan')))} | "
+                f"{self._format_value(score.indicator_values.get('ATRPercent14', float('nan')))} | "
                 f"{consensus_status} | "
                 f"{confidence} | "
-                f"{data_quality} |"
+                f"{data_quality} | "
+                f"{high_low_quality} |"
             )
 
         lines.extend(["", "## Details", ""])
@@ -63,7 +66,11 @@ class ScannerMarkdownReportWriter:
                     f"- MACD histogram: **{self._format_value(score.indicator_values.get('MACDHistogram', float('nan')))}**",
                     f"- Momentum20: **{self._format_value(score.indicator_values.get('Momentum20', float('nan')))}%**",
                     f"- Trend strength: **{self._format_value(score.indicator_values.get('TrendStrength', float('nan')))} / 100**",
+                    f"- ATR14: **{self._format_value(score.indicator_values.get('ATR14', float('nan')))}**",
+                    f"- ATRPercent14: **{self._format_value(score.indicator_values.get('ATRPercent14', float('nan')))}%**",
+                    f"- ATR reliability: **{result.atr_reliability_label}**",
                     f"- Data quality: **{result.data_quality_score:.0f}% ({result.data_quality_label})** based on {result.warning_count} warning(s)",
+                    f"- High/low quality: **{result.high_low_quality_score:.0f}% ({result.high_low_quality_label})** based on {result.high_low_warning_count} high/low warning(s)",
                 ]
             )
 

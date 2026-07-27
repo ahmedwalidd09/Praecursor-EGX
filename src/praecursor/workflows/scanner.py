@@ -58,6 +58,42 @@ class SymbolScanResult:
 
         return "low"
 
+    @property
+    def high_low_warning_count(self) -> int:
+        return sum(
+            1
+            for warning in self.warnings
+            if "adjusted high/low range" in warning.lower()
+        )
+
+    @property
+    def high_low_quality_score(self) -> float:
+        if self.total_downloaded_bars <= 0:
+            return 0.0
+
+        warning_rate_percent = (self.high_low_warning_count / self.total_downloaded_bars) * 100
+        return max(0.0, 100.0 - warning_rate_percent)
+
+    @property
+    def high_low_quality_label(self) -> str:
+        if self.high_low_quality_score >= 80:
+            return "high"
+
+        if self.high_low_quality_score >= 60:
+            return "medium"
+
+        return "low"
+
+    @property
+    def atr_reliability_label(self) -> str:
+        if self.high_low_quality_score >= 80:
+            return "usable"
+
+        if self.high_low_quality_score >= 60:
+            return "caution"
+
+        return "do_not_use"
+
 
 @dataclass(frozen=True)
 class ScannerRunResult:

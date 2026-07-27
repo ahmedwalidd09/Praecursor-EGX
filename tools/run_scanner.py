@@ -50,6 +50,8 @@ def print_update_summary(result: ScannerRunResult) -> None:
         print(f"Total cached primary rows: {symbol_result.total_cached_rows}")
         print_consensus_summary(symbol_result)
         print(f"Data quality: {symbol_result.data_quality_score:.0f}% ({symbol_result.data_quality_label})")
+        print(f"High/low quality: {symbol_result.high_low_quality_score:.0f}% ({symbol_result.high_low_quality_label})")
+        print(f"ATR reliability: {symbol_result.atr_reliability_label}")
         print(f"Warnings: {symbol_result.warning_count}")
 
         for warning in symbol_result.warnings[:WARNING_PREVIEW_LIMIT]:
@@ -104,7 +106,7 @@ def print_ranking(results: list[SymbolScanResult]) -> None:
 
 
 def print_indicator_values(score: OpportunityScore) -> None:
-    indicator_names = ["EMA20", "EMA50", "EMA200", "RSI14", "AvgVolume20", "RelVolume20", "MACD", "MACDSignal", "MACDHistogram", "Momentum20", "TrendStrength"]
+    indicator_names = ["EMA20", "EMA50", "EMA200", "RSI14", "AvgVolume20", "RelVolume20", "MACD", "MACDSignal", "MACDHistogram", "Momentum20", "TrendStrength", "ATR14", "ATRPercent14"]
 
     for indicator_name in indicator_names:
         value = score.indicator_values.get(indicator_name, float("nan"))

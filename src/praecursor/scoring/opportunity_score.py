@@ -3,6 +3,7 @@ from math import isnan
 
 from praecursor.core.stock import Stock
 from praecursor.scoring.analyzer import Analyzer
+from praecursor.scoring.atr import ATRIndicator, ATRPercentIndicator
 from praecursor.scoring.average_volume import AverageVolumeIndicator
 from praecursor.scoring.ema import EMAIndicator
 from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator, MACDSignalIndicator
@@ -70,6 +71,8 @@ class OpportunityScorer:
         self.analyzer.add_indicator(MACDHistogramIndicator())
         self.analyzer.add_indicator(PriceMomentumIndicator(20))
         self.analyzer.add_indicator(TrendStrengthIndicator())
+        self.analyzer.add_indicator(ATRIndicator(14))
+        self.analyzer.add_indicator(ATRPercentIndicator(14))
 
     def score(self, stock: Stock) -> OpportunityScore:
         latest_close = stock.latest().close

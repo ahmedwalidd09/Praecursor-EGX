@@ -69,8 +69,33 @@ Relative Volume 20 = latest volume / average volume of previous 20 bars
 | >= 0.75 and < 1.00 | 6 | Slightly weak volume |
 | < 0.75 | 0 | Weak volume confirmation |
 
-## Why these were added before ATR/breakout
+## ATR and volatility
 
-Current public sources show many high/low normalization warnings. EMA, RSI, MACD, momentum, and volume-based metrics depend mostly on close and volume fields, which are currently more reliable than high/low fields.
+The scanner now reports:
 
-ATR, breakout detection, and candlestick patterns should be added after improving high/low confidence through more source validation.
+```text
+ATR14
+ATRPercent14
+```
+
+ATR is not yet part of the opportunity score. It is currently informational because ATR depends on high/low values, and our public sources still produce high/low normalization warnings.
+
+## High/low quality and ATR reliability
+
+The scanner reports:
+
+```text
+high_low_quality_score
+high_low_quality_label
+atr_reliability_label
+```
+
+Current policy:
+
+| High/Low Quality | ATR Reliability | Meaning |
+| --- | --- | --- |
+| >= 80 | usable | ATR can be considered more reliable. |
+| >= 60 and < 80 | caution | ATR is useful for context, not final scoring. |
+| < 60 | do_not_use | ATR should not be used for decisions. |
+
+ATR/breakout/candlestick scoring should wait until high/low confidence improves through more source validation.

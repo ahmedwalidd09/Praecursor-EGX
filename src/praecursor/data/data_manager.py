@@ -3,15 +3,16 @@ from datetime import date
 from praecursor.collectors.collection_result import CollectionResult
 from praecursor.collectors.market_data_source import MarketDataSource
 from praecursor.data.validation import PriceBarValidator
+from praecursor.storage.price_cache import PriceCache
 
 
 class DataManager:
     """
-    Coordinates market data sources and validation.
+    Coordinates market data sources, validation, and optional caching.
 
     For now, it fetches data from one selected source and validates the
     returned price bars. Later, this class will compare multiple sources,
-    cache results, and assign confidence.
+    cache results more intelligently, and assign confidence.
     """
 
     def __init__(
@@ -19,6 +20,7 @@ class DataManager:
         sources: list[MarketDataSource],
         validator: PriceBarValidator | None = None,
         minimum_bars: int = 1,
+        price_cache: PriceCache | None = None,
     ):
         if not sources:
             raise ValueError("DataManager requires at least one market data source.")
@@ -26,6 +28,7 @@ class DataManager:
         self.sources = {source.name: source for source in sources}
         self.validator = validator or PriceBarValidator()
         self.minimum_bars = minimum_bars
+        self.price_cache = price_cache
 
     def fetch_history(
         self,
@@ -50,6 +53,12 @@ class DataManager:
             raise ValueError(
                 f"Invalid price data from {collection_result.source_name} "
                 f"for {symbol}: {error_text}"
+            )
+
+        if self.price_cache is not None:
+            saved_rows = self.price_cache.save(collection_result)
+            collection_result.warnings.append(
+                f"Saved {saved_rows} rows to SQLite cache."
             )
 
         return collection_result

@@ -1,5 +1,4 @@
-SCHEMA = """
-
+COMPANY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
     ticker TEXT PRIMARY KEY,
     name TEXT,
@@ -8,7 +7,9 @@ CREATE TABLE IF NOT EXISTS companies (
     market_cap REAL,
     created_at TEXT
 );
+"""
 
+LEGACY_PRICE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT,
@@ -20,7 +21,29 @@ CREATE TABLE IF NOT EXISTS prices (
     volume REAL,
     value REAL
 );
+"""
 
+PRICE_CACHE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS source_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    source TEXT NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume INTEGER NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    collected_at TEXT NOT NULL,
+    UNIQUE(ticker, trade_date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_prices_lookup
+ON source_prices (ticker, source, trade_date);
+"""
+
+DISCLOSURE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS disclosures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT,
@@ -30,7 +53,9 @@ CREATE TABLE IF NOT EXISTS disclosures (
     published_at TEXT,
     collected_at TEXT
 );
+"""
 
+OWNERSHIP_SCHEMA = """
 CREATE TABLE IF NOT EXISTS ownership (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT,
@@ -41,7 +66,9 @@ CREATE TABLE IF NOT EXISTS ownership (
     transaction_date TEXT,
     disclosure_date TEXT
 );
+"""
 
+SCORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS scores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT,
@@ -49,5 +76,15 @@ CREATE TABLE IF NOT EXISTS scores (
     confidence REAL,
     generated_at TEXT
 );
-
 """
+
+SCHEMA = "\n".join(
+    [
+        COMPANY_SCHEMA,
+        LEGACY_PRICE_SCHEMA,
+        PRICE_CACHE_SCHEMA,
+        DISCLOSURE_SCHEMA,
+        OWNERSHIP_SCHEMA,
+        SCORE_SCHEMA,
+    ]
+)

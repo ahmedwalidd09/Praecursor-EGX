@@ -136,10 +136,22 @@ Run initial historical signal backtest:
 python tools/run_backtest.py
 ```
 
+Download/cache the requested range first, then backtest:
+
+```powershell
+python tools/run_backtest.py --prepare-cache
+```
+
 Backtest selected symbols:
 
 ```powershell
 python tools/run_backtest.py --symbols SWDY,COMI
+```
+
+Check mapped symbol availability:
+
+```powershell
+python tools/check_symbol_availability.py
 ```
 
 List source registry:

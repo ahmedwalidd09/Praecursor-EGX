@@ -1,21 +1,36 @@
 import csv
 from pathlib import Path
 
-from praecursor.backtesting.engine import BacktestResult, BacktestSignal, BacktestSummaryRow
+from praecursor.backtesting.engine import (
+    BacktestResult,
+    BacktestSignal,
+    BacktestSummaryRow,
+    BacktestSymbolSummaryRow,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BACKTEST_SIGNALS_REPORT = ROOT / "reports" / "backtest_signals.csv"
 DEFAULT_BACKTEST_SUMMARY_REPORT = ROOT / "reports" / "backtest_summary.csv"
+DEFAULT_BACKTEST_SYMBOL_SUMMARY_REPORT = ROOT / "reports" / "backtest_symbol_summary.csv"
+DEFAULT_BACKTEST_BEST_REPORT = ROOT / "reports" / "backtest_best_signals.csv"
+DEFAULT_BACKTEST_WORST_REPORT = ROOT / "reports" / "backtest_worst_signals.csv"
+DEFAULT_BACKTEST_MARKDOWN_REPORT = ROOT / "reports" / "backtest_summary.md"
 
 
 class BacktestCSVReportWriter:
-    """Write backtest signal and summary CSV reports."""
+    """Write backtest signal and summary reports."""
 
-    def write_signals(
-        self,
-        result: BacktestResult,
-        output_path: Path = DEFAULT_BACKTEST_SIGNALS_REPORT,
-    ) -> Path:
+    def write_all(self, result: BacktestResult) -> dict[str, Path]:
+        return {
+            "signals": self.write_signals(result),
+            "summary": self.write_summary(result),
+            "symbol_summary": self.write_symbol_summary(result),
+            "best_signals": self.write_signal_examples(result.best_signals, result, DEFAULT_BACKTEST_BEST_REPORT),
+            "worst_signals": self.write_signal_examples(result.worst_signals, result, DEFAULT_BACKTEST_WORST_REPORT),
+            "markdown": self.write_markdown(result),
+        }
+
+    def write_signals(self, result: BacktestResult, output_path: Path = DEFAULT_BACKTEST_SIGNALS_REPORT) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = self._signal_fieldnames(result)
 
@@ -27,11 +42,7 @@ class BacktestCSVReportWriter:
 
         return output_path
 
-    def write_summary(
-        self,
-        result: BacktestResult,
-        output_path: Path = DEFAULT_BACKTEST_SUMMARY_REPORT,
-    ) -> Path:
+    def write_summary(self, result: BacktestResult, output_path: Path = DEFAULT_BACKTEST_SUMMARY_REPORT) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fieldnames = self._summary_fieldnames(result)
 
@@ -41,6 +52,44 @@ class BacktestCSVReportWriter:
             for summary_row in result.summary:
                 writer.writerow(self._summary_row(summary_row, result.horizons))
 
+        return output_path
+
+    def write_symbol_summary(
+        self,
+        result: BacktestResult,
+        output_path: Path = DEFAULT_BACKTEST_SYMBOL_SUMMARY_REPORT,
+    ) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = self._symbol_summary_fieldnames(result)
+
+        with output_path.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            for summary_row in result.symbol_summary:
+                writer.writerow(self._symbol_summary_row(summary_row, result.horizons))
+
+        return output_path
+
+    def write_signal_examples(
+        self,
+        signals: list[BacktestSignal],
+        result: BacktestResult,
+        output_path: Path,
+    ) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = self._signal_fieldnames(result)
+
+        with output_path.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            for signal in signals:
+                writer.writerow(self._signal_row(signal, result.horizons))
+
+        return output_path
+
+    def write_markdown(self, result: BacktestResult, output_path: Path = DEFAULT_BACKTEST_MARKDOWN_REPORT) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(self._markdown_content(result), encoding="utf-8")
         return output_path
 
     def _signal_fieldnames(self, result: BacktestResult) -> list[str]:
@@ -62,7 +111,13 @@ class BacktestCSVReportWriter:
         return fields
 
     def _summary_fieldnames(self, result: BacktestResult) -> list[str]:
-        fields = ["label", "signal_count"]
+        fields = ["label", "signal_count", "warning"]
+        fields.extend([f"avg_return_{horizon}_bars" for horizon in result.horizons])
+        fields.extend([f"win_rate_{horizon}_bars" for horizon in result.horizons])
+        return fields
+
+    def _symbol_summary_fieldnames(self, result: BacktestResult) -> list[str]:
+        fields = ["symbol", "company", "signal_count"]
         fields.extend([f"avg_return_{horizon}_bars" for horizon in result.horizons])
         fields.extend([f"win_rate_{horizon}_bars" for horizon in result.horizons])
         return fields
@@ -92,6 +147,7 @@ class BacktestCSVReportWriter:
         row = {
             "label": summary.label,
             "signal_count": str(summary.signal_count),
+            "warning": summary.warning or "",
         }
 
         for horizon in horizons:
@@ -101,6 +157,106 @@ class BacktestCSVReportWriter:
             row[f"win_rate_{horizon}_bars"] = self._format_number(summary.win_rates[horizon])
 
         return row
+
+    def _symbol_summary_row(self, summary: BacktestSymbolSummaryRow, horizons: tuple[int, ...]) -> dict[str, str]:
+        row = {
+            "symbol": summary.symbol,
+            "company": summary.company,
+            "signal_count": str(summary.signal_count),
+        }
+
+        for horizon in horizons:
+            row[f"avg_return_{horizon}_bars"] = self._format_number(summary.average_returns[horizon])
+
+        for horizon in horizons:
+            row[f"win_rate_{horizon}_bars"] = self._format_number(summary.win_rates[horizon])
+
+        return row
+
+    def _markdown_content(self, result: BacktestResult) -> str:
+        lines = [
+            "# Praecursor-EGX Backtest Summary",
+            "",
+            f"- Source: {result.source_name}",
+            f"- Symbols: {', '.join(result.symbols)}",
+            f"- Date range: {result.start_date} to {result.end_date}",
+            f"- Horizons: {', '.join(str(horizon) for horizon in result.horizons)} bars",
+            f"- Signals: {len(result.signals)}",
+            f"- Errors: {len(result.errors)}",
+            "",
+            "## Summary by label",
+            "",
+        ]
+        lines.extend(self._markdown_summary_table(result.summary, result.horizons, include_label=True))
+        lines.extend(["", "## Summary by symbol", ""])
+        lines.extend(self._markdown_symbol_table(result.symbol_summary, result.horizons))
+        lines.extend(["", "## Best signals", ""])
+        lines.extend(self._markdown_signal_table(result.best_signals, result.horizons))
+        lines.extend(["", "## Worst signals", ""])
+        lines.extend(self._markdown_signal_table(result.worst_signals, result.horizons))
+
+        if result.errors:
+            lines.extend(["", "## Errors", ""])
+            for symbol, error in result.errors.items():
+                lines.append(f"- {symbol}: {error}")
+
+        return "\n".join(lines)
+
+    def _markdown_summary_table(
+        self,
+        rows: list[BacktestSummaryRow],
+        horizons: tuple[int, ...],
+        include_label: bool,
+    ) -> list[str]:
+        header = "| Label | Signals | " + " | ".join(
+            f"Avg {h} bars | Win {h} bars" for h in horizons
+        ) + " | Warning |"
+        separator = "| --- | ---: | " + " | ".join("---: | ---:" for _ in horizons) + " | --- |"
+        lines = [header, separator]
+
+        for row in rows:
+            cells = [row.label, str(row.signal_count)]
+            for horizon in horizons:
+                cells.append(f"{row.average_returns[horizon]:.2f}%")
+                cells.append(f"{row.win_rates[horizon]:.0f}%")
+            cells.append(row.warning or "")
+            lines.append("| " + " | ".join(cells) + " |")
+
+        return lines
+
+    def _markdown_symbol_table(self, rows: list[BacktestSymbolSummaryRow], horizons: tuple[int, ...]) -> list[str]:
+        header = "| Symbol | Signals | " + " | ".join(
+            f"Avg {h} bars | Win {h} bars" for h in horizons
+        ) + " |"
+        separator = "| --- | ---: | " + " | ".join("---: | ---:" for _ in horizons) + " |"
+        lines = [header, separator]
+
+        for row in rows:
+            cells = [row.symbol, str(row.signal_count)]
+            for horizon in horizons:
+                cells.append(f"{row.average_returns[horizon]:.2f}%")
+                cells.append(f"{row.win_rates[horizon]:.0f}%")
+            lines.append("| " + " | ".join(cells) + " |")
+
+        return lines
+
+    def _markdown_signal_table(self, signals: list[BacktestSignal], horizons: tuple[int, ...]) -> list[str]:
+        header = "| Symbol | Date | Label | Score | " + " | ".join(f"Return {h}" for h in horizons) + " |"
+        separator = "| --- | --- | --- | ---: | " + " | ".join("---:" for _ in horizons) + " |"
+        lines = [header, separator]
+
+        for signal in signals:
+            cells = [
+                signal.symbol,
+                signal.signal_date.isoformat(),
+                signal.label,
+                f"{signal.opportunity_score:.0f}",
+            ]
+            for horizon in horizons:
+                cells.append(f"{signal.forward_returns[horizon]:.2f}%")
+            lines.append("| " + " | ".join(cells) + " |")
+
+        return lines
 
     def _format_number(self, value: float) -> str:
         if value != value:

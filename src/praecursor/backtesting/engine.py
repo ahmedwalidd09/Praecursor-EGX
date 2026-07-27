@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import date
 
-from praecursor.core.stock import Stock
 from praecursor.core.price_bar import PriceBar
+from praecursor.core.stock import Stock
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
 from praecursor.storage.price_cache import PriceCache
@@ -30,6 +30,18 @@ class BacktestSummaryRow:
     signal_count: int
     average_returns: dict[int, float]
     win_rates: dict[int, float]
+    warning: str | None = None
+
+
+@dataclass(frozen=True)
+class BacktestSymbolSummaryRow:
+    """Aggregated performance for one symbol."""
+
+    symbol: str
+    company: str
+    signal_count: int
+    average_returns: dict[int, float]
+    win_rates: dict[int, float]
 
 
 @dataclass(frozen=True)
@@ -43,6 +55,9 @@ class BacktestResult:
     horizons: tuple[int, ...]
     signals: list[BacktestSignal] = field(default_factory=list)
     summary: list[BacktestSummaryRow] = field(default_factory=list)
+    symbol_summary: list[BacktestSymbolSummaryRow] = field(default_factory=list)
+    best_signals: list[BacktestSignal] = field(default_factory=list)
+    worst_signals: list[BacktestSignal] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
 
@@ -63,6 +78,9 @@ class Backtester:
         source_name: str = "yahoo_finance",
         minimum_history_bars: int = 260,
         horizons: tuple[int, ...] = (5, 10, 20),
+        minimum_signals_per_label: int = 10,
+        example_horizon: int | None = None,
+        best_worst_limit: int = 10,
     ):
         self.price_cache = price_cache or PriceCache()
         self.symbol_mapper = symbol_mapper or SymbolMapper.from_csv()
@@ -70,6 +88,9 @@ class Backtester:
         self.source_name = source_name
         self.minimum_history_bars = minimum_history_bars
         self.horizons = horizons
+        self.minimum_signals_per_label = minimum_signals_per_label
+        self.example_horizon = example_horizon or max(horizons)
+        self.best_worst_limit = best_worst_limit
 
     def run(
         self,
@@ -100,7 +121,10 @@ class Backtester:
             except Exception as error:
                 errors[symbol] = str(error)
 
-        summary = self._summarize(signals)
+        summary = self._summarize_by_label(signals)
+        symbol_summary = self._summarize_by_symbol(signals)
+        best_signals = self._best_signals(signals)
+        worst_signals = self._worst_signals(signals)
 
         return BacktestResult(
             source_name=self.source_name,
@@ -110,6 +134,9 @@ class Backtester:
             horizons=self.horizons,
             signals=signals,
             summary=summary,
+            symbol_summary=symbol_summary,
+            best_signals=best_signals,
+            worst_signals=worst_signals,
             errors=errors,
         )
 
@@ -188,20 +215,20 @@ class Backtester:
             and relative_volume20 >= 1.0
         )
 
-    def _summarize(self, signals: list[BacktestSignal]) -> list[BacktestSummaryRow]:
+    def _summarize_by_label(self, signals: list[BacktestSignal]) -> list[BacktestSummaryRow]:
         labels = sorted({signal.label for signal in signals})
         summary_rows: list[BacktestSummaryRow] = []
 
         for label in labels:
             label_signals = [signal for signal in signals if signal.label == label]
-            average_returns: dict[int, float] = {}
-            win_rates: dict[int, float] = {}
+            average_returns, win_rates = self._aggregate_returns(label_signals)
+            warning = None
 
-            for horizon in self.horizons:
-                horizon_returns = [signal.forward_returns[horizon] for signal in label_signals]
-                average_returns[horizon] = sum(horizon_returns) / len(horizon_returns)
-                wins = [value for value in horizon_returns if value > 0]
-                win_rates[horizon] = (len(wins) / len(horizon_returns)) * 100
+            if len(label_signals) < self.minimum_signals_per_label:
+                warning = (
+                    f"Low sample size: {len(label_signals)} signal(s), "
+                    f"minimum recommended is {self.minimum_signals_per_label}."
+                )
 
             summary_rows.append(
                 BacktestSummaryRow(
@@ -209,7 +236,52 @@ class Backtester:
                     signal_count=len(label_signals),
                     average_returns=average_returns,
                     win_rates=win_rates,
+                    warning=warning,
                 )
             )
 
         return summary_rows
+
+    def _summarize_by_symbol(self, signals: list[BacktestSignal]) -> list[BacktestSymbolSummaryRow]:
+        symbols = sorted({signal.symbol for signal in signals})
+        rows: list[BacktestSymbolSummaryRow] = []
+
+        for symbol in symbols:
+            symbol_signals = [signal for signal in signals if signal.symbol == symbol]
+            average_returns, win_rates = self._aggregate_returns(symbol_signals)
+            rows.append(
+                BacktestSymbolSummaryRow(
+                    symbol=symbol,
+                    company=symbol_signals[0].company,
+                    signal_count=len(symbol_signals),
+                    average_returns=average_returns,
+                    win_rates=win_rates,
+                )
+            )
+
+        return rows
+
+    def _aggregate_returns(self, signals: list[BacktestSignal]) -> tuple[dict[int, float], dict[int, float]]:
+        average_returns: dict[int, float] = {}
+        win_rates: dict[int, float] = {}
+
+        for horizon in self.horizons:
+            horizon_returns = [signal.forward_returns[horizon] for signal in signals]
+            average_returns[horizon] = sum(horizon_returns) / len(horizon_returns)
+            wins = [value for value in horizon_returns if value > 0]
+            win_rates[horizon] = (len(wins) / len(horizon_returns)) * 100
+
+        return average_returns, win_rates
+
+    def _best_signals(self, signals: list[BacktestSignal]) -> list[BacktestSignal]:
+        return sorted(
+            signals,
+            key=lambda signal: signal.forward_returns[self.example_horizon],
+            reverse=True,
+        )[: self.best_worst_limit]
+
+    def _worst_signals(self, signals: list[BacktestSignal]) -> list[BacktestSignal]:
+        return sorted(
+            signals,
+            key=lambda signal: signal.forward_returns[self.example_horizon],
+        )[: self.best_worst_limit]

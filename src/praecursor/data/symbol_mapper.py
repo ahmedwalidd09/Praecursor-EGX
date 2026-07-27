@@ -14,6 +14,7 @@ class SymbolMapping:
     company: str
     yahoo_symbol: str
     stockanalysis_symbol: str
+    enabled: bool = True
 
 
 class SymbolMapper:
@@ -49,29 +50,46 @@ class SymbolMapper:
                     company=row["company"].strip(),
                     yahoo_symbol=row["yahoo_symbol"].strip(),
                     stockanalysis_symbol=row.get("stockanalysis_symbol", egx_symbol).strip(),
+                    enabled=cls._parse_enabled(row.get("enabled", "true")),
                 )
 
         return cls(mappings)
 
-    def get_symbols(self) -> list[str]:
-        """Return every EGX symbol configured in the mapping file."""
-        return list(self._mappings.keys())
+    def get_symbols(self, include_disabled: bool = False) -> list[str]:
+        """Return configured EGX symbols."""
+        return [
+            mapping.egx_symbol
+            for mapping in self._mappings.values()
+            if include_disabled or mapping.enabled
+        ]
 
-    def get_yahoo_symbols(self) -> list[str]:
+    def get_yahoo_symbols(self, include_disabled: bool = False) -> list[str]:
         """Return EGX symbols that have a Yahoo Finance mapping."""
         return [
             mapping.egx_symbol
             for mapping in self._mappings.values()
-            if mapping.yahoo_symbol
+            if mapping.yahoo_symbol and (include_disabled or mapping.enabled)
         ]
 
-    def get_stockanalysis_symbols(self) -> list[str]:
+    def get_stockanalysis_symbols(self, include_disabled: bool = False) -> list[str]:
         """Return EGX symbols that have a StockAnalysis mapping."""
         return [
             mapping.egx_symbol
             for mapping in self._mappings.values()
-            if mapping.stockanalysis_symbol
+            if mapping.stockanalysis_symbol and (include_disabled or mapping.enabled)
         ]
+
+    def get_disabled_symbols(self) -> list[str]:
+        """Return symbols configured but disabled from default scans."""
+        return [
+            mapping.egx_symbol
+            for mapping in self._mappings.values()
+            if not mapping.enabled
+        ]
+
+    def is_enabled(self, egx_symbol: str) -> bool:
+        symbol = self._normalize_symbol(egx_symbol)
+        return self._get_mapping(symbol).enabled
 
     def get_yahoo_symbol(self, egx_symbol: str) -> str:
         symbol = self._normalize_symbol(egx_symbol)
@@ -106,6 +124,10 @@ class SymbolMapper:
 
     def _normalize_symbol(self, egx_symbol: str) -> str:
         return egx_symbol.strip().upper()
+
+    @staticmethod
+    def _parse_enabled(value: str) -> bool:
+        return value.strip().lower() not in {"0", "false", "no", "n", "disabled"}
 
     @staticmethod
     def _validate_columns(fieldnames: list[str] | None, path: Path) -> None:

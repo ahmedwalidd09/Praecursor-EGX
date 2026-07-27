@@ -1,5 +1,15 @@
-egx_symbol,company,yahoo_symbol,stockanalysis_symbol
-COMI,Commercial International Bank Egypt (CIB),COMI.CA,COMI
-HRHO,EFG Holding,HRHO.CA,HRHO
-SWDY,Elsewedy Electric,SWDY.CA,SWDY
-ETEL,Telecom Egypt,ETEL.CA,ETEL
+egx_symbol,company,yahoo_symbol,stockanalysis_symbol,enabled
+COMI,Commercial International Bank Egypt (CIB),COMI.CA,COMI,true
+HRHO,EFG Holding,HRHO.CA,HRHO,true
+SWDY,Elsewedy Electric,SWDY.CA,SWDY,true
+ETEL,Telecom Egypt,ETEL.CA,ETEL,true
+TMGH,Talaat Moustafa Group Holding,TMGH.CA,TMGH,true
+EAST,Eastern Company,EAST.CA,EAST,true
+ABUK,Abu Qir Fertilizers,ABUK.CA,ABUK,true
+MFPC,Misr Fertilizers Production Company,MFPC.CA,MFPC,true
+ALCN,Alexandria Container and Cargo Handling,ALCN.CA,ALCN,true
+FWRY,Fawry for Banking Technology,FWRY.CA,FWRY,true
+ORAS,Orascom Construction,ORAS.CA,ORAS,true
+PHDC,Palm Hills Developments,PHDC.CA,PHDC,true
+ORHD,Orascom Development Egypt,ORHD.CA,ORHD,true
+EFID,Edita Food Industries,EFID.CA,EFID,true

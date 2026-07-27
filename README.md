@@ -33,8 +33,16 @@ pip install -e .
 
 ## Run the scanner
 
+Recommended development command:
+
 ```powershell
 python tools/run_scanner.py
+```
+
+After `pip install -e .`, installed command also works:
+
+```powershell
+praecursor-scan
 ```
 
 This writes:
@@ -50,6 +58,26 @@ It also stores scanner run history in:
 
 ```text
 database/praecursor.db
+```
+
+## Configuration
+
+Default scanner settings live in:
+
+```text
+config/scanner.json
+```
+
+Default symbol mappings live in:
+
+```text
+config/symbols.csv
+```
+
+You can override the config file:
+
+```powershell
+python tools/run_scanner.py --config config/scanner.json
 ```
 
 ## Useful scanner options
@@ -95,6 +123,34 @@ Show only the latest two runs:
 ```powershell
 python tools/show_signal_history.py --limit 2
 ```
+
+List archived reports:
+
+```powershell
+python tools/list_reports.py
+```
+
+List source registry:
+
+```powershell
+python tools/list_data_sources.py
+```
+
+Installed command equivalents:
+
+```powershell
+praecursor-history
+praecursor-reports
+praecursor-sources
+```
+
+## Run tests
+
+```powershell
+python tools/run_tests.py
+```
+
+The test suite uses Python's built-in `unittest` module and does not require external test dependencies.
 
 ## Current indicators
 

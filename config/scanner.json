@@ -1,0 +1,8 @@
+{
+  "lookback_days": 450,
+  "consensus_lookback_days": 180,
+  "minimum_bars": 10,
+  "enable_consensus": true,
+  "enable_history": true,
+  "enable_archive_reports": true
+}

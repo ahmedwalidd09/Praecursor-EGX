@@ -8,6 +8,12 @@ version = "0.1.0"
 description = "Open-source EGX stock opportunity scanner"
 requires-python = ">=3.11"
 
+[project.scripts]
+praecursor-scan = "praecursor.cli.scanner:main"
+praecursor-history = "praecursor.cli.history:main"
+praecursor-sources = "praecursor.cli.sources:main"
+praecursor-reports = "praecursor.cli.reports:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

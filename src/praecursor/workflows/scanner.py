@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field
-from datetime import date, timedelta
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from praecursor.collectors.collection_result import CollectionResult
@@ -16,6 +16,10 @@ from praecursor.reporting.csv_report import DEFAULT_RANKING_REPORT, ScannerCSVRe
 from praecursor.reporting.markdown_report import DEFAULT_MARKDOWN_REPORT, ScannerMarkdownReportWriter
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
 from praecursor.storage.price_cache import PriceCache
+from praecursor.storage.signal_history import SignalHistoryStore
+
+REPORTS_ROOT = Path(__file__).resolve().parents[3] / "reports"
+REPORT_ARCHIVE_DIR = REPORTS_ROOT / "archive"
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,8 @@ class SymbolScanResult:
     consensus_source_errors: dict[str, str] = field(default_factory=dict)
     consensus_result: PriceConsensusResult | None = None
     consensus_error: str | None = None
+    previous_rank: int | None = None
+    rank_change: int | None = None
 
     @property
     def warning_count(self) -> int:
@@ -160,6 +166,19 @@ class SymbolScanResult:
     def predictor_reasons_text(self) -> str:
         return "; ".join(self.predictor_reasons)
 
+    @property
+    def rank_change_text(self) -> str:
+        if self.previous_rank is None or self.rank_change is None:
+            return "new"
+
+        if self.rank_change > 0:
+            return f"up {self.rank_change}"
+
+        if self.rank_change < 0:
+            return f"down {abs(self.rank_change)}"
+
+        return "unchanged"
+
     def _is_extended_breakout(self) -> bool:
         rsi14 = self.opportunity_score.indicator_values.get("RSI14")
         breakout20 = self.opportunity_score.indicator_values.get("Breakout20")
@@ -202,11 +221,15 @@ class ScannerRunResult:
 
     start_date: date
     end_date: date
+    generated_at: datetime
     source_name: str
     consensus_source_names: list[str]
     database_path: Path
     report_path: Path | None
     markdown_report_path: Path | None
+    archive_report_path: Path | None
+    archive_markdown_report_path: Path | None
+    history_run_id: int | None
     symbols: list[str]
     symbol_results: list[SymbolScanResult] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
@@ -225,12 +248,7 @@ class ScannerRunResult:
 
 
 class ScannerWorkflow:
-    """
-    Run the complete Praecursor-EGX scanner workflow.
-
-    The workflow updates market data, validates it, caches it, scores symbols,
-    checks latest-close consensus, ranks opportunities, and writes reports.
-    """
+    """Run the complete Praecursor-EGX scanner workflow."""
 
     def __init__(
         self,
@@ -246,7 +264,10 @@ class ScannerWorkflow:
         scorer: OpportunityScorer | None = None,
         report_writer: ScannerCSVReportWriter | None = None,
         markdown_report_writer: ScannerMarkdownReportWriter | None = None,
+        history_store: SignalHistoryStore | None = None,
         enable_consensus: bool = True,
+        enable_history: bool = True,
+        enable_archive_reports: bool = True,
     ):
         self.lookback_days = lookback_days
         self.consensus_lookback_days = consensus_lookback_days
@@ -259,6 +280,15 @@ class ScannerWorkflow:
         )
         self.enable_consensus = enable_consensus
         self.consensus_data_sources = consensus_data_sources
+        self.enable_history = enable_history
+        self.enable_archive_reports = enable_archive_reports
+        self.history_store = (
+            history_store
+            if history_store is not None
+            else SignalHistoryStore(self.price_cache.database_path)
+            if self.enable_history
+            else None
+        )
 
         if self.enable_consensus and self.consensus_data_sources is None:
             self.consensus_data_sources = [
@@ -282,6 +312,7 @@ class ScannerWorkflow:
         report_path: Path = DEFAULT_RANKING_REPORT,
         markdown_report_path: Path = DEFAULT_MARKDOWN_REPORT,
     ) -> ScannerRunResult:
+        generated_at = datetime.now(timezone.utc)
         selected_end_date = end_date or date.today()
         start_date = selected_end_date - timedelta(days=self.lookback_days)
         consensus_start_date = selected_end_date - timedelta(days=self.consensus_lookback_days)
@@ -360,8 +391,12 @@ class ScannerWorkflow:
             key=lambda result: result.opportunity_score.total_score,
             reverse=True,
         )
+        ranked_results = self._attach_rank_changes(ranked_results)
+
         saved_report_path: Path | None = None
         saved_markdown_report_path: Path | None = None
+        archive_report_path: Path | None = None
+        archive_markdown_report_path: Path | None = None
 
         if ranked_results:
             saved_report_path = self.report_writer.write(ranked_results, report_path)
@@ -370,18 +405,62 @@ class ScannerWorkflow:
                 markdown_report_path,
             )
 
-        return ScannerRunResult(
+            if self.enable_archive_reports:
+                archive_report_path = self.report_writer.write(
+                    ranked_results,
+                    self._timestamped_report_path(generated_at, "csv"),
+                )
+                archive_markdown_report_path = self.markdown_report_writer.write(
+                    ranked_results,
+                    self._timestamped_report_path(generated_at, "md"),
+                )
+
+        result = ScannerRunResult(
             start_date=start_date,
             end_date=selected_end_date,
+            generated_at=generated_at,
             source_name=self.source_name,
             consensus_source_names=[source.name for source in self.consensus_data_sources or []],
             database_path=self.price_cache.path,
             report_path=saved_report_path,
             markdown_report_path=saved_markdown_report_path,
+            archive_report_path=archive_report_path,
+            archive_markdown_report_path=archive_markdown_report_path,
+            history_run_id=None,
             symbols=selected_symbols,
             symbol_results=ranked_results,
             errors=errors,
         )
+
+        if self.enable_history and self.history_store is not None:
+            history_run_id = self.history_store.save_run(result)
+            result = replace(result, history_run_id=history_run_id)
+
+        return result
+
+    def _attach_rank_changes(self, ranked_results: list[SymbolScanResult]) -> list[SymbolScanResult]:
+        if not self.enable_history or self.history_store is None:
+            return ranked_results
+
+        previous_ranks = self.history_store.latest_ranks()
+        updated_results: list[SymbolScanResult] = []
+
+        for current_rank, result in enumerate(ranked_results, start=1):
+            previous_rank = previous_ranks.get(result.symbol)
+            rank_change = None
+
+            if previous_rank is not None:
+                rank_change = previous_rank - current_rank
+
+            updated_results.append(
+                replace(result, previous_rank=previous_rank, rank_change=rank_change)
+            )
+
+        return updated_results
+
+    def _timestamped_report_path(self, generated_at: datetime, extension: str) -> Path:
+        timestamp = generated_at.strftime("%Y%m%d_%H%M%S")
+        return REPORT_ARCHIVE_DIR / f"opportunity_ranking_{timestamp}.{extension}"
 
     def _fetch_consensus_results(
         self,

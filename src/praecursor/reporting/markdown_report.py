@@ -18,8 +18,8 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Opportunity Score | Final Score | Label | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
-            "| ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
+            "| Rank | Symbol | Previous | Change | Opportunity Score | Final Score | Label | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
+            "| ---: | --- | ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
         ]
 
         for rank, result in enumerate(results, start=1):
@@ -34,6 +34,8 @@ class ScannerMarkdownReportWriter:
                 "| "
                 f"{rank} | "
                 f"{score.symbol} | "
+                f"{result.previous_rank if result.previous_rank is not None else 'new'} | "
+                f"{result.rank_change_text} | "
                 f"{score.total_score:.0f}/{score.max_score:.0f} | "
                 f"{result.final_predictor_score:.0f}/100 | "
                 f"{result.predictor_label} | "
@@ -68,6 +70,8 @@ class ScannerMarkdownReportWriter:
                     f"- Final predictor score: **{result.final_predictor_score:.0f}/100**",
                     f"- Predictor label: **{result.predictor_label}**",
                     f"- Predictor reasons: {result.predictor_reasons_text}",
+                    f"- Previous rank: **{result.previous_rank if result.previous_rank is not None else 'new'}**",
+                    f"- Rank change: **{result.rank_change_text}**",
                     f"- Latest close: **{score.latest_close:.2f}**",
                     f"- Average volume 20: **{self._format_value(score.indicator_values.get('AvgVolume20', float('nan')))}**",
                     f"- Relative volume 20: **{self._format_value(score.indicator_values.get('RelVolume20', float('nan')))}**",

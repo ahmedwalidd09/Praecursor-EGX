@@ -1,15 +1,25 @@
+import argparse
 from math import isnan
 
 from praecursor.scoring.opportunity_score import OpportunityScore
-from praecursor.workflows.scanner import ScannerRunResult, SymbolScanResult, ScannerWorkflow
+from praecursor.workflows.scanner import ScannerRunResult, ScannerWorkflow, SymbolScanResult
 
 
 WARNING_PREVIEW_LIMIT = 3
 
 
 def main() -> int:
-    workflow = ScannerWorkflow()
-    result = workflow.run()
+    args = parse_args()
+    symbols = parse_symbols(args.symbols)
+
+    workflow = ScannerWorkflow(
+        lookback_days=args.lookback_days,
+        consensus_lookback_days=args.consensus_lookback_days,
+        enable_consensus=not args.no_consensus,
+        enable_history=not args.no_history,
+        enable_archive_reports=not args.no_archive_reports,
+    )
+    result = workflow.run(symbols=symbols)
 
     print_header(result)
     print_update_summary(result)
@@ -23,8 +33,53 @@ def main() -> int:
     return 0
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the Praecursor-EGX scanner.")
+    parser.add_argument(
+        "--symbols",
+        help="Comma-separated EGX symbols to scan, for example COMI,HRHO. Defaults to config/symbols.csv.",
+    )
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=450,
+        help="Calendar days of primary history to download. Default: 450.",
+    )
+    parser.add_argument(
+        "--consensus-lookback-days",
+        type=int,
+        default=180,
+        help="Calendar days to request from consensus sources. Default: 180.",
+    )
+    parser.add_argument(
+        "--no-consensus",
+        action="store_true",
+        help="Disable latest-close consensus checks.",
+    )
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Do not store this scanner run in SQLite signal history.",
+    )
+    parser.add_argument(
+        "--no-archive-reports",
+        action="store_true",
+        help="Only write latest reports, not timestamped archive copies.",
+    )
+    return parser.parse_args()
+
+
+def parse_symbols(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+
+    return [symbol.strip().upper() for symbol in value.split(",") if symbol.strip()]
+
+
 def print_header(result: ScannerRunResult) -> None:
     print("Praecursor-EGX scanner complete")
+    print(f"Run ID: {result.history_run_id if result.history_run_id is not None else 'not saved'}")
+    print(f"Generated at: {result.generated_at.isoformat()}")
     print(f"Database: {result.database_path}")
     print(f"Primary source: {result.source_name}")
     print(f"Consensus sources: {', '.join(result.consensus_source_names)}")
@@ -94,6 +149,8 @@ def print_ranking(results: list[SymbolScanResult]) -> None:
         print("=" * 40)
         print(f"#{rank} {score.symbol}")
         print(score.company)
+        print(f"Previous Rank: {symbol_result.previous_rank if symbol_result.previous_rank is not None else 'new'}")
+        print(f"Rank Change: {symbol_result.rank_change_text}")
         print(f"Score: {score.total_score:.0f}/{score.max_score:.0f} ({score.score_percent:.0f}%)")
         print(f"Final Predictor Score: {symbol_result.final_predictor_score:.0f}/100")
         print(f"Predictor Label: {symbol_result.predictor_label}")
@@ -143,6 +200,12 @@ def print_report_location(result: ScannerRunResult) -> None:
         print("No Markdown report was generated because no symbols were successfully analyzed.")
     else:
         print(f"Markdown report saved to: {result.markdown_report_path}")
+
+    if result.archive_report_path is not None:
+        print(f"Timestamped CSV archived to: {result.archive_report_path}")
+
+    if result.archive_markdown_report_path is not None:
+        print(f"Timestamped Markdown archived to: {result.archive_markdown_report_path}")
 
 
 def format_value(value: float) -> str:

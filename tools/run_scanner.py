@@ -104,7 +104,7 @@ def print_ranking(results: list[SymbolScanResult]) -> None:
 
 
 def print_indicator_values(score: OpportunityScore) -> None:
-    indicator_names = ["EMA20", "EMA50", "EMA200", "RSI14"]
+    indicator_names = ["EMA20", "EMA50", "EMA200", "RSI14", "AvgVolume20", "RelVolume20"]
 
     for indicator_name in indicator_names:
         value = score.indicator_values.get(indicator_name, float("nan"))

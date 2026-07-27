@@ -18,8 +18,8 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | Consensus | Consensus Confidence | Data Quality |",
-            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |",
+            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | RelVol20 | Consensus | Consensus Confidence | Data Quality |",
+            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |",
         ]
 
         for rank, result in enumerate(results, start=1):
@@ -39,6 +39,7 @@ class ScannerMarkdownReportWriter:
                 f"{self._format_value(score.indicator_values.get('EMA50', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('EMA200', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('RSI14', float('nan')))} | "
+                f"{self._format_value(score.indicator_values.get('RelVolume20', float('nan')))} | "
                 f"{consensus_status} | "
                 f"{confidence} | "
                 f"{data_quality} |"
@@ -55,6 +56,8 @@ class ScannerMarkdownReportWriter:
                     "",
                     f"- Opportunity score: **{score.total_score:.0f}/{score.max_score:.0f} ({score.score_percent:.0f}%)**",
                     f"- Latest close: **{score.latest_close:.2f}**",
+                    f"- Average volume 20: **{self._format_value(score.indicator_values.get('AvgVolume20', float('nan')))}**",
+                    f"- Relative volume 20: **{self._format_value(score.indicator_values.get('RelVolume20', float('nan')))}**",
                     f"- Data quality: **{result.data_quality_score:.0f}% ({result.data_quality_label})** based on {result.warning_count} warning(s)",
                 ]
             )

@@ -23,8 +23,11 @@ class OpportunityRankingCSVWriter:
         "ema50",
         "ema200",
         "rsi14",
+        "avg_volume20",
+        "rel_volume20",
         "trend_notes",
         "momentum_notes",
+        "volume_notes",
     ]
 
     def write(
@@ -55,15 +58,18 @@ class OpportunityRankingCSVWriter:
             "ema50": self._format_number(score.indicator_values.get("EMA50", float("nan"))),
             "ema200": self._format_number(score.indicator_values.get("EMA200", float("nan"))),
             "rsi14": self._format_number(score.indicator_values.get("RSI14", float("nan"))),
+            "avg_volume20": self._format_number(score.indicator_values.get("AvgVolume20", float("nan"))),
+            "rel_volume20": self._format_number(score.indicator_values.get("RelVolume20", float("nan"))),
             "trend_notes": self._build_trend_notes(score),
             "momentum_notes": self._build_momentum_notes(score),
+            "volume_notes": self._build_volume_notes(score),
         }
 
     def _build_trend_notes(self, score: OpportunityScore) -> str:
         trend_components = [
             component
             for component in score.components
-            if component.name != "RSI14 momentum"
+            if component.name not in {"RSI14 momentum", "Relative Volume20"}
         ]
 
         return "; ".join(
@@ -81,6 +87,18 @@ class OpportunityRankingCSVWriter:
         return "; ".join(
             f"{component.name}: {component.score:.0f}/{component.max_score:.0f} - {component.reason}"
             for component in momentum_components
+        )
+
+    def _build_volume_notes(self, score: OpportunityScore) -> str:
+        volume_components = [
+            component
+            for component in score.components
+            if component.name == "Relative Volume20"
+        ]
+
+        return "; ".join(
+            f"{component.name}: {component.score:.0f}/{component.max_score:.0f} - {component.reason}"
+            for component in volume_components
         )
 
     def _format_number(self, value: float) -> str:
@@ -104,6 +122,8 @@ class ScannerCSVReportWriter:
         "ema50",
         "ema200",
         "rsi14",
+        "avg_volume20",
+        "rel_volume20",
         "consensus_accepted",
         "consensus_close",
         "consensus_trade_date",
@@ -120,6 +140,7 @@ class ScannerCSVReportWriter:
         "warning_count",
         "trend_notes",
         "momentum_notes",
+        "volume_notes",
     ]
 
     def write(
@@ -153,6 +174,8 @@ class ScannerCSVReportWriter:
             "ema50": self._format_number(score.indicator_values.get("EMA50", float("nan"))),
             "ema200": self._format_number(score.indicator_values.get("EMA200", float("nan"))),
             "rsi14": self._format_number(score.indicator_values.get("RSI14", float("nan"))),
+            "avg_volume20": self._format_number(score.indicator_values.get("AvgVolume20", float("nan"))),
+            "rel_volume20": self._format_number(score.indicator_values.get("RelVolume20", float("nan"))),
             "consensus_accepted": consensus.accepted if consensus else False,
             "consensus_close": self._format_number(consensus.consensus_close) if consensus else "N/A",
             "consensus_trade_date": consensus.trade_date.isoformat() if consensus else "N/A",
@@ -169,6 +192,7 @@ class ScannerCSVReportWriter:
             "warning_count": result.warning_count,
             "trend_notes": self._build_trend_notes(score),
             "momentum_notes": self._build_momentum_notes(score),
+            "volume_notes": self._build_volume_notes(score),
         }
 
     def _build_trend_notes(self, score: OpportunityScore) -> str:
@@ -176,6 +200,9 @@ class ScannerCSVReportWriter:
 
     def _build_momentum_notes(self, score: OpportunityScore) -> str:
         return OpportunityRankingCSVWriter()._build_momentum_notes(score)
+
+    def _build_volume_notes(self, score: OpportunityScore) -> str:
+        return OpportunityRankingCSVWriter()._build_volume_notes(score)
 
     def _format_number(self, value: float) -> str:
         return OpportunityRankingCSVWriter()._format_number(value)

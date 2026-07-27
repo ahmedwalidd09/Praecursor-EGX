@@ -4,8 +4,10 @@ from math import isnan
 from praecursor.data.stock_builder import CachedStockBuilder
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.analyzer import Analyzer
+from praecursor.scoring.average_volume import AverageVolumeIndicator
 from praecursor.scoring.ema import EMAIndicator
 from praecursor.scoring.rsi import RSIIndicator
+from praecursor.scoring.relative_volume import RelativeVolumeIndicator
 from praecursor.storage.price_cache import PriceCache
 
 
@@ -32,6 +34,8 @@ def main() -> int:
     analyzer.add_indicator(EMAIndicator(50))
     analyzer.add_indicator(EMAIndicator(200))
     analyzer.add_indicator(RSIIndicator(14))
+    analyzer.add_indicator(AverageVolumeIndicator(20))
+    analyzer.add_indicator(RelativeVolumeIndicator(20))
 
     print("Analyzing cached real price data")
     print(f"Database: {cache.path}")

@@ -5,6 +5,7 @@ from praecursor.data.stock_builder import CachedStockBuilder
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.analyzer import Analyzer
 from praecursor.scoring.atr import ATRIndicator, ATRPercentIndicator
+from praecursor.scoring.breakout import CloseBreakoutIndicator, CloseHighIndicator, NearCloseHighIndicator, VolumeConfirmedBreakoutIndicator
 from praecursor.scoring.average_volume import AverageVolumeIndicator
 from praecursor.scoring.ema import EMAIndicator
 from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator, MACDSignalIndicator
@@ -47,6 +48,11 @@ def main() -> int:
     analyzer.add_indicator(TrendStrengthIndicator())
     analyzer.add_indicator(ATRIndicator(14))
     analyzer.add_indicator(ATRPercentIndicator(14))
+    analyzer.add_indicator(CloseBreakoutIndicator(20))
+    analyzer.add_indicator(CloseBreakoutIndicator(50))
+    analyzer.add_indicator(CloseHighIndicator(250))
+    analyzer.add_indicator(NearCloseHighIndicator(250))
+    analyzer.add_indicator(VolumeConfirmedBreakoutIndicator())
 
     print("Analyzing cached real price data")
     print(f"Database: {cache.path}")

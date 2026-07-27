@@ -32,10 +32,16 @@ class OpportunityRankingCSVWriter:
         "trend_strength",
         "atr14",
         "atr_percent14",
+        "breakout20",
+        "breakout50",
+        "close_high250",
+        "near_close_high250_percent",
+        "volume_confirmed_breakout",
         "trend_notes",
         "momentum_notes",
         "macd_notes",
         "price_momentum_notes",
+        "breakout_notes",
         "volume_notes",
     ]
 
@@ -76,10 +82,16 @@ class OpportunityRankingCSVWriter:
             "trend_strength": self._format_number(score.indicator_values.get("TrendStrength", float("nan"))),
             "atr14": self._format_number(score.indicator_values.get("ATR14", float("nan"))),
             "atr_percent14": self._format_number(score.indicator_values.get("ATRPercent14", float("nan"))),
+            "breakout20": self._format_number(score.indicator_values.get("Breakout20", float("nan"))),
+            "breakout50": self._format_number(score.indicator_values.get("Breakout50", float("nan"))),
+            "close_high250": self._format_number(score.indicator_values.get("CloseHigh250", float("nan"))),
+            "near_close_high250_percent": self._format_number(score.indicator_values.get("NearCloseHigh250Percent", float("nan"))),
+            "volume_confirmed_breakout": self._format_number(score.indicator_values.get("VolumeConfirmedBreakout", float("nan"))),
             "trend_notes": self._build_trend_notes(score),
             "momentum_notes": self._build_momentum_notes(score),
             "macd_notes": self._build_macd_notes(score),
             "price_momentum_notes": self._build_price_momentum_notes(score),
+            "breakout_notes": self._build_breakout_notes(score),
             "volume_notes": self._build_volume_notes(score),
         }
 
@@ -132,6 +144,18 @@ class OpportunityRankingCSVWriter:
             for component in price_momentum_components
         )
 
+    def _build_breakout_notes(self, score: OpportunityScore) -> str:
+        breakout_components = [
+            component
+            for component in score.components
+            if component.name == "Breakout setup"
+        ]
+
+        return "; ".join(
+            f"{component.name}: {component.score:.0f}/{component.max_score:.0f} - {component.reason}"
+            for component in breakout_components
+        )
+
     def _build_volume_notes(self, score: OpportunityScore) -> str:
         volume_components = [
             component
@@ -174,6 +198,11 @@ class ScannerCSVReportWriter:
         "trend_strength",
         "atr14",
         "atr_percent14",
+        "breakout20",
+        "breakout50",
+        "close_high250",
+        "near_close_high250_percent",
+        "volume_confirmed_breakout",
         "consensus_accepted",
         "consensus_close",
         "consensus_trade_date",
@@ -196,6 +225,7 @@ class ScannerCSVReportWriter:
         "momentum_notes",
         "macd_notes",
         "price_momentum_notes",
+        "breakout_notes",
         "volume_notes",
     ]
 
@@ -239,6 +269,11 @@ class ScannerCSVReportWriter:
             "trend_strength": self._format_number(score.indicator_values.get("TrendStrength", float("nan"))),
             "atr14": self._format_number(score.indicator_values.get("ATR14", float("nan"))),
             "atr_percent14": self._format_number(score.indicator_values.get("ATRPercent14", float("nan"))),
+            "breakout20": self._format_number(score.indicator_values.get("Breakout20", float("nan"))),
+            "breakout50": self._format_number(score.indicator_values.get("Breakout50", float("nan"))),
+            "close_high250": self._format_number(score.indicator_values.get("CloseHigh250", float("nan"))),
+            "near_close_high250_percent": self._format_number(score.indicator_values.get("NearCloseHigh250Percent", float("nan"))),
+            "volume_confirmed_breakout": self._format_number(score.indicator_values.get("VolumeConfirmedBreakout", float("nan"))),
             "consensus_accepted": consensus.accepted if consensus else False,
             "consensus_close": self._format_number(consensus.consensus_close) if consensus else "N/A",
             "consensus_trade_date": consensus.trade_date.isoformat() if consensus else "N/A",
@@ -261,6 +296,7 @@ class ScannerCSVReportWriter:
             "momentum_notes": self._build_momentum_notes(score),
             "macd_notes": self._build_macd_notes(score),
             "price_momentum_notes": self._build_price_momentum_notes(score),
+            "breakout_notes": self._build_breakout_notes(score),
             "volume_notes": self._build_volume_notes(score),
         }
 
@@ -292,6 +328,18 @@ class ScannerCSVReportWriter:
         return "; ".join(
             f"{component.name}: {component.score:.0f}/{component.max_score:.0f} - {component.reason}"
             for component in price_momentum_components
+        )
+
+    def _build_breakout_notes(self, score: OpportunityScore) -> str:
+        breakout_components = [
+            component
+            for component in score.components
+            if component.name == "Breakout setup"
+        ]
+
+        return "; ".join(
+            f"{component.name}: {component.score:.0f}/{component.max_score:.0f} - {component.reason}"
+            for component in breakout_components
         )
 
     def _build_volume_notes(self, score: OpportunityScore) -> str:

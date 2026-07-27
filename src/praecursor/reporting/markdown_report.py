@@ -18,8 +18,8 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
-            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
+            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
+            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
         ]
 
         for rank, result in enumerate(results, start=1):
@@ -43,6 +43,9 @@ class ScannerMarkdownReportWriter:
                 f"{self._format_value(score.indicator_values.get('MACDHistogram', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('Momentum20', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('RelVolume20', float('nan')))} | "
+                f"{self._format_value(score.indicator_values.get('Breakout20', float('nan')))} | "
+                f"{self._format_value(score.indicator_values.get('Breakout50', float('nan')))} | "
+                f"{self._format_value(score.indicator_values.get('NearCloseHigh250Percent', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('ATRPercent14', float('nan')))} | "
                 f"{consensus_status} | "
                 f"{confidence} | "
@@ -66,6 +69,11 @@ class ScannerMarkdownReportWriter:
                     f"- MACD histogram: **{self._format_value(score.indicator_values.get('MACDHistogram', float('nan')))}**",
                     f"- Momentum20: **{self._format_value(score.indicator_values.get('Momentum20', float('nan')))}%**",
                     f"- Trend strength: **{self._format_value(score.indicator_values.get('TrendStrength', float('nan')))} / 100**",
+                    f"- Breakout20: **{self._format_value(score.indicator_values.get('Breakout20', float('nan')))}**",
+                    f"- Breakout50: **{self._format_value(score.indicator_values.get('Breakout50', float('nan')))}**",
+                    f"- CloseHigh250: **{self._format_value(score.indicator_values.get('CloseHigh250', float('nan')))}**",
+                    f"- NearCloseHigh250Percent: **{self._format_value(score.indicator_values.get('NearCloseHigh250Percent', float('nan')))}%**",
+                    f"- Volume confirmed breakout: **{self._format_value(score.indicator_values.get('VolumeConfirmedBreakout', float('nan')))}**",
                     f"- ATR14: **{self._format_value(score.indicator_values.get('ATR14', float('nan')))}**",
                     f"- ATRPercent14: **{self._format_value(score.indicator_values.get('ATRPercent14', float('nan')))}%**",
                     f"- ATR reliability: **{result.atr_reliability_label}**",

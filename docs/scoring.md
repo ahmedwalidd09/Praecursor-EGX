@@ -6,32 +6,31 @@ Praecursor-EGX uses a transparent technical score. It is not a guarantee of futu
 
 | Category | Max Points | Purpose |
 | --- | ---: | --- |
-| Trend structure | 30 | Prefer stocks in a short/medium/long-term uptrend. |
-| RSI momentum | 25 | Prefer healthy bullish momentum without excessive overextension. |
+| Trend structure | 25 | Prefer stocks in a short/medium/long-term uptrend. |
+| RSI momentum | 20 | Prefer healthy bullish momentum without excessive overextension. |
 | MACD confirmation | 15 | Prefer positive MACD momentum and acceleration. |
-| 20-bar price momentum | 15 | Prefer stocks with positive recent price performance. |
-| Volume confirmation | 15 | Prefer moves supported by above-average volume. |
+| 20-bar price momentum | 10 | Prefer stocks with positive recent price performance. |
+| Volume confirmation | 10 | Prefer moves supported by above-average volume. |
+| Breakout setup | 20 | Prefer close-based breakouts and near-high setups. |
 
-## Trend structure: 30 points
+## Trend structure: 25 points
 
 | Rule | Points |
 | --- | ---: |
-| Latest close > EMA20 | 10 |
-| EMA20 > EMA50 | 10 |
-| EMA50 > EMA200 | 10 |
+| Latest close > EMA20 | 8 |
+| EMA20 > EMA50 | 8 |
+| EMA50 > EMA200 | 9 |
 
-The scanner also reports `TrendStrength`, a 0-100 helper indicator based on EMA alignment, but the score currently uses the three explicit trend rules above.
+The scanner also reports `TrendStrength`, a 0-100 helper indicator based on EMA alignment.
 
-## RSI momentum: 25 points
-
-Based on RSI14:
+## RSI momentum: 20 points
 
 | RSI14 Range | Points | Meaning |
 | --- | ---: | --- |
-| 50 to 70 | 25 | Healthy bullish momentum |
-| >70 to 75 | 16 | Strong but becoming extended |
-| >75 | 6 | Overextended; pullback risk is higher |
-| 40 to <50 | 8 | Neutral to slightly weak |
+| 50 to 70 | 20 | Healthy bullish momentum |
+| >70 to 75 | 13 | Strong but becoming extended |
+| >75 | 5 | Overextended; pullback risk is higher |
+| 40 to <50 | 6 | Neutral to slightly weak |
 | <40 | 0 | Weak momentum |
 
 ## MACD confirmation: 15 points
@@ -43,7 +42,7 @@ Based on RSI14:
 | MACD > 0 only | 5 | Positive but not accelerating |
 | Neither condition | 0 | MACD is not bullish |
 
-## 20-bar price momentum: 15 points
+## 20-bar price momentum: 10 points
 
 ```text
 Momentum20 = percentage change between latest close and close 20 bars ago
@@ -51,12 +50,12 @@ Momentum20 = percentage change between latest close and close 20 bars ago
 
 | Momentum20 | Points | Meaning |
 | --- | ---: | --- |
-| >= 10% | 15 | Strong recent price momentum |
-| >= 3% and < 10% | 12 | Positive recent price momentum |
-| >= 0% and < 3% | 7 | Mildly positive momentum |
+| >= 10% | 10 | Strong recent price momentum |
+| >= 3% and < 10% | 8 | Positive recent price momentum |
+| >= 0% and < 3% | 4 | Mildly positive momentum |
 | < 0% | 0 | Negative momentum |
 
-## Volume confirmation: 15 points
+## Volume confirmation: 10 points
 
 ```text
 Relative Volume 20 = latest volume / average volume of previous 20 bars
@@ -64,14 +63,33 @@ Relative Volume 20 = latest volume / average volume of previous 20 bars
 
 | Relative Volume 20 | Points | Meaning |
 | --- | ---: | --- |
-| >= 1.50 | 15 | Strong volume confirmation |
-| >= 1.00 and < 1.50 | 11 | Supportive volume |
-| >= 0.75 and < 1.00 | 6 | Slightly weak volume |
+| >= 1.50 | 10 | Strong volume confirmation |
+| >= 1.00 and < 1.50 | 7 | Supportive volume |
+| >= 0.75 and < 1.00 | 4 | Slightly weak volume |
 | < 0.75 | 0 | Weak volume confirmation |
+
+## Breakout setup: 20 points
+
+This model uses **closing-price breakouts**, not intraday-high breakouts, because close prices currently have better multi-source reliability than high/low values.
+
+| Rule | Points |
+| --- | ---: |
+| Latest close > previous 20-bar highest close | 7 |
+| Latest close > previous 50-bar highest close | 7 |
+| Close within 3% of 250-bar closing high | 4 |
+| Close within 7% of 250-bar closing high | 2 |
+| Breakout is volume-confirmed | 2 |
+
+The volume-confirmed breakout flag requires:
+
+```text
+Breakout20 = true
+RelativeVolume20 >= 1.0
+```
 
 ## ATR and volatility
 
-The scanner now reports:
+The scanner reports:
 
 ```text
 ATR14
@@ -98,4 +116,4 @@ Current policy:
 | >= 60 and < 80 | caution | ATR is useful for context, not final scoring. |
 | < 60 | do_not_use | ATR should not be used for decisions. |
 
-ATR/breakout/candlestick scoring should wait until high/low confidence improves through more source validation.
+ATR/candlestick scoring should wait until high/low confidence improves through more source validation.

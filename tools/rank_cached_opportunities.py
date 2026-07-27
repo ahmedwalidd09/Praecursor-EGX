@@ -82,7 +82,7 @@ def print_ranked_scores(scores: list[OpportunityScore]) -> None:
 
 
 def print_indicator_values(score: OpportunityScore) -> None:
-    indicator_names = ["EMA20", "EMA50", "EMA200", "RSI14", "AvgVolume20", "RelVolume20", "MACD", "MACDSignal", "MACDHistogram", "Momentum20", "TrendStrength", "ATR14", "ATRPercent14"]
+    indicator_names = ["EMA20", "EMA50", "EMA200", "RSI14", "AvgVolume20", "RelVolume20", "MACD", "MACDSignal", "MACDHistogram", "Momentum20", "TrendStrength", "ATR14", "ATRPercent14", "Breakout20", "Breakout50", "CloseHigh250", "NearCloseHigh250Percent", "VolumeConfirmedBreakout"]
 
     for indicator_name in indicator_names:
         value = score.indicator_values.get(indicator_name, float("nan"))

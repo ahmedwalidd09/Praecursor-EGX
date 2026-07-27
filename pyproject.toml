@@ -13,6 +13,7 @@ praecursor-scan = "praecursor.cli.scanner:main"
 praecursor-history = "praecursor.cli.history:main"
 praecursor-sources = "praecursor.cli.sources:main"
 praecursor-reports = "praecursor.cli.reports:main"
+praecursor-backtest = "praecursor.cli.backtest:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

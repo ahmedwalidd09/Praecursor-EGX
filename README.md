@@ -130,6 +130,18 @@ List archived reports:
 python tools/list_reports.py
 ```
 
+Run initial historical signal backtest:
+
+```powershell
+python tools/run_backtest.py
+```
+
+Backtest selected symbols:
+
+```powershell
+python tools/run_backtest.py --symbols SWDY,COMI
+```
+
 List source registry:
 
 ```powershell

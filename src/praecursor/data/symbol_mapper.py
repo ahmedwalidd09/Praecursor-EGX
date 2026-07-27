@@ -13,6 +13,7 @@ class SymbolMapping:
     egx_symbol: str
     company: str
     yahoo_symbol: str
+    stockanalysis_symbol: str
 
 
 class SymbolMapper:
@@ -47,6 +48,7 @@ class SymbolMapper:
                     egx_symbol=egx_symbol,
                     company=row["company"].strip(),
                     yahoo_symbol=row["yahoo_symbol"].strip(),
+                    stockanalysis_symbol=row.get("stockanalysis_symbol", egx_symbol).strip(),
                 )
 
         return cls(mappings)
@@ -63,31 +65,47 @@ class SymbolMapper:
             if mapping.yahoo_symbol
         ]
 
-    def get_yahoo_symbol(self, egx_symbol: str) -> str:
-        symbol = egx_symbol.strip().upper()
+    def get_stockanalysis_symbols(self) -> list[str]:
+        """Return EGX symbols that have a StockAnalysis mapping."""
+        return [
+            mapping.egx_symbol
+            for mapping in self._mappings.values()
+            if mapping.stockanalysis_symbol
+        ]
 
+    def get_yahoo_symbol(self, egx_symbol: str) -> str:
+        symbol = self._normalize_symbol(egx_symbol)
+        mapping = self._get_mapping(symbol)
+
+        if not mapping.yahoo_symbol:
+            raise KeyError(f"No Yahoo Finance symbol configured for EGX symbol '{symbol}'.")
+
+        return mapping.yahoo_symbol
+
+    def get_stockanalysis_symbol(self, egx_symbol: str) -> str:
+        symbol = self._normalize_symbol(egx_symbol)
+        mapping = self._get_mapping(symbol)
+
+        if not mapping.stockanalysis_symbol:
+            raise KeyError(f"No StockAnalysis symbol configured for EGX symbol '{symbol}'.")
+
+        return mapping.stockanalysis_symbol
+
+    def get_company_name(self, egx_symbol: str) -> str:
+        symbol = self._normalize_symbol(egx_symbol)
+        return self._get_mapping(symbol).company
+
+    def _get_mapping(self, symbol: str) -> SymbolMapping:
         if symbol not in self._mappings:
             raise KeyError(
                 f"No symbol mapping found for EGX symbol '{symbol}'. "
                 "Add it to config/symbols.csv first."
             )
 
-        yahoo_symbol = self._mappings[symbol].yahoo_symbol
+        return self._mappings[symbol]
 
-        if not yahoo_symbol:
-            raise KeyError(
-                f"No Yahoo Finance symbol configured for EGX symbol '{symbol}'."
-            )
-
-        return yahoo_symbol
-
-    def get_company_name(self, egx_symbol: str) -> str:
-        symbol = egx_symbol.strip().upper()
-
-        if symbol not in self._mappings:
-            raise KeyError(f"No symbol mapping found for EGX symbol '{symbol}'.")
-
-        return self._mappings[symbol].company
+    def _normalize_symbol(self, egx_symbol: str) -> str:
+        return egx_symbol.strip().upper()
 
     @staticmethod
     def _validate_columns(fieldnames: list[str] | None, path: Path) -> None:

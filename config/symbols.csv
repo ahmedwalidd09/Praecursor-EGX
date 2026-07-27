@@ -1,5 +1,5 @@
-egx_symbol,company,yahoo_symbol
-COMI,Commercial International Bank Egypt (CIB),COMI.CA
-HRHO,EFG Holding,HRHO.CA
-SWDY,Elsewedy Electric,SWDY.CA
-ETEL,Telecom Egypt,ETEL.CA
+egx_symbol,company,yahoo_symbol,stockanalysis_symbol
+COMI,Commercial International Bank Egypt (CIB),COMI.CA,COMI
+HRHO,EFG Holding,HRHO.CA,HRHO
+SWDY,Elsewedy Electric,SWDY.CA,SWDY
+ETEL,Telecom Egypt,ETEL.CA,ETEL

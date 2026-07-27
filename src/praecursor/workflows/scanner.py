@@ -98,6 +98,87 @@ class SymbolScanResult:
         return "do_not_use"
 
     @property
+    def consensus_score(self) -> float:
+        if self.consensus_result is None:
+            return 0.0
+
+        return self.consensus_result.confidence_percent
+
+    @property
+    def final_predictor_score(self) -> float:
+        """Composite predictor score including opportunity, consensus, and data quality."""
+        return (
+            self.opportunity_score.score_percent * 0.75
+            + self.consensus_score * 0.15
+            + self.data_quality_score * 0.10
+        )
+
+    @property
+    def predictor_label(self) -> str:
+        if self.consensus_result is None or not self.consensus_result.accepted:
+            return "Low Confidence"
+
+        if self.data_quality_label == "low":
+            return "Low Data Quality"
+
+        if self._is_extended_breakout():
+            return "Extended Breakout"
+
+        if self.final_predictor_score >= 75 and self.opportunity_score.score_percent >= 75:
+            return "Strong Candidate"
+
+        if self.final_predictor_score >= 60:
+            return "Watchlist"
+
+        return "Avoid"
+
+    @property
+    def predictor_reasons(self) -> list[str]:
+        reasons = [
+            f"Opportunity score {self.opportunity_score.score_percent:.0f}%",
+            f"Consensus confidence {self.consensus_score:.0f}%",
+            f"Data quality {self.data_quality_score:.0f}%",
+        ]
+
+        rsi14 = self.opportunity_score.indicator_values.get("RSI14")
+        relative_volume20 = self.opportunity_score.indicator_values.get("RelVolume20")
+        breakout20 = self.opportunity_score.indicator_values.get("Breakout20")
+        breakout50 = self.opportunity_score.indicator_values.get("Breakout50")
+
+        if rsi14 is not None and rsi14 == rsi14 and rsi14 > 75:
+            reasons.append("RSI is overextended; entry timing risk is elevated")
+
+        if relative_volume20 is not None and relative_volume20 == relative_volume20 and relative_volume20 < 0.75:
+            reasons.append("Relative volume is weak")
+
+        if breakout20 == 1.0 and breakout50 == 1.0:
+            reasons.append("Close-based 20/50 breakout is active")
+
+        return reasons
+
+    @property
+    def predictor_reasons_text(self) -> str:
+        return "; ".join(self.predictor_reasons)
+
+    def _is_extended_breakout(self) -> bool:
+        rsi14 = self.opportunity_score.indicator_values.get("RSI14")
+        breakout20 = self.opportunity_score.indicator_values.get("Breakout20")
+        breakout50 = self.opportunity_score.indicator_values.get("Breakout50")
+        relative_volume20 = self.opportunity_score.indicator_values.get("RelVolume20")
+
+        if rsi14 is None or rsi14 != rsi14:
+            return False
+
+        return (
+            rsi14 > 75
+            and breakout20 == 1.0
+            and breakout50 == 1.0
+            and relative_volume20 is not None
+            and relative_volume20 == relative_volume20
+            and relative_volume20 >= 1.0
+        )
+
+    @property
     def consensus_source_names_text(self) -> str:
         if not self.consensus_result:
             return ""

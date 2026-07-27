@@ -18,8 +18,8 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
-            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
+            "| Rank | Symbol | Opportunity Score | Final Score | Label | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
+            "| ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
         ]
 
         for rank, result in enumerate(results, start=1):
@@ -35,6 +35,8 @@ class ScannerMarkdownReportWriter:
                 f"{rank} | "
                 f"{score.symbol} | "
                 f"{score.total_score:.0f}/{score.max_score:.0f} | "
+                f"{result.final_predictor_score:.0f}/100 | "
+                f"{result.predictor_label} | "
                 f"{score.latest_close:.2f} | "
                 f"{self._format_value(score.indicator_values.get('EMA20', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('EMA50', float('nan')))} | "
@@ -63,6 +65,9 @@ class ScannerMarkdownReportWriter:
                     f"### #{rank} {score.symbol} - {score.company}",
                     "",
                     f"- Opportunity score: **{score.total_score:.0f}/{score.max_score:.0f} ({score.score_percent:.0f}%)**",
+                    f"- Final predictor score: **{result.final_predictor_score:.0f}/100**",
+                    f"- Predictor label: **{result.predictor_label}**",
+                    f"- Predictor reasons: {result.predictor_reasons_text}",
                     f"- Latest close: **{score.latest_close:.2f}**",
                     f"- Average volume 20: **{self._format_value(score.indicator_values.get('AvgVolume20', float('nan')))}**",
                     f"- Relative volume 20: **{self._format_value(score.indicator_values.get('RelVolume20', float('nan')))}**",

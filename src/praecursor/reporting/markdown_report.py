@@ -18,15 +18,16 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | Consensus | Confidence |",
-            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+            "| Rank | Symbol | Score | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | Consensus | Consensus Confidence | Data Quality |",
+            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |",
         ]
 
         for rank, result in enumerate(results, start=1):
             score = result.opportunity_score
             consensus = result.consensus_result
             consensus_status = "Accepted" if consensus and consensus.accepted else "Not accepted"
-            confidence = f"{consensus.confidence_percent:.0f}%" if consensus else "N/A"
+            confidence = f"{consensus.confidence_percent:.0f}% ({consensus.confidence_label})" if consensus else "N/A"
+            data_quality = f"{result.data_quality_score:.0f}% ({result.data_quality_label})"
 
             lines.append(
                 "| "
@@ -39,7 +40,8 @@ class ScannerMarkdownReportWriter:
                 f"{self._format_value(score.indicator_values.get('EMA200', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('RSI14', float('nan')))} | "
                 f"{consensus_status} | "
-                f"{confidence} |"
+                f"{confidence} | "
+                f"{data_quality} |"
             )
 
         lines.extend(["", "## Details", ""])
@@ -53,6 +55,7 @@ class ScannerMarkdownReportWriter:
                     "",
                     f"- Opportunity score: **{score.total_score:.0f}/{score.max_score:.0f} ({score.score_percent:.0f}%)**",
                     f"- Latest close: **{score.latest_close:.2f}**",
+                    f"- Data quality: **{result.data_quality_score:.0f}% ({result.data_quality_label})** based on {result.warning_count} warning(s)",
                 ]
             )
 
@@ -61,7 +64,7 @@ class ScannerMarkdownReportWriter:
                     [
                         f"- Consensus close: **{consensus.consensus_close:.2f}** on {consensus.trade_date}",
                         f"- Consensus agreement: **{consensus.agreeing_source_count}/{consensus.source_count} sources ({consensus.agreement_percent:.0f}%)**",
-                        f"- Confidence vs 5-source target: **{consensus.confidence_percent:.0f}%**",
+                        f"- Confidence vs 5-source target: **{consensus.confidence_percent:.0f}% ({consensus.confidence_label})**",
                     ]
                 )
             elif result.consensus_error:

@@ -49,7 +49,8 @@ def print_update_summary(result: ScannerRunResult) -> None:
         print(f"Cached bars in date range: {symbol_result.cached_bars}")
         print(f"Total cached primary rows: {symbol_result.total_cached_rows}")
         print_consensus_summary(symbol_result)
-        print(f"Warnings: {len(symbol_result.warnings)}")
+        print(f"Data quality: {symbol_result.data_quality_score:.0f}% ({symbol_result.data_quality_label})")
+        print(f"Warnings: {symbol_result.warning_count}")
 
         for warning in symbol_result.warnings[:WARNING_PREVIEW_LIMIT]:
             print(f"  - {warning}")
@@ -73,7 +74,7 @@ def print_consensus_summary(symbol_result: SymbolScanResult) -> None:
         "Close consensus: "
         f"{consensus.consensus_close:.2f} on {consensus.trade_date} | "
         f"{consensus.agreeing_source_count}/{consensus.source_count} sources agree | "
-        f"confidence {consensus.confidence_percent:.0f}% | "
+        f"confidence {consensus.confidence_percent:.0f}% ({consensus.confidence_label}) | "
         f"accepted={consensus.accepted}"
     )
 

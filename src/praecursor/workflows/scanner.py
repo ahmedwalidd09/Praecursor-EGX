@@ -31,6 +31,33 @@ class SymbolScanResult:
     consensus_result: PriceConsensusResult | None = None
     consensus_error: str | None = None
 
+    @property
+    def warning_count(self) -> int:
+        return len(self.warnings)
+
+    @property
+    def total_downloaded_bars(self) -> int:
+        return self.downloaded_bars + self.consensus_downloaded_bars
+
+    @property
+    def data_quality_score(self) -> float:
+        """Simple warning-rate based quality score from 0 to 100."""
+        if self.total_downloaded_bars <= 0:
+            return 0.0
+
+        warning_rate_percent = (self.warning_count / self.total_downloaded_bars) * 100
+        return max(0.0, 100.0 - warning_rate_percent)
+
+    @property
+    def data_quality_label(self) -> str:
+        if self.data_quality_score >= 80:
+            return "high"
+
+        if self.data_quality_score >= 60:
+            return "medium"
+
+        return "low"
+
 
 @dataclass(frozen=True)
 class ScannerRunResult:

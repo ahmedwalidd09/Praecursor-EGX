@@ -54,6 +54,26 @@ class PriceConsensusResult:
 
         return min((self.agreeing_source_count / self.target_source_count) * 100, 100.0)
 
+    @property
+    def confidence_label(self) -> str:
+        """
+        Human-readable consensus confidence.
+
+        Current project policy:
+        - 2 agreeing sources is accepted but still medium confidence.
+        - 3+ agreeing sources against a 5-source target becomes high confidence.
+        """
+        if not self.accepted:
+            return "low"
+
+        if self.agreeing_source_count >= 3 and self.confidence_percent >= 60:
+            return "high"
+
+        if self.agreeing_source_count >= 2:
+            return "medium"
+
+        return "low"
+
 
 class PriceConsensusEngine:
     """

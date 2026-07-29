@@ -12,10 +12,16 @@ from praecursor.core.price_bar import PriceBar
 from praecursor.data.data_manager import DataManager
 from praecursor.data.stock_builder import CachedStockBuilder
 from praecursor.data.symbol_mapper import SymbolMapper
-from praecursor.reporting.csv_report import DEFAULT_RANKING_REPORT, ScannerCSVReportWriter
+from praecursor.reporting.csv_report import (
+    DEFAULT_NEXT_DAY_REPORT,
+    DEFAULT_RANKING_REPORT,
+    DEFAULT_SWING_REPORT,
+    ScannerCSVReportWriter,
+)
 from praecursor.reporting.markdown_report import DEFAULT_MARKDOWN_REPORT, ScannerMarkdownReportWriter
 from praecursor.scoring.next_day import NextDayPrediction, calculate_next_day_prediction
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
+from praecursor.scoring.swing import SwingPrediction, calculate_swing_prediction
 from praecursor.storage.price_cache import PriceCache
 from praecursor.storage.signal_history import SignalHistoryStore
 
@@ -189,6 +195,27 @@ class SymbolScanResult:
         return self.next_day_prediction.reasons_text
 
     @property
+    def swing_prediction(self) -> SwingPrediction:
+        return calculate_swing_prediction(
+            opportunity_score=self.opportunity_score,
+            consensus_accepted=bool(self.consensus_result and self.consensus_result.accepted),
+            consensus_confidence=self.consensus_score,
+            data_quality_score=self.data_quality_score,
+        )
+
+    @property
+    def swing_score(self) -> float:
+        return self.swing_prediction.score
+
+    @property
+    def swing_label(self) -> str:
+        return self.swing_prediction.label
+
+    @property
+    def swing_reasons_text(self) -> str:
+        return self.swing_prediction.reasons_text
+
+    @property
     def rank_change_text(self) -> str:
         if self.previous_rank is None or self.rank_change is None:
             return "new"
@@ -248,6 +275,8 @@ class ScannerRunResult:
     consensus_source_names: list[str]
     database_path: Path
     report_path: Path | None
+    next_day_report_path: Path | None
+    swing_report_path: Path | None
     markdown_report_path: Path | None
     archive_report_path: Path | None
     archive_markdown_report_path: Path | None
@@ -259,6 +288,14 @@ class ScannerRunResult:
     @property
     def ranked_scores(self) -> list[OpportunityScore]:
         return [result.opportunity_score for result in self.symbol_results]
+
+    @property
+    def next_day_results(self) -> list[SymbolScanResult]:
+        return sorted(self.symbol_results, key=lambda result: result.next_day_score, reverse=True)
+
+    @property
+    def swing_results(self) -> list[SymbolScanResult]:
+        return sorted(self.symbol_results, key=lambda result: result.swing_score, reverse=True)
 
     @property
     def success_count(self) -> int:
@@ -332,6 +369,8 @@ class ScannerWorkflow:
         symbols: list[str] | None = None,
         end_date: date | None = None,
         report_path: Path = DEFAULT_RANKING_REPORT,
+        next_day_report_path: Path = DEFAULT_NEXT_DAY_REPORT,
+        swing_report_path: Path = DEFAULT_SWING_REPORT,
         markdown_report_path: Path = DEFAULT_MARKDOWN_REPORT,
     ) -> ScannerRunResult:
         generated_at = datetime.now(timezone.utc)
@@ -416,12 +455,18 @@ class ScannerWorkflow:
         ranked_results = self._attach_rank_changes(ranked_results)
 
         saved_report_path: Path | None = None
+        saved_next_day_report_path: Path | None = None
+        saved_swing_report_path: Path | None = None
         saved_markdown_report_path: Path | None = None
         archive_report_path: Path | None = None
         archive_markdown_report_path: Path | None = None
 
         if ranked_results:
+            next_day_results = sorted(ranked_results, key=lambda result: result.next_day_score, reverse=True)
+            swing_results = sorted(ranked_results, key=lambda result: result.swing_score, reverse=True)
             saved_report_path = self.report_writer.write(ranked_results, report_path)
+            saved_next_day_report_path = self.report_writer.write(next_day_results, next_day_report_path)
+            saved_swing_report_path = self.report_writer.write(swing_results, swing_report_path)
             saved_markdown_report_path = self.markdown_report_writer.write(
                 ranked_results,
                 markdown_report_path,
@@ -445,6 +490,8 @@ class ScannerWorkflow:
             consensus_source_names=[source.name for source in self.consensus_data_sources or []],
             database_path=self.price_cache.path,
             report_path=saved_report_path,
+            next_day_report_path=saved_next_day_report_path,
+            swing_report_path=saved_swing_report_path,
             markdown_report_path=saved_markdown_report_path,
             archive_report_path=archive_report_path,
             archive_markdown_report_path=archive_markdown_report_path,

@@ -221,6 +221,8 @@ See:
 ```text
 docs/scoring.md
 docs/prediction_labels.md
+docs/next_day_prediction.md
+docs/timeframe_model.md
 docs/data_sources.md
 ```
 

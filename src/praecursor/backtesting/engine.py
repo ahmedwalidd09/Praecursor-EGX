@@ -6,6 +6,7 @@ from praecursor.core.stock import Stock
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.scoring.next_day import calculate_next_day_prediction
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
+from praecursor.scoring.swing import calculate_swing_prediction
 from praecursor.storage.price_cache import PriceCache
 
 
@@ -18,6 +19,9 @@ class BacktestSignal:
     signal_date: date
     label: str
     opportunity_score: float
+    next_day_score: float
+    swing_label: str
+    swing_score: float
     entry_close: float
     forward_returns: dict[int, float]
     indicator_values: dict[str, float]
@@ -212,6 +216,18 @@ class Backtester:
                 history=list(price_bars[: index + 1]),
             )
             opportunity_score = self.scorer.score(historical_stock)
+            next_day_prediction = calculate_next_day_prediction(
+                opportunity_score=opportunity_score,
+                consensus_accepted=True,
+                consensus_confidence=40.0,
+                data_quality_score=100.0,
+            )
+            swing_prediction = calculate_swing_prediction(
+                opportunity_score=opportunity_score,
+                consensus_accepted=True,
+                consensus_confidence=40.0,
+                data_quality_score=100.0,
+            )
             entry_close = price_bars[index].close
             forward_returns = self._calculate_forward_returns(price_bars, index, entry_close)
 
@@ -220,8 +236,11 @@ class Backtester:
                     symbol=symbol,
                     company=company,
                     signal_date=price_bars[index].date.date(),
-                    label=self._label_signal(opportunity_score),
+                    label=next_day_prediction.label,
                     opportunity_score=opportunity_score.score_percent,
+                    next_day_score=next_day_prediction.score,
+                    swing_label=swing_prediction.label,
+                    swing_score=swing_prediction.score,
                     entry_close=entry_close,
                     forward_returns=forward_returns,
                     indicator_values=opportunity_score.indicator_values,

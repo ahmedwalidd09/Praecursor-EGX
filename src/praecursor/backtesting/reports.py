@@ -126,6 +126,9 @@ class BacktestCSVReportWriter:
             "label",
             "score_bucket",
             "opportunity_score",
+            "next_day_score",
+            "swing_label",
+            "swing_score",
             "entry_close",
             "rsi14",
             "rel_volume20",
@@ -168,6 +171,9 @@ class BacktestCSVReportWriter:
             "label": signal.label,
             "score_bucket": signal.score_bucket,
             "opportunity_score": self._format_number(signal.opportunity_score),
+            "next_day_score": self._format_number(signal.next_day_score),
+            "swing_label": signal.swing_label,
+            "swing_score": self._format_number(signal.swing_score),
             "entry_close": self._format_number(signal.entry_close),
             "rsi14": self._format_number(signal.indicator_values.get("RSI14", float("nan"))),
             "rel_volume20": self._format_number(signal.indicator_values.get("RelVolume20", float("nan"))),
@@ -293,11 +299,11 @@ class BacktestCSVReportWriter:
         return lines
 
     def _markdown_signal_table(self, signals: list[BacktestSignal], horizons: tuple[int, ...]) -> list[str]:
-        header = "| Symbol | Date | Label | Score | " + " | ".join(f"Return {h}" for h in horizons) + " |"
-        separator = "| --- | --- | --- | ---: | " + " | ".join("---:" for _ in horizons) + " |"
+        header = "| Symbol | Date | Next-Day Label | Next-Day Score | Swing Label | Swing Score | " + " | ".join(f"Return {h}" for h in horizons) + " |"
+        separator = "| --- | --- | --- | ---: | --- | ---: | " + " | ".join("---:" for _ in horizons) + " |"
         lines = [header, separator]
         for signal in signals:
-            cells = [signal.symbol, signal.signal_date.isoformat(), signal.label, f"{signal.opportunity_score:.0f}"]
+            cells = [signal.symbol, signal.signal_date.isoformat(), signal.label, f"{signal.next_day_score:.0f}", signal.swing_label, f"{signal.swing_score:.0f}"]
             for horizon in horizons:
                 cells.append(f"{signal.forward_returns[horizon]:.2f}%")
             lines.append("| " + " | ".join(cells) + " |")

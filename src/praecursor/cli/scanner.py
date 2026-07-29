@@ -26,6 +26,8 @@ def main() -> int:
 
     print_header(result, settings)
     print_update_summary(result)
+    print_candidate_list("Next-Day Candidates", result.next_day_results, "next_day")
+    print_candidate_list("Swing Candidates", result.swing_results, "swing")
     print_ranking(result.symbol_results)
     print_errors(result)
     print_report_location(result)
@@ -162,8 +164,33 @@ def print_consensus_summary(symbol_result: SymbolScanResult) -> None:
     )
 
 
+def print_candidate_list(title: str, results: list[SymbolScanResult], mode: str) -> None:
+    print(title)
+    print()
+
+    for rank, symbol_result in enumerate(results, start=1):
+        score = symbol_result.opportunity_score
+        if mode == "next_day":
+            candidate_score = symbol_result.next_day_score
+            candidate_label = symbol_result.next_day_label
+            candidate_reasons = symbol_result.next_day_reasons_text
+        else:
+            candidate_score = symbol_result.swing_score
+            candidate_label = symbol_result.swing_label
+            candidate_reasons = symbol_result.swing_reasons_text
+
+        print("=" * 40)
+        print(f"#{rank} {score.symbol} - {score.company}")
+        print(f"{title[:-1]} Score: {candidate_score:.0f}/100")
+        print(f"Label: {candidate_label}")
+        print(f"Reasons: {candidate_reasons}")
+        print(f"Latest Close: {score.latest_close:.2f}")
+        print_consensus_summary(symbol_result)
+        print()
+
+
 def print_ranking(results: list[SymbolScanResult]) -> None:
-    print("Opportunity ranking")
+    print("Overall Opportunity Ranking")
     print()
 
     for rank, symbol_result in enumerate(results, start=1):
@@ -220,6 +247,12 @@ def print_report_location(result: ScannerRunResult) -> None:
         print("No CSV report was generated because no symbols were successfully analyzed.")
     else:
         print(f"CSV report saved to: {result.report_path}")
+
+    if result.next_day_report_path is not None:
+        print(f"Next-day candidates CSV saved to: {result.next_day_report_path}")
+
+    if result.swing_report_path is not None:
+        print(f"Swing candidates CSV saved to: {result.swing_report_path}")
 
     if result.markdown_report_path is None:
         print("No Markdown report was generated because no symbols were successfully analyzed.")

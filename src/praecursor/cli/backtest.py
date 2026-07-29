@@ -81,8 +81,8 @@ def parse_args() -> argparse.Namespace:
         "--horizons",
         type=int,
         nargs="+",
-        default=[5, 10, 20],
-        help="Forward-return horizons in bars. Default: 5 10 20.",
+        default=[1, 2, 5, 10, 20],
+        help="Forward-return horizons in bars. Default: 1 2 5 10 20.",
     )
     parser.add_argument(
         "--prepare-cache",

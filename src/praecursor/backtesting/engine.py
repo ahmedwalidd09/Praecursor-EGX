@@ -4,6 +4,7 @@ from datetime import date
 from praecursor.core.price_bar import PriceBar
 from praecursor.core.stock import Stock
 from praecursor.data.symbol_mapper import SymbolMapper
+from praecursor.scoring.next_day import calculate_next_day_prediction
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
 from praecursor.storage.price_cache import PriceCache
 
@@ -77,7 +78,7 @@ class Backtester:
         scorer: OpportunityScorer | None = None,
         source_name: str = "yahoo_finance",
         minimum_history_bars: int = 260,
-        horizons: tuple[int, ...] = (5, 10, 20),
+        horizons: tuple[int, ...] = (1, 2, 5, 10, 20),
         minimum_signals_per_label: int = 10,
         example_horizon: int | None = None,
         best_worst_limit: int = 10,
@@ -186,16 +187,12 @@ class Backtester:
         return returns
 
     def _label_signal(self, score: OpportunityScore) -> str:
-        if self._is_extended_breakout(score):
-            return "Extended Breakout"
-
-        if score.score_percent >= 75:
-            return "Strong Candidate"
-
-        if score.score_percent >= 60:
-            return "Watchlist"
-
-        return "Avoid"
+        return calculate_next_day_prediction(
+            opportunity_score=score,
+            consensus_accepted=True,
+            consensus_confidence=40.0,
+            data_quality_score=100.0,
+        ).label
 
     def _is_extended_breakout(self, score: OpportunityScore) -> bool:
         rsi14 = score.indicator_values.get("RSI14")

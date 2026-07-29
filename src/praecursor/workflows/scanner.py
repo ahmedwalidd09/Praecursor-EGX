@@ -14,6 +14,7 @@ from praecursor.data.stock_builder import CachedStockBuilder
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.reporting.csv_report import DEFAULT_RANKING_REPORT, ScannerCSVReportWriter
 from praecursor.reporting.markdown_report import DEFAULT_MARKDOWN_REPORT, ScannerMarkdownReportWriter
+from praecursor.scoring.next_day import NextDayPrediction, calculate_next_day_prediction
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
 from praecursor.storage.price_cache import PriceCache
 from praecursor.storage.signal_history import SignalHistoryStore
@@ -165,6 +166,27 @@ class SymbolScanResult:
     @property
     def predictor_reasons_text(self) -> str:
         return "; ".join(self.predictor_reasons)
+
+    @property
+    def next_day_prediction(self) -> NextDayPrediction:
+        return calculate_next_day_prediction(
+            opportunity_score=self.opportunity_score,
+            consensus_accepted=bool(self.consensus_result and self.consensus_result.accepted),
+            consensus_confidence=self.consensus_score,
+            data_quality_score=self.data_quality_score,
+        )
+
+    @property
+    def next_day_score(self) -> float:
+        return self.next_day_prediction.score
+
+    @property
+    def next_day_label(self) -> str:
+        return self.next_day_prediction.label
+
+    @property
+    def next_day_reasons_text(self) -> str:
+        return self.next_day_prediction.reasons_text
 
     @property
     def rank_change_text(self) -> str:

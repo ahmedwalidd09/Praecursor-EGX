@@ -9,6 +9,8 @@ The current backtester evaluates historical technical signals using cached Yahoo
 It measures forward returns after configurable horizons, currently defaulting to:
 
 ```text
+1 bar
+2 bars
 5 bars
 10 bars
 20 bars
@@ -48,7 +50,7 @@ Optional:
 
 ```powershell
 python tools/run_backtest.py --symbols SWDY,COMI
-python tools/run_backtest.py --horizons 5 10 20 40
+python tools/run_backtest.py --horizons 1 2 5 10 20 40
 python tools/run_backtest.py --minimum-history-bars 260
 python tools/run_backtest.py --minimum-signals-per-label 20
 ```
@@ -88,7 +90,7 @@ sample-size warning
 
 This helps answer:
 
-> When the model produced a label historically, what happened after 5, 10, or 20 bars?
+> When the model produced a label historically, what happened after 1, 2, 5, 10, or 20 bars?
 
 ## Important calibration note
 

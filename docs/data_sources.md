@@ -10,8 +10,33 @@ Praecursor-EGX is designed to use multiple public sources instead of trusting a 
 | StockAnalysis | Implemented | Recent-history and latest-close confirmation source. |
 | Mubasher Info | Implemented latest quote | Delayed/latest quote cross-check source. It may be intraday and may not always match EOD dates. |
 | Official EGX | Planned | Authoritative validation source. Implementation needs careful handling of the official website structure. |
-| TradingView | Research required | Potential extra quote/signal confirmation source, subject to usage constraints. |
+| TradingView | Research required | Not integrated. Use only via documented/licensed API or manual CSV export; do not scrape private chart internals. |
 | InvestingPro | Deferred | May require subscription/login; not used for unauthenticated open-source scraping. |
+
+## Symbol universe
+
+The default symbol mapping is now based on the official EGX100 EWI constituents page.
+
+Files:
+
+```text
+config/symbols.csv
+config/egx100_constituents.csv
+```
+
+The EGX page may include companies with multiple listed lines, so the file currently contains 101 rows including multi-line entries such as `VLMR` and `VLMRA`.
+
+Check source availability with:
+
+```powershell
+python tools/check_symbol_availability.py --limit 20
+```
+
+Run the full check with:
+
+```powershell
+python tools/check_symbol_availability.py
+```
 
 ## Current scanner source usage
 

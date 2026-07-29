@@ -69,8 +69,8 @@ SOURCE_REGISTRY: tuple[SourceCapabilities, ...] = (
         supports_latest_quote=True,
         supports_consensus=True,
         implemented=False,
-        role="Potential extra quote/signal confirmation source.",
-        notes="Scraping may be fragile/restricted; must verify allowed usage before integration.",
+        role="Potential extra quote/signal confirmation source only via licensed/documented access.",
+        notes="Not integrated. Avoid private chart scraping; use documented API provider or manual CSV export only.",
     ),
     SourceCapabilities(
         name="investingpro",

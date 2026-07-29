@@ -77,6 +77,18 @@ Default symbol mappings live in:
 config/symbols.csv
 ```
 
+The default universe is based on EGX100 EWI constituents. A reference copy is stored in:
+
+```text
+config/egx100_constituents.csv
+```
+
+Check source availability with:
+
+```powershell
+python tools/check_symbol_availability.py --limit 20
+```
+
 You can override the config file:
 
 ```powershell

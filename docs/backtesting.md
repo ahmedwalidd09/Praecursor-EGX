@@ -1,12 +1,12 @@
 # Praecursor-EGX Backtesting
 
-Praecursor-EGX includes an initial research backtester.
+Praecursor-EGX includes an initial research backtester focused on model calibration.
 
 ## What it tests
 
 The current backtester evaluates historical technical signals using cached Yahoo Finance price history.
 
-It measures forward returns after configurable horizons, currently defaulting to:
+It measures forward returns after configurable horizons, defaulting to:
 
 ```text
 1 bar
@@ -15,6 +15,8 @@ It measures forward returns after configurable horizons, currently defaulting to
 10 bars
 20 bars
 ```
+
+The 1-bar and 2-bar horizons are included because the main scanner goal is to identify stocks that may move in the next trading session.
 
 ## What it does not test yet
 
@@ -53,6 +55,7 @@ python tools/run_backtest.py --symbols SWDY,COMI
 python tools/run_backtest.py --horizons 1 2 5 10 20 40
 python tools/run_backtest.py --minimum-history-bars 260
 python tools/run_backtest.py --minimum-signals-per-label 20
+python tools/run_backtest.py --missed-move-threshold 5
 ```
 
 ## Reports
@@ -63,35 +66,66 @@ Backtest reports are written to:
 reports/backtest_signals.csv
 reports/backtest_summary.csv
 reports/backtest_symbol_summary.csv
+reports/backtest_score_buckets.csv
 reports/backtest_best_signals.csv
 reports/backtest_worst_signals.csv
+reports/backtest_label_examples.csv
+reports/backtest_missed_movers.csv
+reports/backtest_overextension.csv
+reports/backtest_data_issues.csv
 reports/backtest_summary.md
 ```
 
+## Calibration features
+
+The backtester now reports:
+
+```text
+summary by predictor label
+summary by score bucket
+summary by symbol
+best/worst global signals
+best/worst examples within each label
+missed next-day movers
+RSI-overextended follow-through samples
+data issue flags
+calibration notes
+```
+
+## Missed movers
+
+A missed mover is currently defined as:
+
+```text
+label is Avoid Tomorrow or Watchlist Tomorrow
+and 1-bar forward return >= missed_move_threshold
+```
+
+Default threshold:
+
+```text
+5%
+```
+
+## Data issue flags
+
+The backtester can flag suspicious cached data:
+
+```text
+missing_data
+stale_data
+mostly_flat_prices
+zero_volume
+```
+
+This helps identify symbols that should not be trusted in calibration.
+
 ## Interpreting results
 
-The summary groups signals by historical label:
-
-```text
-Strong Candidate
-Extended Breakout
-Watchlist
-Avoid
-```
-
-For each label, it reports:
-
-```text
-signal count
-average forward return
-win rate
-sample-size warning
-```
-
-This helps answer:
-
-> When the model produced a label historically, what happened after 1, 2, 5, 10, or 20 bars?
-
-## Important calibration note
-
 Small sample sizes are not reliable. If a label has only a few historical signals, treat its result as anecdotal until more symbols and history are available.
+
+A good calibration question is:
+
+> Which label has the best 1-bar average return and 1-bar win rate?
+
+If that is not the current strongest label, the next-day scoring rules need adjustment.

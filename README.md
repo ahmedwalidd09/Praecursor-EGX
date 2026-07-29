@@ -130,7 +130,7 @@ List archived reports:
 python tools/list_reports.py
 ```
 
-Run initial historical signal backtest:
+Run historical signal backtest:
 
 ```powershell
 python tools/run_backtest.py
@@ -147,6 +147,8 @@ Backtest selected symbols:
 ```powershell
 python tools/run_backtest.py --symbols SWDY,COMI
 ```
+
+Backtest calibration reports include score buckets, missed movers, overextension samples, data issues, best/worst signals, and Markdown summary.
 
 Check mapped symbol availability:
 

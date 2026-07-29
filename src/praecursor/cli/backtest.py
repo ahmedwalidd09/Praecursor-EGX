@@ -28,6 +28,9 @@ def main() -> int:
         horizons=horizons,
         minimum_signals_per_label=args.minimum_signals_per_label,
         best_worst_limit=args.best_worst_limit,
+        missed_move_threshold=args.missed_move_threshold,
+        flat_return_threshold_percent=args.flat_return_threshold_percent,
+        zero_volume_threshold_percent=args.zero_volume_threshold_percent,
     )
     result = backtester.run(symbols, start_date, end_date)
 
@@ -36,8 +39,11 @@ def main() -> int:
 
     print_header(result)
     print_errors(result)
+    print_calibration_notes(result)
     print_summary(result)
     print_symbol_summary(result)
+    print_score_bucket_summary(result)
+    print_missed_and_overextension_counts(result)
     print_best_worst(result)
     print_report_paths(report_paths)
 
@@ -83,6 +89,24 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=[1, 2, 5, 10, 20],
         help="Forward-return horizons in bars. Default: 1 2 5 10 20.",
+    )
+    parser.add_argument(
+        "--missed-move-threshold",
+        type=float,
+        default=5.0,
+        help="1-bar return threshold for missed mover report. Default: 5.0.",
+    )
+    parser.add_argument(
+        "--flat-return-threshold-percent",
+        type=float,
+        default=80.0,
+        help="Flag data as flat when unchanged close ratio reaches this percent. Default: 80.",
+    )
+    parser.add_argument(
+        "--zero-volume-threshold-percent",
+        type=float,
+        default=20.0,
+        help="Flag data when zero-volume bar ratio reaches this percent. Default: 20.",
     )
     parser.add_argument(
         "--prepare-cache",
@@ -144,6 +168,16 @@ def print_errors(result: BacktestResult) -> None:
     print()
 
 
+def print_calibration_notes(result: BacktestResult) -> None:
+    if not result.calibration_notes:
+        return
+
+    print("Calibration notes")
+    for note in result.calibration_notes:
+        print(f"- {note}")
+    print()
+
+
 def print_summary(result: BacktestResult) -> None:
     if not result.summary:
         print("No backtest summary available. Run with --prepare-cache or run the scanner first.")
@@ -184,6 +218,35 @@ def print_symbol_summary(result: BacktestResult) -> None:
                 f"win rate: {row.win_rates[horizon]:.0f}%"
             )
         print()
+
+
+def print_score_bucket_summary(result: BacktestResult) -> None:
+    if not result.score_bucket_summary:
+        return
+
+    print("Summary by score bucket")
+    print()
+
+    for row in result.score_bucket_summary:
+        print("=" * 40)
+        print(row.bucket)
+        print(f"Signals: {row.signal_count}")
+        if row.warning:
+            print(f"Warning: {row.warning}")
+        for horizon in result.horizons:
+            print(
+                f"{horizon}-bar avg return: {row.average_returns[horizon]:.2f}% | "
+                f"win rate: {row.win_rates[horizon]:.0f}%"
+            )
+        print()
+
+
+def print_missed_and_overextension_counts(result: BacktestResult) -> None:
+    print("Calibration report counts")
+    print(f"Missed next-day movers: {len(result.missed_movers)}")
+    print(f"Overextension follow-through samples: {len(result.overextension_signals)}")
+    print(f"Data issues: {len(result.data_issues)}")
+    print()
 
 
 def print_best_worst(result: BacktestResult) -> None:

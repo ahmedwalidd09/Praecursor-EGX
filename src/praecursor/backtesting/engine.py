@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 from praecursor.core.price_bar import PriceBar
 from praecursor.core.stock import Stock
@@ -21,6 +21,10 @@ class BacktestSignal:
     entry_close: float
     forward_returns: dict[int, float]
     indicator_values: dict[str, float]
+
+    @property
+    def score_bucket(self) -> str:
+        return score_bucket(self.opportunity_score)
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,35 @@ class BacktestSymbolSummaryRow:
 
 
 @dataclass(frozen=True)
+class BacktestScoreBucketSummaryRow:
+    """Aggregated performance for one opportunity-score bucket."""
+
+    bucket: str
+    signal_count: int
+    average_returns: dict[int, float]
+    win_rates: dict[int, float]
+    warning: str | None = None
+
+
+@dataclass(frozen=True)
+class BacktestDataIssue:
+    """Potential data-quality issue detected during backtesting."""
+
+    symbol: str
+    issue: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class BacktestLabelExample:
+    """Best/worst signal example scoped to one label."""
+
+    label: str
+    example_type: str
+    signal: BacktestSignal
+
+
+@dataclass(frozen=True)
 class BacktestResult:
     """Full result from one backtest run."""
 
@@ -57,8 +90,14 @@ class BacktestResult:
     signals: list[BacktestSignal] = field(default_factory=list)
     summary: list[BacktestSummaryRow] = field(default_factory=list)
     symbol_summary: list[BacktestSymbolSummaryRow] = field(default_factory=list)
+    score_bucket_summary: list[BacktestScoreBucketSummaryRow] = field(default_factory=list)
     best_signals: list[BacktestSignal] = field(default_factory=list)
     worst_signals: list[BacktestSignal] = field(default_factory=list)
+    label_examples: list[BacktestLabelExample] = field(default_factory=list)
+    missed_movers: list[BacktestSignal] = field(default_factory=list)
+    overextension_signals: list[BacktestSignal] = field(default_factory=list)
+    data_issues: list[BacktestDataIssue] = field(default_factory=list)
+    calibration_notes: list[str] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
 
@@ -66,9 +105,9 @@ class Backtester:
     """
     Run a simple historical forward-return backtest.
 
-    This initial backtest evaluates technical signals from cached historical
-    prices. It does not use historical consensus because consensus was not
-    collected historically for every date.
+    This evaluates technical signals from cached historical prices. It does not
+    use historical consensus because consensus was not collected historically
+    for every date.
     """
 
     def __init__(
@@ -82,6 +121,9 @@ class Backtester:
         minimum_signals_per_label: int = 10,
         example_horizon: int | None = None,
         best_worst_limit: int = 10,
+        missed_move_threshold: float = 5.0,
+        flat_return_threshold_percent: float = 80.0,
+        zero_volume_threshold_percent: float = 20.0,
     ):
         self.price_cache = price_cache or PriceCache()
         self.symbol_mapper = symbol_mapper or SymbolMapper.from_csv()
@@ -92,6 +134,9 @@ class Backtester:
         self.minimum_signals_per_label = minimum_signals_per_label
         self.example_horizon = example_horizon or max(horizons)
         self.best_worst_limit = best_worst_limit
+        self.missed_move_threshold = missed_move_threshold
+        self.flat_return_threshold_percent = flat_return_threshold_percent
+        self.zero_volume_threshold_percent = zero_volume_threshold_percent
 
     def run(
         self,
@@ -101,6 +146,7 @@ class Backtester:
     ) -> BacktestResult:
         signals: list[BacktestSignal] = []
         errors: dict[str, str] = {}
+        data_issues: list[BacktestDataIssue] = []
 
         for symbol in symbols:
             try:
@@ -110,6 +156,7 @@ class Backtester:
                     start_date,
                     end_date,
                 )
+                data_issues.extend(self._detect_data_issues(symbol, price_bars, end_date))
 
                 if len(price_bars) < self.minimum_history_bars + max(self.horizons):
                     errors[symbol] = (
@@ -124,8 +171,13 @@ class Backtester:
 
         summary = self._summarize_by_label(signals)
         symbol_summary = self._summarize_by_symbol(signals)
+        score_bucket_summary = self._summarize_by_score_bucket(signals)
         best_signals = self._best_signals(signals)
         worst_signals = self._worst_signals(signals)
+        label_examples = self._label_examples(signals)
+        missed_movers = self._missed_movers(signals)
+        overextension_signals = self._overextension_signals(signals)
+        calibration_notes = self._calibration_notes(summary, score_bucket_summary, data_issues)
 
         return BacktestResult(
             source_name=self.source_name,
@@ -136,8 +188,14 @@ class Backtester:
             signals=signals,
             summary=summary,
             symbol_summary=symbol_summary,
+            score_bucket_summary=score_bucket_summary,
             best_signals=best_signals,
             worst_signals=worst_signals,
+            label_examples=label_examples,
+            missed_movers=missed_movers,
+            overextension_signals=overextension_signals,
+            data_issues=data_issues,
+            calibration_notes=calibration_notes,
             errors=errors,
         )
 
@@ -194,50 +252,30 @@ class Backtester:
             data_quality_score=100.0,
         ).label
 
-    def _is_extended_breakout(self, score: OpportunityScore) -> bool:
-        rsi14 = score.indicator_values.get("RSI14")
-        breakout20 = score.indicator_values.get("Breakout20")
-        breakout50 = score.indicator_values.get("Breakout50")
-        relative_volume20 = score.indicator_values.get("RelVolume20")
-
-        if rsi14 is None or rsi14 != rsi14:
-            return False
-
-        return (
-            rsi14 > 75
-            and breakout20 == 1.0
-            and breakout50 == 1.0
-            and relative_volume20 is not None
-            and relative_volume20 == relative_volume20
-            and relative_volume20 >= 1.0
-        )
-
     def _summarize_by_label(self, signals: list[BacktestSignal]) -> list[BacktestSummaryRow]:
         labels = sorted({signal.label for signal in signals})
-        summary_rows: list[BacktestSummaryRow] = []
+        return [
+            self._summary_row_for_label(label, [signal for signal in signals if signal.label == label])
+            for label in labels
+        ]
 
-        for label in labels:
-            label_signals = [signal for signal in signals if signal.label == label]
-            average_returns, win_rates = self._aggregate_returns(label_signals)
-            warning = None
+    def _summary_row_for_label(self, label: str, signals: list[BacktestSignal]) -> BacktestSummaryRow:
+        average_returns, win_rates = self._aggregate_returns(signals)
+        warning = None
 
-            if len(label_signals) < self.minimum_signals_per_label:
-                warning = (
-                    f"Low sample size: {len(label_signals)} signal(s), "
-                    f"minimum recommended is {self.minimum_signals_per_label}."
-                )
-
-            summary_rows.append(
-                BacktestSummaryRow(
-                    label=label,
-                    signal_count=len(label_signals),
-                    average_returns=average_returns,
-                    win_rates=win_rates,
-                    warning=warning,
-                )
+        if len(signals) < self.minimum_signals_per_label:
+            warning = (
+                f"Low sample size: {len(signals)} signal(s), "
+                f"minimum recommended is {self.minimum_signals_per_label}."
             )
 
-        return summary_rows
+        return BacktestSummaryRow(
+            label=label,
+            signal_count=len(signals),
+            average_returns=average_returns,
+            win_rates=win_rates,
+            warning=warning,
+        )
 
     def _summarize_by_symbol(self, signals: list[BacktestSignal]) -> list[BacktestSymbolSummaryRow]:
         symbols = sorted({signal.symbol for signal in signals})
@@ -253,6 +291,30 @@ class Backtester:
                     signal_count=len(symbol_signals),
                     average_returns=average_returns,
                     win_rates=win_rates,
+                )
+            )
+
+        return rows
+
+    def _summarize_by_score_bucket(self, signals: list[BacktestSignal]) -> list[BacktestScoreBucketSummaryRow]:
+        buckets = ["0-20", "20-40", "40-60", "60-80", "80-100"]
+        rows: list[BacktestScoreBucketSummaryRow] = []
+
+        for bucket in buckets:
+            bucket_signals = [signal for signal in signals if signal.score_bucket == bucket]
+            if not bucket_signals:
+                continue
+            average_returns, win_rates = self._aggregate_returns(bucket_signals)
+            warning = None
+            if len(bucket_signals) < self.minimum_signals_per_label:
+                warning = f"Low sample size: {len(bucket_signals)} signal(s)."
+            rows.append(
+                BacktestScoreBucketSummaryRow(
+                    bucket=bucket,
+                    signal_count=len(bucket_signals),
+                    average_returns=average_returns,
+                    win_rates=win_rates,
+                    warning=warning,
                 )
             )
 
@@ -282,3 +344,147 @@ class Backtester:
             signals,
             key=lambda signal: signal.forward_returns[self.example_horizon],
         )[: self.best_worst_limit]
+
+    def _label_examples(self, signals: list[BacktestSignal]) -> list[BacktestLabelExample]:
+        examples: list[BacktestLabelExample] = []
+        labels = sorted({signal.label for signal in signals})
+
+        for label in labels:
+            label_signals = [signal for signal in signals if signal.label == label]
+            best = sorted(
+                label_signals,
+                key=lambda signal: signal.forward_returns[self.example_horizon],
+                reverse=True,
+            )[: self.best_worst_limit]
+            worst = sorted(
+                label_signals,
+                key=lambda signal: signal.forward_returns[self.example_horizon],
+            )[: self.best_worst_limit]
+            examples.extend([BacktestLabelExample(label, "best", signal) for signal in best])
+            examples.extend([BacktestLabelExample(label, "worst", signal) for signal in worst])
+
+        return examples
+
+    def _missed_movers(self, signals: list[BacktestSignal]) -> list[BacktestSignal]:
+        first_horizon = min(self.horizons)
+        weak_labels = {"Avoid Tomorrow", "Watchlist Tomorrow"}
+        return [
+            signal
+            for signal in signals
+            if signal.label in weak_labels
+            and signal.forward_returns[first_horizon] >= self.missed_move_threshold
+        ]
+
+    def _overextension_signals(self, signals: list[BacktestSignal]) -> list[BacktestSignal]:
+        return [
+            signal
+            for signal in signals
+            if signal.indicator_values.get("RSI14", 0) > 75
+            and signal.indicator_values.get("Breakout20") == 1.0
+        ]
+
+    def _detect_data_issues(
+        self,
+        symbol: str,
+        price_bars: list[PriceBar],
+        requested_end_date: date,
+    ) -> list[BacktestDataIssue]:
+        issues: list[BacktestDataIssue] = []
+
+        if not price_bars:
+            issues.append(BacktestDataIssue(symbol, "missing_data", "No cached bars found."))
+            return issues
+
+        latest_date = price_bars[-1].date.date()
+        if latest_date < requested_end_date - timedelta(days=10):
+            issues.append(
+                BacktestDataIssue(
+                    symbol,
+                    "stale_data",
+                    f"Latest cached bar is {latest_date}, requested end date is {requested_end_date}.",
+                )
+            )
+
+        close_changes = [
+            abs((price_bars[index].close / price_bars[index - 1].close) - 1)
+            for index in range(1, len(price_bars))
+            if price_bars[index - 1].close > 0
+        ]
+        if close_changes:
+            flat_ratio = sum(1 for change in close_changes if change < 0.0001) / len(close_changes) * 100
+            if flat_ratio >= self.flat_return_threshold_percent:
+                issues.append(
+                    BacktestDataIssue(
+                        symbol,
+                        "mostly_flat_prices",
+                        f"{flat_ratio:.0f}% of consecutive closes are effectively unchanged.",
+                    )
+                )
+
+        zero_volume_ratio = sum(1 for bar in price_bars if bar.volume == 0) / len(price_bars) * 100
+        if zero_volume_ratio >= self.zero_volume_threshold_percent:
+            issues.append(
+                BacktestDataIssue(
+                    symbol,
+                    "zero_volume",
+                    f"{zero_volume_ratio:.0f}% of bars have zero volume.",
+                )
+            )
+
+        return issues
+
+    def _calibration_notes(
+        self,
+        summary: list[BacktestSummaryRow],
+        score_bucket_summary: list[BacktestScoreBucketSummaryRow],
+        data_issues: list[BacktestDataIssue],
+    ) -> list[str]:
+        notes: list[str] = []
+        first_horizon = min(self.horizons)
+        longer_horizon = max(self.horizons)
+
+        if summary:
+            best_avg = max(summary, key=lambda row: row.average_returns[first_horizon])
+            best_win = max(summary, key=lambda row: row.win_rates[first_horizon])
+            notes.append(
+                f"Best {first_horizon}-bar average return label: {best_avg.label} "
+                f"({best_avg.average_returns[first_horizon]:.2f}%)."
+            )
+            notes.append(
+                f"Best {first_horizon}-bar win-rate label: {best_win.label} "
+                f"({best_win.win_rates[first_horizon]:.0f}%)."
+            )
+
+            avoid_rows = [row for row in summary if row.label == "Avoid Tomorrow"]
+            if avoid_rows and avoid_rows[0].average_returns[longer_horizon] > 0:
+                notes.append(
+                    "Avoid Tomorrow has positive longer-horizon returns; consider splitting early reversal cases."
+                )
+
+        if score_bucket_summary:
+            best_bucket = max(score_bucket_summary, key=lambda row: row.average_returns[first_horizon])
+            notes.append(
+                f"Best {first_horizon}-bar score bucket: {best_bucket.bucket} "
+                f"({best_bucket.average_returns[first_horizon]:.2f}%)."
+            )
+
+        if data_issues:
+            notes.append(f"Detected {len(data_issues)} potential data issue(s); inspect backtest_data_issues.csv.")
+
+        for row in summary:
+            if row.warning:
+                notes.append(f"{row.label}: {row.warning}")
+
+        return notes
+
+
+def score_bucket(score: float) -> str:
+    if score < 20:
+        return "0-20"
+    if score < 40:
+        return "20-40"
+    if score < 60:
+        return "40-60"
+    if score < 80:
+        return "60-80"
+    return "80-100"

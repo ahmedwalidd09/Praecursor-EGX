@@ -11,6 +11,13 @@ from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator, M
 from praecursor.scoring.price_momentum import PriceMomentumIndicator
 from praecursor.scoring.relative_volume import RelativeVolumeIndicator
 from praecursor.scoring.result import IndicatorResult
+from praecursor.scoring.reversal import (
+    EMA20ReclaimIndicator,
+    MACDHistogramImprovementIndicator,
+    Momentum5Indicator,
+    RSIReboundIndicator,
+    VolumeSpikeFromWeaknessIndicator,
+)
 from praecursor.scoring.rsi import RSIIndicator
 from praecursor.scoring.trend_strength import TrendStrengthIndicator
 
@@ -80,6 +87,11 @@ class OpportunityScorer:
         self.analyzer.add_indicator(CloseHighIndicator(250))
         self.analyzer.add_indicator(NearCloseHighIndicator(250))
         self.analyzer.add_indicator(VolumeConfirmedBreakoutIndicator())
+        self.analyzer.add_indicator(RSIReboundIndicator())
+        self.analyzer.add_indicator(EMA20ReclaimIndicator())
+        self.analyzer.add_indicator(MACDHistogramImprovementIndicator())
+        self.analyzer.add_indicator(VolumeSpikeFromWeaknessIndicator())
+        self.analyzer.add_indicator(Momentum5Indicator())
 
     def score(self, stock: Stock) -> OpportunityScore:
         latest_close = stock.latest().close

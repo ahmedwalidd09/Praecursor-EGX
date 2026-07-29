@@ -133,6 +133,11 @@ class BacktestCSVReportWriter:
             "momentum20",
             "breakout20",
             "breakout50",
+            "rsi_rebound",
+            "ema20_reclaim",
+            "macd_histogram_improvement",
+            "volume_spike_from_weakness",
+            "momentum5",
         ]
         fields.extend([f"return_{horizon}_bars" for horizon in result.horizons])
         return fields
@@ -170,6 +175,11 @@ class BacktestCSVReportWriter:
             "momentum20": self._format_number(signal.indicator_values.get("Momentum20", float("nan"))),
             "breakout20": self._format_number(signal.indicator_values.get("Breakout20", float("nan"))),
             "breakout50": self._format_number(signal.indicator_values.get("Breakout50", float("nan"))),
+            "rsi_rebound": self._format_number(signal.indicator_values.get("RSIRebound", float("nan"))),
+            "ema20_reclaim": self._format_number(signal.indicator_values.get("EMA20Reclaim", float("nan"))),
+            "macd_histogram_improvement": self._format_number(signal.indicator_values.get("MACDHistogramImprovement", float("nan"))),
+            "volume_spike_from_weakness": self._format_number(signal.indicator_values.get("VolumeSpikeFromWeakness", float("nan"))),
+            "momentum5": self._format_number(signal.indicator_values.get("Momentum5", float("nan"))),
         }
         for horizon in horizons:
             row[f"return_{horizon}_bars"] = self._format_number(signal.forward_returns[horizon])

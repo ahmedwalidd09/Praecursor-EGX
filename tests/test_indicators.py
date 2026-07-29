@@ -7,6 +7,13 @@ from praecursor.scoring.ema import EMAIndicator
 from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator
 from praecursor.scoring.price_momentum import PriceMomentumIndicator
 from praecursor.scoring.relative_volume import RelativeVolumeIndicator
+from praecursor.scoring.reversal import (
+    EMA20ReclaimIndicator,
+    MACDHistogramImprovementIndicator,
+    Momentum5Indicator,
+    RSIReboundIndicator,
+    VolumeSpikeFromWeaknessIndicator,
+)
 from praecursor.scoring.rsi import RSIIndicator
 from praecursor.scoring.trend_strength import TrendStrengthIndicator
 from helpers import build_stock
@@ -65,6 +72,20 @@ class IndicatorTests(unittest.TestCase):
         self.assertEqual(near_high.name, "NearCloseHigh250Percent")
         self.assertEqual(breakout.value, 1.0)
         self.assertAlmostEqual(near_high.value, 0.0)
+
+    def test_reversal_indicators_return_values(self):
+        indicators = [
+            RSIReboundIndicator(),
+            EMA20ReclaimIndicator(),
+            MACDHistogramImprovementIndicator(),
+            VolumeSpikeFromWeaknessIndicator(),
+            Momentum5Indicator(),
+        ]
+
+        for indicator in indicators:
+            result = indicator.calculate(self.stock)
+            self.assertTrue(result.name)
+            self.assertFalse(result.value != result.value)
 
 
 if __name__ == "__main__":

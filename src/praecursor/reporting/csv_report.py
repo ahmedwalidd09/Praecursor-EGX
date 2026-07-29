@@ -28,6 +28,11 @@ INDICATOR_FIELDNAMES = [
     "close_high250",
     "near_close_high250_percent",
     "volume_confirmed_breakout",
+    "rsi_rebound",
+    "ema20_reclaim",
+    "macd_histogram_improvement",
+    "volume_spike_from_weakness",
+    "momentum5",
 ]
 
 NOTE_FIELDNAMES = [
@@ -106,6 +111,11 @@ class OpportunityRankingCSVWriter:
             "close_high250": self._format_number(score.indicator_values.get("CloseHigh250", float("nan"))),
             "near_close_high250_percent": self._format_number(score.indicator_values.get("NearCloseHigh250Percent", float("nan"))),
             "volume_confirmed_breakout": self._format_number(score.indicator_values.get("VolumeConfirmedBreakout", float("nan"))),
+            "rsi_rebound": self._format_number(score.indicator_values.get("RSIRebound", float("nan"))),
+            "ema20_reclaim": self._format_number(score.indicator_values.get("EMA20Reclaim", float("nan"))),
+            "macd_histogram_improvement": self._format_number(score.indicator_values.get("MACDHistogramImprovement", float("nan"))),
+            "volume_spike_from_weakness": self._format_number(score.indicator_values.get("VolumeSpikeFromWeakness", float("nan"))),
+            "momentum5": self._format_number(score.indicator_values.get("Momentum5", float("nan"))),
         }
 
     def _build_trend_notes(self, score: OpportunityScore) -> str:

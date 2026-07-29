@@ -49,7 +49,10 @@ This writes:
 
 ```text
 reports/opportunity_ranking.csv
+reports/next_day_candidates.csv
+reports/swing_candidates.csv
 reports/opportunity_ranking.md
+reports/dashboard.html
 reports/archive/opportunity_ranking_YYYYMMDD_HHMMSS.csv
 reports/archive/opportunity_ranking_YYYYMMDD_HHMMSS.md
 ```
@@ -204,6 +207,12 @@ VolumeConfirmedBreakout
 ```
 
 ## Current predictor labels
+
+The scanner separates next-day candidates from swing candidates. See:
+
+```text
+docs/timeframe_model.md
+```
 
 The scanner produces a final predictor label:
 

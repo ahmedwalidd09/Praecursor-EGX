@@ -18,6 +18,7 @@ from praecursor.reporting.csv_report import (
     DEFAULT_SWING_REPORT,
     ScannerCSVReportWriter,
 )
+from praecursor.reporting.dashboard import DEFAULT_DASHBOARD_REPORT, ScannerDashboardWriter
 from praecursor.reporting.markdown_report import DEFAULT_MARKDOWN_REPORT, ScannerMarkdownReportWriter
 from praecursor.scoring.next_day import NextDayPrediction, calculate_next_day_prediction
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
@@ -278,6 +279,7 @@ class ScannerRunResult:
     next_day_report_path: Path | None
     swing_report_path: Path | None
     markdown_report_path: Path | None
+    dashboard_report_path: Path | None
     archive_report_path: Path | None
     archive_markdown_report_path: Path | None
     history_run_id: int | None
@@ -323,6 +325,7 @@ class ScannerWorkflow:
         scorer: OpportunityScorer | None = None,
         report_writer: ScannerCSVReportWriter | None = None,
         markdown_report_writer: ScannerMarkdownReportWriter | None = None,
+        dashboard_writer: ScannerDashboardWriter | None = None,
         history_store: SignalHistoryStore | None = None,
         enable_consensus: bool = True,
         enable_history: bool = True,
@@ -363,6 +366,7 @@ class ScannerWorkflow:
         self.scorer = scorer or OpportunityScorer()
         self.report_writer = report_writer or ScannerCSVReportWriter()
         self.markdown_report_writer = markdown_report_writer or ScannerMarkdownReportWriter()
+        self.dashboard_writer = dashboard_writer or ScannerDashboardWriter()
 
     def run(
         self,
@@ -372,6 +376,7 @@ class ScannerWorkflow:
         next_day_report_path: Path = DEFAULT_NEXT_DAY_REPORT,
         swing_report_path: Path = DEFAULT_SWING_REPORT,
         markdown_report_path: Path = DEFAULT_MARKDOWN_REPORT,
+        dashboard_report_path: Path = DEFAULT_DASHBOARD_REPORT,
     ) -> ScannerRunResult:
         generated_at = datetime.now(timezone.utc)
         selected_end_date = end_date or date.today()
@@ -458,6 +463,7 @@ class ScannerWorkflow:
         saved_next_day_report_path: Path | None = None
         saved_swing_report_path: Path | None = None
         saved_markdown_report_path: Path | None = None
+        dashboard_report_path_value: Path | None = None
         archive_report_path: Path | None = None
         archive_markdown_report_path: Path | None = None
 
@@ -493,6 +499,7 @@ class ScannerWorkflow:
             next_day_report_path=saved_next_day_report_path,
             swing_report_path=saved_swing_report_path,
             markdown_report_path=saved_markdown_report_path,
+            dashboard_report_path=dashboard_report_path_value,
             archive_report_path=archive_report_path,
             archive_markdown_report_path=archive_markdown_report_path,
             history_run_id=None,
@@ -500,6 +507,10 @@ class ScannerWorkflow:
             symbol_results=ranked_results,
             errors=errors,
         )
+
+        if ranked_results:
+            dashboard_report_path_value = self.dashboard_writer.write(result, dashboard_report_path)
+            result = replace(result, dashboard_report_path=dashboard_report_path_value)
 
         if self.enable_history and self.history_store is not None:
             history_run_id = self.history_store.save_run(result)

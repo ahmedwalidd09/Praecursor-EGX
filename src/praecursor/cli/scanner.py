@@ -259,6 +259,9 @@ def print_report_location(result: ScannerRunResult) -> None:
     else:
         print(f"Markdown report saved to: {result.markdown_report_path}")
 
+    if result.dashboard_report_path is not None:
+        print(f"Dashboard saved to: {result.dashboard_report_path}")
+
     if result.archive_report_path is not None:
         print(f"Timestamped CSV archived to: {result.archive_report_path}")
 

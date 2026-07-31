@@ -14,6 +14,7 @@ praecursor-history = "praecursor.cli.history:main"
 praecursor-sources = "praecursor.cli.sources:main"
 praecursor-reports = "praecursor.cli.reports:main"
 praecursor-backtest = "praecursor.cli.backtest:main"
+praecursor-telegram = "praecursor.cli.telegram:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

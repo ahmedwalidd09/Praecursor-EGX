@@ -177,11 +177,24 @@ List source registry:
 python tools/list_data_sources.py
 ```
 
+Send scanner summary to Telegram:
+
+```powershell
+python tools/send_telegram_report.py --run-scanner
+```
+
+Dry-run Telegram message without sending:
+
+```powershell
+python tools/send_telegram_report.py --run-scanner --dry-run
+```
+
 Installed command equivalents:
 
 ```powershell
 praecursor-history
 praecursor-reports
+praecursor-telegram
 praecursor-sources
 ```
 

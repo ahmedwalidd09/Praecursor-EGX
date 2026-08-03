@@ -1,11 +1,16 @@
+import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 from praecursor.collectors.collection_result import CollectionResult
 from praecursor.collectors.market_data_source import MarketDataSource
 from praecursor.collectors.mubasher_source import MubasherSource
 from praecursor.collectors.stockanalysis_source import StockAnalysisSource
+from praecursor.collectors.tradingview_source import TradingViewSource
 from praecursor.collectors.yahoo_finance_source import YahooFinanceSource
 from praecursor.consensus.price_consensus import PriceConsensusEngine, PriceConsensusResult, SourcePrice
 from praecursor.core.price_bar import PriceBar
@@ -25,6 +30,7 @@ from praecursor.scoring.opportunity_score import OpportunityScore, OpportunitySc
 from praecursor.scoring.swing import SwingPrediction, calculate_swing_prediction
 from praecursor.storage.price_cache import PriceCache
 from praecursor.storage.signal_history import SignalHistoryStore
+from praecursor.analysis.accuracy_tracker import AccuracyTracker
 
 REPORTS_ROOT = Path(__file__).resolve().parents[3] / "reports"
 REPORT_ARCHIVE_DIR = REPORTS_ROOT / "archive"
@@ -316,7 +322,7 @@ class ScannerWorkflow:
         lookback_days: int = 450,
         consensus_lookback_days: int = 180,
         minimum_bars: int = 10,
-        source_name: str = "yahoo_finance",
+        source_name: str = "tradingview",
         symbol_mapper: SymbolMapper | None = None,
         price_cache: PriceCache | None = None,
         market_data_source: MarketDataSource | None = None,
@@ -337,9 +343,7 @@ class ScannerWorkflow:
         self.source_name = source_name
         self.symbol_mapper = symbol_mapper or SymbolMapper.from_csv()
         self.price_cache = price_cache or PriceCache()
-        self.market_data_source = market_data_source or YahooFinanceSource(
-            symbol_mapper=self.symbol_mapper
-        )
+        self.market_data_source = market_data_source or TradingViewSource(symbol_mapper=self.symbol_mapper)
         self.enable_consensus = enable_consensus
         self.consensus_data_sources = consensus_data_sources
         self.enable_history = enable_history
@@ -356,6 +360,7 @@ class ScannerWorkflow:
             self.consensus_data_sources = [
                 StockAnalysisSource(symbol_mapper=self.symbol_mapper),
                 MubasherSource(),
+                TradingViewSource(symbol_mapper=self.symbol_mapper),
             ]
 
         self.consensus_engine = consensus_engine or PriceConsensusEngine(
@@ -377,6 +382,7 @@ class ScannerWorkflow:
         swing_report_path: Path = DEFAULT_SWING_REPORT,
         markdown_report_path: Path = DEFAULT_MARKDOWN_REPORT,
         dashboard_report_path: Path = DEFAULT_DASHBOARD_REPORT,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> ScannerRunResult:
         generated_at = datetime.now(timezone.utc)
         selected_end_date = end_date or date.today()
@@ -398,7 +404,11 @@ class ScannerWorkflow:
         symbol_results: list[SymbolScanResult] = []
         errors: dict[str, str] = {}
 
-        for symbol in selected_symbols:
+        total_symbols = len(selected_symbols)
+        for i, symbol in enumerate(selected_symbols):
+            if progress_callback:
+                progress_callback(i, total_symbols)
+                
             try:
                 primary_result = primary_manager.fetch_history(symbol, start_date, selected_end_date)
                 consensus_results, consensus_source_errors = self._fetch_consensus_results(
@@ -406,6 +416,21 @@ class ScannerWorkflow:
                     consensus_start_date,
                     selected_end_date,
                 )
+                consensus_result, consensus_error = self._calculate_consensus(
+                    symbol,
+                    primary_result,
+                    consensus_results,
+                )
+
+                # Fix missed data: if primary source is wrong but consensus agrees, override it in cache
+                if consensus_result and not consensus_result.accepted and consensus_result.confidence_percent >= 40.0:
+                    self.price_cache.override_close(
+                        symbol,
+                        self.source_name,
+                        consensus_result.trade_date,
+                        consensus_result.consensus_close,
+                    )
+
                 stock = stock_builder.build(symbol, start_date, selected_end_date)
                 opportunity_score = self.scorer.score(stock)
                 cached_bars = self.price_cache.load(
@@ -415,11 +440,6 @@ class ScannerWorkflow:
                     selected_end_date,
                 )
                 total_cached_rows = self.price_cache.count(symbol, self.source_name)
-                consensus_result, consensus_error = self._calculate_consensus(
-                    symbol,
-                    primary_result,
-                    consensus_results,
-                )
 
                 warnings = list(primary_result.warnings)
                 consensus_downloaded_bars = 0
@@ -515,7 +535,15 @@ class ScannerWorkflow:
         if self.enable_history and self.history_store is not None:
             history_run_id = self.history_store.save_run(result)
             result = replace(result, history_run_id=history_run_id)
-
+            logger.info(f"Saved scanner run {history_run_id} to history database.")
+            
+            # Automatically track historical accuracy of past runs
+            try:
+                tracker = AccuracyTracker()
+                tracker.update_historical_outcomes()
+            except Exception as e:
+                logger.error(f"Failed to update historical outcomes: {e}")
+        
         return result
 
     def _attach_rank_changes(self, ranked_results: list[SymbolScanResult]) -> list[SymbolScanResult]:

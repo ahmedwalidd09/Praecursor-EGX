@@ -1,5 +1,5 @@
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -25,6 +25,7 @@ class SymbolMapper:
             egx_symbol.upper(): mapping
             for egx_symbol, mapping in mappings.items()
         }
+        self.filename = DEFAULT_SYMBOL_FILE
 
     @classmethod
     def from_csv(cls, filename: str | Path = DEFAULT_SYMBOL_FILE) -> "SymbolMapper":
@@ -53,7 +54,30 @@ class SymbolMapper:
                     enabled=cls._parse_enabled(row.get("enabled", "true")),
                 )
 
-        return cls(mappings)
+        mapper = cls(mappings)
+        mapper.filename = path
+        return mapper
+
+    def disable_symbol(self, egx_symbol: str) -> None:
+        """Mark a symbol as disabled."""
+        symbol = self._normalize_symbol(egx_symbol)
+        mapping = self._get_mapping(symbol)
+        self._mappings[symbol] = replace(mapping, enabled=False)
+
+    def save(self) -> None:
+        """Save the current symbol mappings back to the CSV file."""
+        fieldnames = ["egx_symbol", "company", "yahoo_symbol", "stockanalysis_symbol", "enabled"]
+        with open(self.filename, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            for mapping in self._mappings.values():
+                writer.writerow({
+                    "egx_symbol": mapping.egx_symbol,
+                    "company": mapping.company,
+                    "yahoo_symbol": mapping.yahoo_symbol,
+                    "stockanalysis_symbol": mapping.stockanalysis_symbol,
+                    "enabled": str(mapping.enabled).lower(),
+                })
 
     def get_symbols(self, include_disabled: bool = False) -> list[str]:
         """Return configured EGX symbols."""

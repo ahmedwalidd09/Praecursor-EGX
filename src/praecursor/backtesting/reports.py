@@ -141,6 +141,13 @@ class BacktestCSVReportWriter:
             "macd_histogram_improvement",
             "volume_spike_from_weakness",
             "momentum5",
+            "bbw20",
+            "mtf_trend",
+            "vpoc_distance",
+            "adx14",
+            "roc10",
+            "stoch_rsi",
+            "vwap_mom10",
         ]
         fields.extend([f"return_{horizon}_bars" for horizon in result.horizons])
         return fields
@@ -186,6 +193,13 @@ class BacktestCSVReportWriter:
             "macd_histogram_improvement": self._format_number(signal.indicator_values.get("MACDHistogramImprovement", float("nan"))),
             "volume_spike_from_weakness": self._format_number(signal.indicator_values.get("VolumeSpikeFromWeakness", float("nan"))),
             "momentum5": self._format_number(signal.indicator_values.get("Momentum5", float("nan"))),
+            "bbw20": self._format_number(signal.indicator_values.get("BBW20", float("nan"))),
+            "mtf_trend": self._format_number(signal.indicator_values.get("MTF_Trend", float("nan"))),
+            "vpoc_distance": self._format_number(signal.indicator_values.get("VPOC_Distance", float("nan"))),
+            "adx14": self._format_number(signal.indicator_values.get("ADX14", float("nan"))),
+            "roc10": self._format_number(signal.indicator_values.get("ROC10", float("nan"))),
+            "stoch_rsi": self._format_number(signal.indicator_values.get("StochRSI", float("nan"))),
+            "vwap_mom10": self._format_number(signal.indicator_values.get("VWAPMom10", float("nan"))),
         }
         for horizon in horizons:
             row[f"return_{horizon}_bars"] = self._format_number(signal.forward_returns[horizon])

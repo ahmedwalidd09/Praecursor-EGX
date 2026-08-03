@@ -38,6 +38,24 @@ class DataManager:
         source_name: str | None = None,
     ) -> CollectionResult:
         source = self._select_source(source_name)
+        
+        # Check cache if available
+        if self.price_cache is not None:
+            last_collected = self.price_cache.get_last_collection_time(symbol, source.name)
+            if last_collected is not None:
+                from datetime import datetime, timezone, timedelta
+                now = datetime.now(timezone.utc)
+                # If collected within the last 12 hours, use cache
+                if now - last_collected <= timedelta(hours=12):
+                    bars = self.price_cache.load(symbol, source.name, start_date, end_date)
+                    if bars:
+                        return CollectionResult(
+                            symbol=symbol,
+                            source_name=source.name,
+                            price_bars=bars,
+                            warnings=["Loaded from cache (fetched < 12h ago)"],
+                        )
+                        
         collection_result = source.fetch_history(symbol, start_date, end_date)
 
         validation_result = self.validator.validate(

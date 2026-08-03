@@ -1,0 +1,14 @@
+egx_symbol,yahoo_symbol,company,sector,is_active
+COMI,COMI.CA,Commercial International Bank,Banks,True
+HRHO,HRHO.CA,EFG Hermes,Financial Services,True
+ORAS,ORAS.CA,Orascom Construction,Construction,True
+TMGH,TMGH.CA,Talaat Moustafa Group,Real Estate,True
+AMOC,AMOC.CA,Alexandria Mineral Oils Company,Energy,True
+SKPC,SKPC.CA,Sidi Kerir Petrochemicals,Basic Resources,True
+SWDY,SWDY.CA,Elsewedy Electric,Industrial Goods,True
+ABUK,ABUK.CA,Abou Kir Fertilizers,Basic Resources,True
+ISPH,ISPH.CA,Ibnsina Pharma,Health Care,True
+EAST,EAST.CA,Eastern Company,Food & Beverage,True
+CIEB,CIEB.CA,Credit Agricole Egypt,Banks,True
+EKHO,EKHO.CA,Egypt Kuwait Holding,Financial Services,True
+JUFO,JUFO.CA,Juhayna Food Industries,Food & Beverage,True

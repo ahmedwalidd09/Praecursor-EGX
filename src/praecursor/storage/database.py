@@ -10,4 +10,4 @@ def connect(database_path: Path | None = None) -> sqlite3.Connection:
     selected_path = database_path or DATABASE
     selected_path.parent.mkdir(parents=True, exist_ok=True)
 
-    return sqlite3.connect(selected_path)
+    return sqlite3.connect(selected_path, timeout=30.0)

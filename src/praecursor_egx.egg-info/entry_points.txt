@@ -1,0 +1,8 @@
+[console_scripts]
+praecursor-backtest = praecursor.cli.backtest:main
+praecursor-dashboard = praecursor.cli.dashboard:main
+praecursor-history = praecursor.cli.history:main
+praecursor-reports = praecursor.cli.reports:main
+praecursor-scan = praecursor.cli.scanner:main
+praecursor-sources = praecursor.cli.sources:main
+praecursor-telegram = praecursor.cli.telegram:main

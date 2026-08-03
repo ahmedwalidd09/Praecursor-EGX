@@ -5,6 +5,7 @@ from pathlib import Path
 from praecursor.core.settings import DEFAULT_SCANNER_SETTINGS, ScannerSettings
 from praecursor.scoring.opportunity_score import OpportunityScore
 from praecursor.workflows.scanner import ScannerRunResult, ScannerWorkflow, SymbolScanResult
+from praecursor.data.symbol_mapper import SymbolMapper
 
 
 WARNING_PREVIEW_LIMIT = 3
@@ -12,7 +13,13 @@ WARNING_PREVIEW_LIMIT = 3
 
 def main() -> int:
     args, settings = parse_args()
-    symbols = parse_symbols(args.symbols)
+    
+    if args.watchlist:
+        symbol_mapper = SymbolMapper.from_csv(args.watchlist)
+        symbols = parse_symbols(args.symbols) or symbol_mapper.get_yahoo_symbols()
+    else:
+        symbol_mapper = SymbolMapper.from_csv()
+        symbols = parse_symbols(args.symbols) or symbol_mapper.get_yahoo_symbols()
 
     workflow = ScannerWorkflow(
         lookback_days=args.lookback_days,
@@ -21,6 +28,7 @@ def main() -> int:
         enable_consensus=not args.no_consensus,
         enable_history=not args.no_history,
         enable_archive_reports=not args.no_archive_reports,
+        symbol_mapper=symbol_mapper,
     )
     result = workflow.run(symbols=symbols)
 
@@ -51,6 +59,10 @@ def parse_args() -> tuple[argparse.Namespace, ScannerSettings]:
     parser.add_argument(
         "--symbols",
         help="Comma-separated EGX symbols to scan, for example COMI,HRHO. Defaults to config/symbols.csv.",
+    )
+    parser.add_argument(
+        "--watchlist",
+        help="Path to a custom CSV file containing a list of symbols to scan. Overrides default config/symbols.csv.",
     )
     parser.add_argument(
         "--lookback-days",

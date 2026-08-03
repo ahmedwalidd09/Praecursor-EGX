@@ -3,3 +3,10 @@ Name: praecursor-egx
 Version: 0.1.0
 Summary: Open-source EGX stock opportunity scanner
 Requires-Python: >=3.11
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git
+Requires-Dist: xgboost>=2.0.0
+Requires-Dist: scikit-learn>=1.3.0
+Provides-Extra: dashboard
+Requires-Dist: fastapi>=0.100; extra == "dashboard"
+Requires-Dist: uvicorn[standard]>=0.20; extra == "dashboard"

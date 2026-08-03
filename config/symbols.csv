@@ -1,8 +1,8 @@
 egx_symbol,company,yahoo_symbol,stockanalysis_symbol,enabled
 ABUK,Abou Kir Fertilizers,ABUK.CA,ABUK,true
 ADIB,Abu Dhabi Islamic Bank- Egypt,ADIB.CA,ADIB,true
-ACTF,Act Financial,ACTF.CA,ACTF,true
-KRDI,Al Khair River For Development Agricultural Investment&Envir,KRDI.CA,KRDI,true
+ACTF,Act Financial,ACTF.CA,ACTF,false
+KRDI,Al Khair River For Development Agricultural Investment&Envir,KRDI.CA,KRDI,false
 ATLC,Al Tawfeek Leasing Company-A.T.LEASE,ATLC.CA,ATLC,true
 ALCN,Alexandria Containers and goods,ALCN.CA,ALCN,true
 AFMC,Alexandria Flour Mills,AFMC.CA,AFMC,true
@@ -10,8 +10,8 @@ AMOC,Alexandria Mineral Oils Company,AMOC.CA,AMOC,true
 AMER,Amer Group Holding,AMER.CA,AMER,true
 ARAB,Arab Developers Holding,ARAB.CA,ARAB,true
 AMIA,Arab Moltaka Investments Co,AMIA.CA,AMIA,true
-AIDC,Arabia for Investment and Development,AIDC.CA,AIDC,true
-AIHC,Arabia Investments Holding,AIHC.CA,AIHC,true
+AIDC,Arabia for Investment and Development,AIDC.CA,AIDC,false
+AIHC,Arabia Investments Holding,AIHC.CA,AIHC,false
 ARCC,Arabian Cement Company,ARCC.CA,ARCC,true
 ASCM,ASEC Company For Mining - ASCOM,ASCM.CA,ASCM,true
 ASPI,Aspire Capital Holding For Financial Investments,ASPI.CA,ASPI,true
@@ -51,11 +51,11 @@ ZEOT,Extracted Oils,ZEOT.CA,ZEOT,true
 FWRY,Fawry For Banking Technology And Electronic Payment,FWRY.CA,FWRY,true
 GBCO,GB Corp,GBCO.CA,GBCO,true
 BIOC,Glaxo Smith Kline,BIOC.CA,BIOC,true
-GPIM,GPI For Urban Growth,GPIM.CA,GPIM,true
+GPIM,GPI For Urban Growth,GPIM.CA,GPIM,false
 HELI,Heliopolis Housing,HELI.CA,HELI,true
 HDBK,Housing & Development Bank,HDBK.CA,HDBK,true
 ISPH,Ibnsina Pharma,ISPH.CA,ISPH,true
-IEEC,Industrial & Engineering Projects,IEEC.CA,IEEC,true
+IEEC,Industrial & Engineering Projects,IEEC.CA,IEEC,false
 IFAP,International Agricultural Products,IFAP.CA,IFAP,true
 ICFC,International Company For Fertilizers & Chemicals,ICFC.CA,ICFC,true
 ISMQ,Iron And Steel for Mines and Quarries,ISMQ.CA,ISMQ,true
@@ -74,7 +74,7 @@ ATQA,Misr National Steel - Ataqa,ATQA.CA,ATQA,true
 MTIE,MM Group For Industry And International Trade,MTIE.CA,MTIE,true
 NCCW,Nasr Company for Civil Works,NCCW.CA,NCCW,true
 OFH,O B Financial Holding,OFH.CA,OFH,true
-ORAS,Orascom Construction PLC,ORAS.CA,ORAS,true
+ORAS,Orascom Construction PLC,ORAS.CA,ORAS,false
 ORHD,Orascom Development Egypt,ORHD.CA,ORHD,true
 OIH,Orascom Investment Holding,OIH.CA,OIH,true
 ORWE,Oriental Weavers,ORWE.CA,ORWE,true
@@ -82,7 +82,7 @@ PHDC,Palm Hills Development Company,PHDC.CA,PHDC,true
 CCAP,QALAA For Financial Investments,CCAP.CA,CCAP,true
 RACC,Raya Customer Experience,RACC.CA,RACC,true
 RAYA,Raya Holding For Financial Investments,RAYA.CA,RAYA,true
-SIPC,Sabaa International Company for Pharmaceutical and Chemical,SIPC.CA,SIPC,true
+SIPC,Sabaa International Company for Pharmaceutical and Chemical,SIPC.CA,SIPC,false
 SDTI,Sharm Dreams Co. for Tourism Investment,SDTI.CA,SDTI,true
 SKPC,Sidi Kerir Petrochemicals - SIDPEC,SKPC.CA,SKPC,true
 SCEM,Sinai Cement,SCEM.CA,SCEM,true
@@ -90,13 +90,206 @@ OCDI,Six of October Development & Investment (SODIC),OCDI.CA,OCDI,true
 SVCE,South Valley Cement,SVCE.CA,SVCE,true
 TMGH,T M G Holding,TMGH.CA,TMGH,true
 TALM,Taaleem Management Services,TALM.CA,TALM,true
-TANM,Tanmiya for Real Estate Investment,TANM.CA,TANM,true
-TAQA,Taqa Arabia,TAQA.CA,TAQA,true
+TANM,Tanmiya for Real Estate Investment,TANM.CA,TANM,false
+TAQA,Taqa Arabia,TAQA.CA,TAQA,false
 ETEL,Telecom Egypt,ETEL.CA,ETEL,true
 RMDA,Tenth Of Ramadan Pharmaceutical Industries&Diagnostic-Rameda,RMDA.CA,RMDA,true
 MOED,The Egyptian Modern Education Systems,MOED.CA,MOED,true
-VALU,U Consumer Finance,VALU.CA,VALU,true
+VALU,U Consumer Finance,VALU.CA,VALU,false
 UNIP,Universal For Paper and Packaging Materials (Unipack,UNIP.CA,UNIP,true
-VLMR,Valmore Holding,VLMR.CA,VLMR,true
-VLMRA,Valmore Holding-EGP,VLMRA.CA,VLMRA,true
+VLMR,Valmore Holding,VLMR.CA,VLMR,false
+VLMRA,Valmore Holding-EGP,VLMRA.CA,VLMRA,false
 ZMID,Zahraa Maadi Investment & Development,ZMID.CA,ZMID,true
+SUCE,Suez Cement Co.,SUCE.CA,SUCE,True
+CID,Chemical Dev Ind Egp10,CID.CA,CID,True
+AIH,Arabia Investments Holding SAE,AIH.CA,AIH,True
+ICID,International Company for Investment & Development,ICID.CA,ICID,True
+NINH,Nozha International Hospital,NINH.CA,NINH,True
+TWSA,TAWASOA FOR FACTORING,TWSA.CA,TWSA,True
+ADPC,Arab Dairy Products Co. Arab Dairy - Panda,ADPC.CA,ADPC,True
+VERT,Vertika for Industry & Trade,VERT.CA,VERT,True
+ALEX,Alexandria Cement Co.,ALEX.CA,ALEX,True
+CEFM,Middle Egypt Flour Mills,CEFM.CA,CEFM,True
+EGAS,Egypt Gas Co.,EGAS.CA,EGAS,True
+KWIN,El Kahera El Watania Investment,KWIN.CA,KWIN,True
+WATP,Modern Co. for Water Proofing,WATP.CA,WATP,True
+EGS370O1C013,National Printing,EGS370O1C013.CA,EGS370O1C013,True
+EITP,Egyptian International Tourism Projects,EITP.CA,EITP,True
+TORA,Tourah Cement Co,TORA.CA,TORA,True
+CRST,Creast Mark For Contracting And Real Estate Development,CRST.CA,CRST,True
+EGBE,Egyptian Gulf Bank,EGBE.CA,EGBE,True
+ELAB,The Egyptian Linear Alkyl Benzene co.-ELAB,ELAB.CA,ELAB,True
+ALUM,Arab Aluminum Co. SAE,ALUM.CA,ALUM,True
+FNAR,Al Fanar Contracting Construction Trade Import & Export Co.,FNAR.CA,FNAR,True
+TYCN,Tycoon Holding Company For Financial Investments,TYCN.CA,TYCN,True
+EGS65101C015,National Investment & Reconstruction,EGS65101C015.CA,EGS65101C015,True
+EGS65861C014,Egyptian Contracting Co.-AL- ABD,EGS65861C014.CA,EGS65861C014,True
+EFIC,Egyptian Financial & Industrial Co.,EFIC.CA,EFIC,True
+APPC,Advanced Pharmaceutical Packaging Co.,APPC.CA,APPC,True
+IRON,Egyptian Iron & Steel,IRON.CA,IRON,True
+LUTS,Lotus For Agricultural Investments And Development,LUTS.CA,LUTS,True
+ICLE,International Co. for Leasing SAE,ICLE.CA,ICLE,True
+SPMD,Speed Medical SAE,SPMD.CA,SPMD,True
+OCAP,OG Capital For Investments SPAC,OCAP.CA,OCAP,True
+FCMD,Future Care For Medical Industries,FCMD.CA,FCMD,True
+EOSB,El Orouba Securities Brokerage,EOSB.CA,EOSB,True
+EASB,Egyptian Arabian Company for Securities Brokerage EAC,EASB.CA,EASB,True
+ACFR,Alexandria Company For Refractories,ACFR.CA,ACFR,True
+GTWL,Golden Textiles & Clothes Wool,GTWL.CA,GTWL,True
+SNFC,Sharkia National Food,SNFC.CA,SNFC,True
+MOSC,Misr Oils & Soap Co.,MOSC.CA,MOSC,True
+CFGH,Concrete Fashion Group for Commercial and Industrial Investments S.A.E,CFGH.CA,CFGH,True
+KNGC,EL- Nasr Glass And Crystal,KNGC.CA,KNGC,True
+NFCI,ELNASR Co For Fertilizers And Chemical Industries,NFCI.CA,NFCI,True
+SPIN,Alexandria Spinning & Weaving,SPIN.CA,SPIN,True
+CLHO,Cleopatra Hospital Company,CLHO.CA,CLHO,True
+EPCO,Egypt for Poultry Co.,EPCO.CA,EPCO,True
+EPPK,El Ahram Co. for Printing & Packing,EPPK.CA,EPPK,True
+ROTO,Rowad Tourism (Al Rowad) Co,ROTO.CA,ROTO,True
+ENPI,Engineering for the Petroleum and Process Industries-Enppi,ENPI.CA,ENPI,True
+OCPH,October Pharma Co.,OCPH.CA,OCPH,True
+NEDA,Northern Upper Egypt Development & Agricultural Production,NEDA.CA,NEDA,True
+AMII,Arabian Metal Industries and Industrial Investments,AMII.CA,AMII,True
+FAITA,Faisal Islamic Bank of Egypt,FAITA.CA,FAITA,True
+RMTV,Rowad Misr Tourism Investment,RMTV.CA,RMTV,True
+SUGR,Delta Sugar,SUGR.CA,SUGR,True
+RREI,Arab Real Estate Investment Co.,RREI.CA,RREI,True
+TRTO,TransOceans Tours,TRTO.CA,TRTO,True
+RAKT,Rakta Paper Manufacturing,RAKT.CA,RAKT,True
+CERA,Arab Ceramic Co. - Ceramica Remas,CERA.CA,CERA,True
+EGS48271C018-EGP,Egypt - South Africa for Communication,EGS48271C018-EGP.CA,EGS48271C018-EGP,True
+EFAC,Egyptian Ferro All Egp10,EFAC.CA,EFAC,True
+FIRE,First Investment & Real Estate Development,FIRE.CA,FIRE,True
+BONY,Bonyan for Development and Trade,BONY.CA,BONY,True
+WKOL,Wadi Kom Ombo Land Reclamation,WKOL.CA,WKOL,True
+RUBX,Rubex International for Plastic & Acrylic Manufacturing,RUBX.CA,RUBX,True
+EBSC,Osool ESB Securities Brokerage,EBSC.CA,EBSC,True
+EGREF,Egyptians Real Estate Fund,EGREF.CA,EGREF,True
+INEG,Integrated Engineering Group S.A.E,INEG.CA,INEG,True
+ADCI,Arab Pharmaceuticals,ADCI.CA,ADCI,True
+AREH,Egyptian Real Estate Group,AREH.CA,AREH,True
+COPR,Cooper for Commercial Investment & Real Estate Development,COPR.CA,COPR,True
+EGS72L31C011,SOLARSOL For Energy,EGS72L31C011.CA,EGS72L31C011,True
+EGS30AJ1C016-EGP,International Dry Ice Co.,EGS30AJ1C016-EGP.CA,EGS30AJ1C016-EGP,True
+MMAT,Marsa Marsa Alam for Tourism Development,MMAT.CA,MMAT,True
+AALR,General Co. for Land Reclamation Development & Reconstruction,AALR.CA,AALR,True
+CANA,Suez Canal Bank SAE,CANA.CA,CANA,True
+CPCI,Kahira Pharmaceuticals & Chemical Industries Co.,CPCI.CA,CPCI,True
+GGRN,Gogreen for Agricultural Investment and Development Company,GGRN.CA,GGRN,True
+GIHD,Gharbia Islamic Housing Development,GIHD.CA,GIHD,True
+POCO,Port Said Container And Cargo Handling,POCO.CA,POCO,True
+QNBE,Qatar National Bank,QNBE.CA,QNBE,True
+SEIGA,Saudi Egyptian Investment & Finance Co. SAE,SEIGA.CA,SEIGA,True
+SPHT,El Shams Pyramids Co. for Hotels & Touristic Projects SAE,SPHT.CA,SPHT,True
+EALR,El Arabia for Land Reclamation,EALR.CA,EALR,True
+SMFR,Samad Misr-EGYFERT,SMFR.CA,SMFR,True
+MENA,Mena Touristic & Real Estate Investment,MENA.CA,MENA,True
+MLIC,Misr Life Insurance,MLIC.CA,MLIC,True
+EGSA,Egyptian Satellite Co.,EGSA.CA,EGSA,True
+UPMS,Union Pharmacist Company For Medical Services And Investment,UPMS.CA,UPMS,True
+WCDF,Middle & West Delta Flour Mills Co.,WCDF.CA,WCDF,True
+EGS3E071C013-EGP,Acrow Misr,EGS3E071C013-EGP.CA,EGS3E071C013-EGP,True
+MOIN,Mohandes Insurance Co.,MOIN.CA,MOIN,True
+EGOTH,El Masreyah Touris Egp100,EGOTH.CA,EGOTH,True
+ACAP,A Capital Holding,ACAP.CA,ACAP,True
+PRDC,Pioneers Properties for Urban Development,PRDC.CA,PRDC,True
+AXPH,Alexandria Company for Pharmaceuticals and Chemical Industries,AXPH.CA,AXPH,True
+CCRS,Gulf Canadian Real Estate Investment Co.,CCRS.CA,CCRS,True
+EDFM,East Delta Flour Mills Co.,EDFM.CA,EDFM,True
+EEP,Egypt Education Platform - EEP,EEP.CA,EEP,True
+ELKA,El Kahera Housing,ELKA.CA,ELKA,True
+RKAZ,REKAZ Financial Holding,RKAZ.CA,RKAZ,True
+MFSC,Misr Duty Free Shops Co.,MFSC.CA,MFSC,True
+NAHO,Naeem Holding Co.,NAHO.CA,NAHO,True
+MICH,Misr Chemical Industries Ltd.,MICH.CA,MICH,True
+ACGC,Arab Cotton Ginning Co.,ACGC.CA,ACGC,True
+NDRL,National Drilling Co.,NDRL.CA,NDRL,True
+SIEG,Egyptian Company for Pipes and Cement Products -Siegwart,SIEG.CA,SIEG,True
+AMES,Alexandria New Medical Center Co.,AMES.CA,AMES,True
+UNIT,United Housing Construction SA,UNIT.CA,UNIT,True
+OLFI,Obour Land for Food Industries,OLFI.CA,OLFI,True
+DOMT,Arabian Food Industries Co.,DOMT.CA,DOMT,True
+SAUD,Al Baraka Bank Egypt,SAUD.CA,SAUD,True
+IBCT,International Business Corp. for Trading & Agencies,IBCT.CA,IBCT,True
+FTNS,Fitness Prime,FTNS.CA,FTNS,True
+MKIT,Misr Kuwait Investment & Trading Co.,MKIT.CA,MKIT,True
+MILS,North Cairo Mills Co.,MILS.CA,MILS,True
+ELEC,Electro Cable Egypt,ELEC.CA,ELEC,True
+ADRI,Arab Development & Real Estate Investment,ADRI.CA,ADRI,True
+NBKE,National Bank of Kuwait - Egypt,NBKE.CA,NBKE,True
+HAVC,Hassan Allam Investments & Venture Capital S.A.E,HAVC.CA,HAVC,True
+MOIL,Maridive & Oil Services SAE,MOIL.CA,MOIL,True
+EGS65621C012,El Nasr Housing & Egp5,EGS65621C012.CA,EGS65621C012,True
+SCFM,South Cairo & Giza Mills & Bakeries,SCFM.CA,SCFM,True
+DEIN,Delta Insurance,DEIN.CA,DEIN,True
+FAIT,Faisal Islamic Bank of Egypt,FAIT.CA,FAIT,True
+RTVC,Remco for Touristic Villages Construction,RTVC.CA,RTVC,True
+CPME,Catalyst Partners Middle East,CPME.CA,CPME,True
+MMHC,El Mamoura Co For Egp10,MMHC.CA,MMHC,True
+EGS385S1C012,Ferchem Misr Co. for Fertilizers & Chemicals,EGS385S1C012.CA,EGS385S1C012,True
+APSW,Arab Polvara Spinning & Weaving Co.,APSW.CA,APSW,True
+GDWA,Gadwa For Industrial Development,GDWA.CA,GDWA,True
+BINV,B Investments Holding SAE,BINV.CA,BINV,True
+ODIN,ODIN Investments,ODIN.CA,ODIN,True
+GSSC,General Silos & Storage Co.,GSSC.CA,GSSC,True
+CICH,CI Capital Holding for Financial Investments,CICH.CA,CICH,True
+NHPS,National Housing for Professional Syndicates,NHPS.CA,NHPS,True
+UTOP,Utopia Real Estate Investment & Tourism SAE,UTOP.CA,UTOP,True
+SEIG,Saudi Egyptian Investment & Finance Co. SAE,SEIG.CA,SEIG,True
+YAYT,Spring & Transportation Needs Manufacturing Co.,YAYT.CA,YAYT,True
+DCRC,Delta Construction & Rebuilding Co.,DCRC.CA,DCRC,True
+GTEX,G-TEX for Commercial and Industrial Investments S.A.E,GTEX.CA,GTEX,True
+HDST,HEDGESTONE INVESTMENT,HDST.CA,HDST,True
+GPPL,Golden Pyramids Plaza,GPPL.CA,GPPL,True
+ELNA,El Nasr for Manufacturing Agricultural Crops,ELNA.CA,ELNA,True
+EGS73M81C012,National Asset Management And Investment,EGS73M81C012.CA,EGS73M81C012,True
+SNFI,Souhag National Food Industries,SNFI.CA,SNFI,True
+MEGM,Middle East Glass Manufacturing SAE,MEGM.CA,MEGM,True
+KORA,KORRA,KORA.CA,KORA,True
+EGWA,General Warehouses of Egypt,EGWA.CA,EGWA,True
+SAIB,Societe Arabe Internationale de Banque,SAIB.CA,SAIB,True
+GMCI,GMC Group for Industrial Commercial & Financial Investments,GMCI.CA,GMCI,True
+UBEE,United Bank SAE,UBEE.CA,UBEE,True
+EEII,El Arabia Engineering Industries,EEII.CA,EEII,True
+UEFM,Upper Egypt Flour Mills Co.,UEFM.CA,UEFM,True
+AMPI,AL Moasher Pay for Electronic Payment and Collection (S.A.E),AMPI.CA,AMPI,True
+PMSC,Petroleum Marine Services Co .P.M.S,PMSC.CA,PMSC,True
+AJWA,Ajwa for Food Industries Co. Egypt,AJWA.CA,AJWA,True
+CIRA,Cairo For Investment And Real Estate Developments -CIRA Education,CIRA.CA,CIRA,True
+GOUR,Gourmet Egypt.Com Foods,GOUR.CA,GOUR,True
+NCGC,Nile Cotton Ginning,NCGC.CA,NCGC,True
+MISR,MISR Intercontinental for Granite & Marble,MISR.CA,MISR,True
+DTPP,Delta for Printing & Packaging,DTPP.CA,DTPP,True
+MITR,Misr Travel&Touris Egp6,MITR.CA,MITR,True
+DCCC,Damietta Container and Cargo Handling,DCCC.CA,DCCC,True
+NMIN,El Nasr Mining Co Egp10,NMIN.CA,NMIN,True
+KZPC,Kafr El Zayat Pesticides & Chemical Co.,KZPC.CA,KZPC,True
+MAAL,Marseilla Al Masreia Al Khalegeya for Holding Investment,MAAL.CA,MAAL,True
+SINA,Sinai Manganese Company,SINA.CA,SINA,True
+BIDI,El Badr Investment and Development - BID,BIDI.CA,BIDI,True
+GTHE,Global Telecom Holding S.A.E.,GTHE.CA,GTHE,True
+SCTS,Sues Canal Co. for Technology Settling,SCTS.CA,SCTS,True
+PHTV,Pyramisa Hotels,PHTV.CA,PHTV,True
+GEOS,Geos for trading and contracting,GEOS.CA,GEOS,True
+GGCC,Giza General Contracting & Real Estate Investment,GGCC.CA,GGCC,True
+PACH,Paints & Chemical Industries Co.,PACH.CA,PACH,True
+MHOT,Misr Hotels Co.,MHOT.CA,MHOT,True
+MBSC,Misr Beni Suef Cement Co. SAE,MBSC.CA,MBSC,True
+HBCO,Heibco Npv,HBCO.CA,HBCO,True
+ELWA,Elwadi for International Investment & Development,ELWA.CA,ELWA,True
+LKGP,The Holding Company for Financial Investment - The Lakah Group,LKGP.CA,LKGP,True
+BIGP,ElBarbary Investment Group,BIGP.CA,BIGP,True
+ANCC,ALNAHDA Industrial Co.,ANCC.CA,ANCC,True
+NARE,Naeem Real Estate Holding Group,NARE.CA,NARE,True
+GRCA,Grand Investment Capital,GRCA.CA,GRCA,True
+PRMH,Prime Holding,PRMH.CA,PRMH,True
+CAED,Cairo Educational Services,CAED.CA,CAED,True
+ACAMD,Arab Co. for Asset Management & Development,ACAMD.CA,ACAMD,True
+EGS72XL1C014,Premium Healthcare Group,EGS72XL1C014.CA,EGS72XL1C014,True
+MBEG,MB for Engineering & Contracting,MBEG.CA,MBEG,True
+MIPH,Minapharm Pharmaceuticals,MIPH.CA,MIPH,True
+AIFI,Atlas for Investment & Food Industries SAE,AIFI.CA,AIFI,True
+DGTZ,Digitize for Investment And Technology,DGTZ.CA,DGTZ,True
+IRAX,El Ezz Aldekhela Steel-Alexandria,IRAX.CA,IRAX,True
+SMPP,Modern Shorouk Printing & Packaging,SMPP.CA,SMPP,True
+INFI,Ismailia National Food Industries,INFI.CA,INFI,True

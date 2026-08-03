@@ -84,6 +84,15 @@ class PriceCache:
 
         return len(rows)
 
+    def override_close(self, symbol: str, source: str, date_obj: date, new_close: float) -> None:
+        """Override the close price for a specific date (used by consensus engine)."""
+        with sqlite3.connect(self.database_path) as connection:
+            connection.execute(
+                "UPDATE source_prices SET close = ? WHERE symbol = ? AND source = ? AND date(date) = date(?)",
+                (new_close, symbol, source, date_obj.isoformat())
+            )
+            connection.commit()
+
     def load(
         self,
         symbol: str,
@@ -137,3 +146,20 @@ class PriceCache:
             close=float(row["close"]),
             volume=int(row["volume"]),
         )
+
+    def get_last_collection_time(self, symbol: str, source_name: str) -> datetime | None:
+        """Get the latest collected_at timestamp for a symbol and source."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT MAX(collected_at)
+                FROM source_prices
+                WHERE ticker = ? AND source = ?
+                """,
+                (symbol, source_name),
+            ).fetchone()
+
+        if not row or not row[0]:
+            return None
+
+        return datetime.fromisoformat(row[0])

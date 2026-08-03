@@ -84,12 +84,37 @@ class PriceCache:
 
         return len(rows)
 
-    def override_close(self, symbol: str, source: str, date_obj: date, new_close: float) -> None:
-        """Override the close price for a specific date (used by consensus engine)."""
-        with sqlite3.connect(self.database_path) as connection:
+    def override_consensus_prices(
+        self, symbol: str, source: str, date_obj: date, new_high: float, new_close: float
+    ) -> None:
+        """Override the high and close prices for a specific date (used by consensus engine)."""
+        with closing(self._connect()) as connection:
             connection.execute(
-                "UPDATE source_prices SET close = ? WHERE symbol = ? AND source = ? AND date(date) = date(?)",
-                (new_close, symbol, source, date_obj.isoformat())
+                """
+                UPDATE source_prices
+                SET high = ?, close = ?
+                WHERE ticker = ? AND source = ? AND trade_date = ?
+                """,
+                (new_high, new_close, symbol, source, date_obj.isoformat()),
+            )
+            connection.commit()
+
+    def override_close(
+        self, symbol: str, source: str, date_obj: date, new_close: float, new_high: float | None = None
+    ) -> None:
+        """Override the close (and optionally high) price for a specific date (used by consensus engine)."""
+        if new_high is not None:
+            self.override_consensus_prices(symbol, source, date_obj, new_high, new_close)
+            return
+
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE source_prices
+                SET close = ?
+                WHERE ticker = ? AND source = ? AND trade_date = ?
+                """,
+                (new_close, symbol, source, date_obj.isoformat()),
             )
             connection.commit()
 

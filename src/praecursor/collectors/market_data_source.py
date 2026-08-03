@@ -4,6 +4,16 @@ from datetime import date
 from praecursor.collectors.collection_result import CollectionResult
 
 
+class MarketDataError(Exception):
+    """Base exception for market data collector errors."""
+    pass
+
+
+class NetworkError(MarketDataError):
+    """Raised when network connectivity fails during data fetch."""
+    pass
+
+
 class MarketDataSource(ABC):
     """
     Common interface for every market data source.

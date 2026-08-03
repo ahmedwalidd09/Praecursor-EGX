@@ -13,9 +13,12 @@ class FakeMarketDataSource(MarketDataSource):
     depending on the internet or a real external website.
     """
 
+    def __init__(self, source_name: str = "fake_market_data"):
+        self._source_name = source_name
+
     @property
     def name(self) -> str:
-        return "fake_market_data"
+        return self._source_name
 
     def fetch_history(
         self,
@@ -54,7 +57,8 @@ class FakeMarketDataSource(MarketDataSource):
         return current_date.weekday() not in (4, 5)
 
     def _create_price_bar(self, trade_date: date, bar_number: int) -> PriceBar:
-        open_price = 100.0 + (bar_number * 0.5)
+        day_offset = (trade_date - date(2025, 1, 1)).days
+        open_price = 100.0 + (day_offset * 0.5)
         close_price = open_price + 0.2
 
         return PriceBar(
@@ -63,5 +67,5 @@ class FakeMarketDataSource(MarketDataSource):
             high=close_price + 0.5,
             low=open_price - 0.5,
             close=close_price,
-            volume=100_000 + (bar_number * 1_000),
+            volume=100_000 + (day_offset * 1_000),
         )

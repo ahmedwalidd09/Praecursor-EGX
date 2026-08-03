@@ -1,0 +1,42 @@
+test_consensus_accepts_majority_and_flags_outlier (tests.test_consensus.ConsensusTests.test_consensus_accepts_majority_and_flags_outlier) ... FAIL
+test_consensus_high_and_close_multi_source_logging (tests.test_consensus.ConsensusTests.test_consensus_high_and_close_multi_source_logging) ..okok
+test_consensus_rejects_insufficient_sources (tests.test_consensus.ConsensusTests.test_consensus_rejects_insufficient_sources) ... ok
+test_scanner_consensus_logging_and_cache_override (tests.test_scanner_workflow.ScannerWorkflowTests.test_scanner_consensus_logging_and_cache_override) ..FAIL
+test_workflow_saves_history_and_rank_changes (tests.test_scanner_workflow.ScannerWorkflowTests.test_workflow_saves_history_and_rank_changes) ... okok
+
+======================================================================
+ERROR: test_scanner_consensus_logging_and_cache_override (tests.test_scanner_workflow.ScannerWorkflowTests.test_scanner_consensus_logging_and_cache_override)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scanner_workflow.py", line 54, in test_scanner_consensus_logging_and_cache_override
+    source_tv = FakeMarketDataSource(source_name="TradingView")
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FakeMarketDataSource() takes no arguments
+
+======================================================================
+FAIL: test_consensus_accepts_majority_and_flags_outlier (tests.test_consensus.ConsensusTests.test_consensus_accepts_majority_and_flags_outlier)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_consensus.py", line 26, in test_consensus_accepts_majority_and_flags_outlier
+    self.assertAlmostEqual(result.consensus_close, 100.05, places=2)
+AssertionError: 100.05 != 100.025 within 2 places (0.024999999999991473 difference)
+
+----------------------------------------------------------------------
+Ran 5 tests in 805.752s
+
+FAILED (failures=1, errors=1)
+
+Result: failures=1, errors=1, total=5
+FAILURE in test_consensus_accepts_majority_and_flags_outlier (tests.test_consensus.ConsensusTests.test_consensus_accepts_majority_and_flags_outlier):
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_consensus.py", line 26, in test_consensus_accepts_majority_and_flags_outlier
+    self.assertAlmostEqual(result.consensus_close, 100.05, places=2)
+AssertionError: 100.05 != 100.025 within 2 places (0.024999999999991473 difference)
+
+ERROR in test_scanner_consensus_logging_and_cache_override (tests.test_scanner_workflow.ScannerWorkflowTests.test_scanner_consensus_logging_and_cache_override):
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scanner_workflow.py", line 54, in test_scanner_consensus_logging_and_cache_override
+    source_tv = FakeMarketDataSource(source_name="TradingView")
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FakeMarketDataSource() takes no arguments
+

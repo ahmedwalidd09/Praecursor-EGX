@@ -1,0 +1,301 @@
+EEEEEE.F.............E.2026-08-03 16:43:33,107 [INFO] Test log entry
+EC:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tools\run_autonomous_pipeline.py:29: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\moody\\AppData\\Local\\Temp\\tmpauhw2nbc\\logs\\scheduled_pipeline_20260803.log' mode='a' encoding='utf-8'>
+  logger.handlers.clear()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-08-03 16:44:03,088 [INFO] ==================================================
+2026-08-03 16:44:03,088 [INFO] Praecursor-EGX Autonomous Daily Pipeline Started
+2026-08-03 16:44:03,089 [INFO] Project Root: C:\Users\moody\AppData\Local\Temp\tmp01dsgty4
+2026-08-03 16:44:03,089 [INFO] Log File: C:\Users\moody\AppData\Local\Temp\tmp01dsgty4\logs\scheduled_pipeline_20260803.log
+2026-08-03 16:44:03,090 [INFO] ==================================================
+2026-08-03 16:44:03,090 [ERROR] Stage 1 (Scanner) failed. Aborting downstream pipeline execution.
+EC:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tools\run_autonomous_pipeline.py:29: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\moody\\AppData\\Local\\Temp\\tmp01dsgty4\\logs\\scheduled_pipeline_20260803.log' mode='a' encoding='utf-8'>
+  logger.handlers.clear()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-08-03 16:44:09,254 [INFO] ==================================================
+2026-08-03 16:44:09,321 [INFO] Praecursor-EGX Autonomous Daily Pipeline Started
+2026-08-03 16:44:09,321 [INFO] Project Root: C:\Users\moody\AppData\Local\Temp\tmp2hmspoa0
+2026-08-03 16:44:09,321 [INFO] Log File: C:\Users\moody\AppData\Local\Temp\tmp2hmspoa0\logs\scheduled_pipeline_20260803.log
+2026-08-03 16:44:09,321 [INFO] ==================================================
+2026-08-03 16:44:09,321 [WARNING] Stage 2 (Model Retraining) completed with errors.
+2026-08-03 16:44:09,322 [INFO] Telegram credentials not found in environment. Operating in --dry-run mode.
+2026-08-03 16:44:09,383 [ERROR] Pipeline finished with warnings/errors. (3/4 stages passed)
+EC:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tools\run_autonomous_pipeline.py:29: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\moody\\AppData\\Local\\Temp\\tmp2hmspoa0\\logs\\scheduled_pipeline_20260803.log' mode='a' encoding='utf-8'>
+  logger.handlers.clear()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-08-03 16:44:12,079 [INFO] ==================================================
+2026-08-03 16:44:12,079 [INFO] Praecursor-EGX Autonomous Daily Pipeline Started
+2026-08-03 16:44:12,080 [INFO] Project Root: C:\Users\moody\AppData\Local\Temp\tmpd75dhz7o
+2026-08-03 16:44:12,080 [INFO] Log File: C:\Users\moody\AppData\Local\Temp\tmpd75dhz7o\logs\scheduled_pipeline_20260803.log
+2026-08-03 16:44:12,080 [INFO] ==================================================
+2026-08-03 16:44:12,080 [INFO] Telegram credentials not found in environment. Operating in --dry-run mode.
+2026-08-03 16:44:12,082 [INFO] Pipeline completed successfully. (4/4 stages passed)
+E.F.........
+======================================================================
+ERROR: test_intraday_high_hits_target_even_when_close_is_lower (test_accuracy_tracker.TestAccuracyTracker.test_intraday_high_hits_target_even_when_close_is_lower)
+Verify candidate target hit when intraday high reaches target price even if close is lower.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 54, in test_intraday_high_hits_target_even_when_close_is_lower
+    self._create_source_price(conn, symbol="TEST_HIT", trade_date="2026-08-02", high=108.0, close=101.0)
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 42, in _create_source_price
+    conn.execute("""
+sqlite3.OperationalError: no such table: source_prices
+
+======================================================================
+ERROR: test_intraday_high_hits_target_even_when_close_is_lower (test_accuracy_tracker.TestAccuracyTracker.test_intraday_high_hits_target_even_when_close_is_lower)
+Verify candidate target hit when intraday high reaches target price even if close is lower.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpkpdj1fyd\\test_praecursor.db'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 23, in tearDown
+    self.temp_dir.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpkpdj1fyd\\test_praecursor.db'
+
+======================================================================
+ERROR: test_intraday_high_misses_target_even_if_over_2_point_5_percent (test_accuracy_tracker.TestAccuracyTracker.test_intraday_high_misses_target_even_if_over_2_point_5_percent)
+Verify candidate target miss when intraday high fails to reach target price, even if gain > 2.5%.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 73, in test_intraday_high_misses_target_even_if_over_2_point_5_percent
+    self._create_source_price(conn, symbol="TEST_MISS", trade_date="2026-08-02", high=104.0, close=103.0)
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 42, in _create_source_price
+    conn.execute("""
+sqlite3.OperationalError: no such table: source_prices
+
+======================================================================
+ERROR: test_intraday_high_misses_target_even_if_over_2_point_5_percent (test_accuracy_tracker.TestAccuracyTracker.test_intraday_high_misses_target_even_if_over_2_point_5_percent)
+Verify candidate target miss when intraday high fails to reach target price, even if gain > 2.5%.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmp5ag6ot9o\\test_praecursor.db'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 23, in tearDown
+    self.temp_dir.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmp5ag6ot9o\\test_praecursor.db'
+
+======================================================================
+ERROR: test_running_updater_multiple_times_appends_and_maintains_baseline_count (test_accuracy_tracker.TestAccuracyTracker.test_running_updater_multiple_times_appends_and_maintains_baseline_count)
+Verify running updater multiple times appends to history archive and maintains baseline count (16 records).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 95, in test_running_updater_multiple_times_appends_and_maintains_baseline_count
+    self._create_source_price(conn, symbol=sym, trade_date="2026-08-02", high=high_val, close=101.0)
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 42, in _create_source_price
+    conn.execute("""
+sqlite3.OperationalError: no such table: source_prices
+
+======================================================================
+ERROR: test_running_updater_multiple_times_appends_and_maintains_baseline_count (test_accuracy_tracker.TestAccuracyTracker.test_running_updater_multiple_times_appends_and_maintains_baseline_count)
+Verify running updater multiple times appends to history archive and maintains baseline count (16 records).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpu5j807st\\test_praecursor.db'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_accuracy_tracker.py", line 23, in tearDown
+    self.temp_dir.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpu5j807st\\test_praecursor.db'
+
+======================================================================
+ERROR: test_scanner_consensus_logging_and_cache_override (test_scanner_workflow.ScannerWorkflowTests.test_scanner_consensus_logging_and_cache_override)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scanner_workflow.py", line 54, in test_scanner_consensus_logging_and_cache_override
+    source_tv = FakeMarketDataSource(source_name="TradingView")
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FakeMarketDataSource() takes no arguments
+
+======================================================================
+ERROR: test_logging_setup_creates_log_file (test_scheduled_task.TestHeadlessPipelineRunner.test_logging_setup_creates_log_file)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpauhw2nbc\\logs\\scheduled_pipeline_20260803.log'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scheduled_task.py", line 82, in test_logging_setup_creates_log_file
+    with tempfile.TemporaryDirectory() as tmp_dir:
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 943, in __exit__
+    self.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 629, in _rmtree_unsafe
+    _rmtree_unsafe(fullname, onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpauhw2nbc\\logs\\scheduled_pipeline_20260803.log'
+
+======================================================================
+ERROR: test_run_pipeline_stage1_failure_aborts (test_scheduled_task.TestHeadlessPipelineRunner.test_run_pipeline_stage1_failure_aborts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmp01dsgty4\\logs\\scheduled_pipeline_20260803.log'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py", line 1378, in patched
+    return func(*newargs, **newkeywargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scheduled_task.py", line 119, in test_run_pipeline_stage1_failure_aborts
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 943, in __exit__
+    self.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 629, in _rmtree_unsafe
+    _rmtree_unsafe(fullname, onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmp01dsgty4\\logs\\scheduled_pipeline_20260803.log'
+
+======================================================================
+ERROR: test_run_pipeline_stage2_failure_propagates (test_scheduled_task.TestHeadlessPipelineRunner.test_run_pipeline_stage2_failure_propagates)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmp2hmspoa0\\logs\\scheduled_pipeline_20260803.log'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py", line 1378, in patched
+    return func(*newargs, **newkeywargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scheduled_task.py", line 127, in test_run_pipeline_stage2_failure_propagates
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 943, in __exit__
+    self.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 629, in _rmtree_unsafe
+    _rmtree_unsafe(fullname, onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmp2hmspoa0\\logs\\scheduled_pipeline_20260803.log'
+
+======================================================================
+ERROR: test_run_pipeline_success_exit_code (test_scheduled_task.TestHeadlessPipelineRunner.test_run_pipeline_success_exit_code)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 632, in _rmtree_unsafe
+    os.unlink(fullname)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpd75dhz7o\\logs\\scheduled_pipeline_20260803.log'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py", line 1378, in patched
+    return func(*newargs, **newkeywargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scheduled_task.py", line 111, in test_run_pipeline_success_exit_code
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 943, in __exit__
+    self.cleanup()
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 947, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 929, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 787, in rmtree
+    return _rmtree_unsafe(path, onerror)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 629, in _rmtree_unsafe
+    _rmtree_unsafe(fullname, onerror)
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 634, in _rmtree_unsafe
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "C:\Users\moody\AppData\Local\Programs\Python\Python311\Lib\tempfile.py", line 893, in onerror
+    _os.unlink(path)
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\moody\\AppData\\Local\\Temp\\tmpd75dhz7o\\logs\\scheduled_pipeline_20260803.log'
+
+======================================================================
+FAIL: test_consensus_accepts_majority_and_flags_outlier (test_consensus.ConsensusTests.test_consensus_accepts_majority_and_flags_outlier)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_consensus.py", line 26, in test_consensus_accepts_majority_and_flags_outlier
+    self.assertAlmostEqual(result.consensus_close, 100.025, places=2)
+AssertionError: 100.05 != 100.025 within 2 places (0.024999999999991473 difference)
+
+======================================================================
+FAIL: test_batch_wrapper_content (test_scheduled_task.TestScheduledTaskArtifacts.test_batch_wrapper_content)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\tests\test_scheduled_task.py", line 68, in test_batch_wrapper_content
+    self.assertIn("exit /b", content)
+AssertionError: 'exit /b %ERRORLEVEL%' not found in '@echo off\nsetlocal enabledelayedexpansion\n\necho ===================================================\necho PRAECURSOR-EGX TASK SCHEDULER REGISTRATION\necho ===================================================\necho.\n\npowershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0register_scheduled_task.ps1" %*\nset EXIT_CODE=%ERRORLEVEL%\n\nif %EXIT_CODE% EQU 0 (\n    echo.\n    echo Task registration completed successfully.\n) else (\n    echo.\n    echo ERROR: Task registration failed with exit code !EXIT_CODE!.\n)\n\nexit /b %EXIT_CODE%\n'
+
+----------------------------------------------------------------------
+Ran 35 tests in 517.744s
+
+FAILED (failures=2, errors=11)

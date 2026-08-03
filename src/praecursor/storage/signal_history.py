@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS scanner_signal_outcomes (
     next_day_label TEXT NOT NULL,
     next_day_hit INTEGER, -- 1 for Hit, 0 for Miss, NULL for Pending
     next_day_return REAL,
+    next_day_max_return REAL,
     
     -- Swing Outcome
     swing_label TEXT NOT NULL,
@@ -91,6 +92,15 @@ class SignalHistoryStore:
             for col in new_columns:
                 try:
                     connection.execute(f"ALTER TABLE scanner_signals ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass # Column already exists
+
+            outcome_columns = [
+                "next_day_max_return REAL DEFAULT 0"
+            ]
+            for col in outcome_columns:
+                try:
+                    connection.execute(f"ALTER TABLE scanner_signal_outcomes ADD COLUMN {col}")
                 except sqlite3.OperationalError:
                     pass # Column already exists
                     

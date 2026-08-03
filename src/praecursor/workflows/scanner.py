@@ -424,10 +424,11 @@ class ScannerWorkflow:
 
                 # Fix missed data: if primary source is wrong but consensus agrees, override it in cache
                 if consensus_result and not consensus_result.accepted and consensus_result.confidence_percent >= 40.0:
-                    self.price_cache.override_close(
+                    self.price_cache.override_consensus_prices(
                         symbol,
                         self.source_name,
                         consensus_result.trade_date,
+                        consensus_result.consensus_high,
                         consensus_result.consensus_close,
                     )
 
@@ -539,7 +540,7 @@ class ScannerWorkflow:
             
             # Automatically track historical accuracy of past runs
             try:
-                tracker = AccuracyTracker()
+                tracker = AccuracyTracker(database_path=self.price_cache.database_path)
                 tracker.update_historical_outcomes()
             except Exception as e:
                 logger.error(f"Failed to update historical outcomes: {e}")
@@ -582,7 +583,15 @@ class ScannerWorkflow:
         results: list[CollectionResult] = []
         errors: dict[str, str] = {}
 
+        source_names = ", ".join(source.name for source in self.consensus_data_sources)
+        logger.info(
+            "Fetching price data for %s from consensus data sources: %s",
+            symbol,
+            source_names,
+        )
+
         for source in self.consensus_data_sources:
+            logger.info("Fetching price data for %s from data source: %s", symbol, source.name)
             try:
                 manager = DataManager(
                     sources=[source],
@@ -593,10 +602,18 @@ class ScannerWorkflow:
 
                 if result.price_bars:
                     results.append(result)
+                    logger.info(
+                        "Successfully fetched %d price bar(s) for %s from source: %s",
+                        len(result.price_bars),
+                        symbol,
+                        source.name,
+                    )
                 else:
                     errors[source.name] = "source returned no price bars"
+                    logger.warning("No price bars returned for %s from source: %s", symbol, source.name)
             except Exception as error:
                 errors[source.name] = str(error)
+                logger.warning("Failed to fetch price data for %s from source %s: %s", symbol, source.name, error)
 
         return results, errors
 
@@ -649,6 +666,7 @@ class ScannerWorkflow:
                     symbol=symbol,
                     trade_date=trade_date,
                     close=bar.close,
+                    high=bar.high,
                     volume=bar.volume,
                 )
             )

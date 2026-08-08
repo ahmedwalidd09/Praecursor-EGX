@@ -118,14 +118,14 @@ def calculate_next_day_prediction(
             # If the old model with 14 features is still there, it might fail,
             # so we try 20 first, then fall back to 14.
             try:
-                prob = model.predict_proba(df)[0][1]
+                prob = model.predict_proba(df.values)[0][1]
             except Exception:
                 old_features = [
                     "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
                     "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
                     "mtf_trend", "vpoc_distance"
                 ]
-                prob = model.predict_proba(df[old_features])[0][1]
+                prob = model.predict_proba(df[old_features].values)[0][1]
         except Exception:
             prob = 0.0
         
@@ -133,7 +133,7 @@ def calculate_next_day_prediction(
         lgb_model = _get_next_day_lgb_model()
         if lgb_model is not None:
             try:
-                lgb_prob = lgb_model.predict(df)[0]
+                lgb_prob = lgb_model.predict(df.values)[0]
                 prob = 0.6 * prob + 0.4 * lgb_prob
                 reasons.append(f"Ensemble (XGB+LGB)")
             except Exception:
@@ -146,7 +146,7 @@ def calculate_next_day_prediction(
         regime_info = MarketRegimeModel().get_latest_regime()
         regime = regime_info.get("regime", "Unknown")
         if "Bear" in regime:
-            score *= 0.70  # Massive penalty for breakouts in a bear market
+            score *= 0.90  # Light penalty for breakouts in a bear market
             reasons.append(f"Regime {regime}: Penalizing breakout score")
         elif "Bull" in regime:
             score *= 1.15
@@ -259,8 +259,8 @@ def calculate_next_day_prediction(
                 score -= 8.0
                 reasons.append("RSI is not supportive")
 
-        score = max(0.0, min(score, 100.0))
-    label = _label(score, rsi14, breakout20, breakout50, volume_confirmed_breakout, consensus_accepted, opp_score=opportunity_score.total_score)
+    score = max(0.0, min(score, 100.0))
+    label = _label(score, rsi14, breakout20, breakout50, volume_confirmed_breakout, consensus_accepted, opp_score=opportunity_score.score_percent)
 
     if not reasons:
         reasons.append("no strong next-day breakout/follow-through pattern detected")
@@ -268,8 +268,8 @@ def calculate_next_day_prediction(
     atr14 = values.get("ATR14", float("nan"))
     latest_close = opportunity_score.latest_close
     
-    target_price = latest_close + (1.5 * atr14) if not _missing(atr14) else latest_close
-    stop_loss_price = latest_close - (1.0 * atr14) if not _missing(atr14) else latest_close
+    target_price = latest_close + (2.5 * atr14) if not _missing(atr14) else latest_close
+    stop_loss_price = latest_close - (1.2 * atr14) if not _missing(atr14) else latest_close
 
     return NextDayPrediction(
         score=score, 

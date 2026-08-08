@@ -1,18 +1,22 @@
 """
-Retrain ML models using local SQLite database outcomes and features.
-This script extracts historical price data, calculates all indicators (including EGX-specific ones),
-joins with accuracy tracker outcomes, and retrains the XGBoost model.
+Retrain ML models using real indicator features from source_prices.
+Replaces the synthetic data approach with actual EGX market data.
 """
 
 import sqlite3
 import pandas as pd
 import numpy as np
+from datetime import datetime
 from pathlib import Path
 import logging
 
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score
+
+from praecursor.core.price_bar import PriceBar
+from praecursor.core.stock import Stock
+from praecursor.scoring.opportunity_score import OpportunityScorer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,128 +25,209 @@ ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "database" / "praecursor.db"
 MODELS_DIR = ROOT / "models"
 
-# Define the exact features we want the ML model to use in production
-FEATURES = [
-    "rsi14", "rel_volume20", "macd_histogram", "momentum20",
-    "breakout20", "breakout50", "rsi_rebound", "ema20_reclaim",
-    "macd_histogram_improvement", "volume_spike_from_weakness",
-    "momentum5", "bbw20", "mtf_trend", "vpoc_distance",
-    "adx14", "roc10", "stoch_rsi", "vwap_mom10",
-    "avg_turnover_20", "closed_at_limit_up"
-]
+# The exact 20 features the ML model uses in production (next_day.py lines 95-107)
+INDICATOR_TO_FEATURE = {
+    "RSI14": "rsi14",
+    "RelVolume20": "rel_volume20",
+    "MACDHistogram": "macd_histogram",
+    "Momentum20": "momentum20",
+    "Breakout20": "breakout20",
+    "Breakout50": "breakout50",
+    "RSIRebound": "rsi_rebound",
+    "EMA20Reclaim": "ema20_reclaim",
+    "MACDHistogramImprovement": "macd_histogram_improvement",
+    "VolumeSpikeFromWeakness": "volume_spike_from_weakness",
+    "Momentum5": "momentum5",
+    "BBW20": "bbw20",
+    "MTF_Trend": "mtf_trend",
+    "VPOC_Distance": "vpoc_distance",
+    "ADX14": "adx14",
+    "ROC10": "roc10",
+    "StochRSI": "stoch_rsi",
+    "VWAPMom10": "vwap_mom10",
+    "AvgTurnover20": "avg_turnover_20",
+    "ClosedAtLimitUp": "closed_at_limit_up",
+}
 
-def load_data_from_db():
-    # Because scanner_signals stores scores but not the raw indicators natively,
-    # and re-calculating them requires re-running history, we will implement 
-    # an advanced join here. For now, since we only have a small dataset, 
-    # we will query the exact historical dates from source_prices and build the features.
-    
-    # We first get all signals that have a hit/miss outcome
-    query = """
-    SELECT 
-        s.run_id, s.symbol, date(s.generated_at) as run_date,
-        o.next_day_hit as target,
-        s.latest_close
-    FROM scanner_signals s
-    JOIN scanner_signal_outcomes o ON s.run_id = o.run_id AND s.symbol = o.symbol
-    WHERE o.next_day_hit IS NOT NULL
-    """
-    with sqlite3.connect(DB_PATH) as conn:
-        df = pd.read_sql(query, conn)
-    return df
+FEATURES = list(INDICATOR_TO_FEATURE.values())
 
-def extract_features(df):
-    """
-    In a fully operational pipeline with months of data, this would query 
-    source_prices and rebuild the indicator snapshot for each symbol at run_date.
-    Since we just added turnover and limit_up today, historical records don't have them cached.
-    We will simulate extraction by generating dummy/placeholder aligned features 
-    just to compile the new 20-feature XGBoost model structure properly. 
-    In live execution, the real features will feed into this new structure!
-    """
-    logger.info("Extracting features from historical cache...")
-    
+
+def load_outcomes():
+    """Load all signals that have a hit/miss outcome."""
+    # Try with indicator_values_json first (added by Task 8), fall back without
+    for include_cache in [True, False]:
+        cache_col = ",\n        s.indicator_values_json" if include_cache else ""
+        query = f"""
+        SELECT 
+            s.run_id, s.symbol, s.company, date(s.generated_at) as run_date,
+            o.next_day_hit as target,
+            s.latest_close{cache_col}
+        FROM scanner_signals s
+        JOIN scanner_signal_outcomes o ON s.run_id = o.run_id AND s.symbol = o.symbol
+        WHERE o.next_day_hit IS NOT NULL
+        """
+        try:
+            if not DB_PATH.exists():
+                logger.warning(f"Database {DB_PATH} does not exist.")
+                return pd.DataFrame()
+            with sqlite3.connect(DB_PATH) as conn:
+                df = pd.read_sql(query, conn)
+            return df
+        except Exception as e:
+            if "no such column" in str(e) and include_cache:
+                continue  # Try without the cache column
+            logger.warning(f"Database error: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
+
+
+def build_stock_from_prices(symbol: str, run_date: str, conn) -> Stock | None:
+    """Build a Stock object from source_prices for a given symbol up to run_date."""
+    rows = conn.execute("""
+        SELECT trade_date, open, high, low, close, volume
+        FROM source_prices
+        WHERE ticker = ? AND date(trade_date) <= date(?)
+        ORDER BY trade_date ASC
+        LIMIT 300
+    """, (symbol, run_date)).fetchall()
+
+    if len(rows) < 20:
+        return None
+
+    history = []
+    for r in rows:
+        try:
+            dt = datetime.strptime(str(r[0])[:10], "%Y-%m-%d")
+            bar = PriceBar(
+                date=dt,
+                open=float(r[1] or 0),
+                high=float(r[2] or 0),
+                low=float(r[3] or 0),
+                close=float(r[4] or 0),
+                volume=int(r[5] or 0),
+            )
+            history.append(bar)
+        except (ValueError, TypeError):
+            continue
+
+    if len(history) < 20:
+        return None
+
+    # Look up company name from symbols config or use symbol as fallback
+    company_row = conn.execute("""
+        SELECT DISTINCT ticker FROM source_prices WHERE ticker = ? LIMIT 1
+    """, (symbol,)).fetchone()
+    company = symbol  # fallback
+
+    return Stock(symbol=symbol, company=company, history=history)
+
+
+def extract_features_from_stock(stock: Stock, scorer: OpportunityScorer) -> dict | None:
+    """Run the full scoring pipeline and extract the 20 ML features."""
+    try:
+        opp_score = scorer.score(stock)
+        indicator_values = opp_score.indicator_values
+
+        row = {}
+        for indicator_name, feature_name in INDICATOR_TO_FEATURE.items():
+            val = indicator_values.get(indicator_name, 0.0)
+            if val != val:  # NaN check
+                val = 0.0
+            row[feature_name] = val
+
+        return row
+    except Exception as e:
+        logger.debug(f"Failed to score {stock.symbol}: {e}")
+        return None
+
+
+def extract_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
+    """Extract real indicator features for all outcome records."""
+    logger.info(f"Extracting real features for {len(df)} outcome records...")
+
+    scorer = OpportunityScorer()
     X = []
     y = []
-    
-    for idx, row in df.iterrows():
-        # Build a feature array based on random/historical distribution
-        # to seed the model structure. (In production, replace with actual indicator calc)
-        # We ensure target 1 has slightly better momentum features to give the model a valid gradient.
-        
-        target = int(row['target'])
-        
-        # Seed values based on outcome to ensure the model learns something valid
-        features = {
-            "rsi14": np.random.uniform(50, 75) if target else np.random.uniform(30, 80),
-            "rel_volume20": np.random.uniform(1.0, 3.0) if target else np.random.uniform(0.5, 1.5),
-            "macd_histogram": np.random.uniform(0.1, 1.0) if target else np.random.uniform(-1.0, 0.5),
-            "momentum20": np.random.uniform(2.0, 15.0) if target else np.random.uniform(-10.0, 5.0),
-            "breakout20": 1.0 if target and np.random.rand() > 0.5 else 0.0,
-            "breakout50": 1.0 if target and np.random.rand() > 0.7 else 0.0,
-            "rsi_rebound": 1.0 if target and np.random.rand() > 0.6 else 0.0,
-            "ema20_reclaim": 1.0 if target and np.random.rand() > 0.6 else 0.0,
-            "macd_histogram_improvement": 1.0 if target and np.random.rand() > 0.4 else 0.0,
-            "volume_spike_from_weakness": 1.0 if target and np.random.rand() > 0.7 else 0.0,
-            "momentum5": np.random.uniform(1.0, 8.0) if target else np.random.uniform(-5.0, 2.0),
-            "bbw20": np.random.uniform(0.05, 0.20),
-            "mtf_trend": 1.0 if target else -1.0,
-            "vpoc_distance": np.random.uniform(-0.05, 0.05),
-            "adx14": np.random.uniform(20, 50),
-            "roc10": np.random.uniform(1.0, 10.0) if target else np.random.uniform(-5.0, 5.0),
-            "stoch_rsi": np.random.uniform(0.5, 1.0) if target else np.random.uniform(0.0, 0.8),
-            "vwap_mom10": np.random.uniform(0.5, 3.0) if target else np.random.uniform(-2.0, 1.0),
-            "avg_turnover_20": np.random.uniform(500000, 5000000), # 500k to 5M EGP
-            "closed_at_limit_up": 1.0 if target and np.random.rand() > 0.8 else 0.0,
-        }
-        
-        row_feat = [features[f] for f in FEATURES]
-        X.append(row_feat)
-        y.append(target)
-        
-    # We augment with synthetic high-quality data to ensure the 20-feature model is robust
-    # while waiting for the EGX database to accumulate months of real data.
-    logger.info("Augmenting with synthetic EGX base priors to stabilize the 20-feature model...")
-    for _ in range(5000):
-        target = np.random.choice([0, 1])
-        features = {
-            "rsi14": np.random.uniform(45, 75) if target else np.random.uniform(25, 85),
-            "rel_volume20": np.random.uniform(1.0, 4.0) if target else np.random.uniform(0.1, 1.8),
-            "macd_histogram": np.random.uniform(0, 1.5) if target else np.random.uniform(-1.5, 0.5),
-            "momentum20": np.random.uniform(0, 20) if target else np.random.uniform(-15, 10),
-            "breakout20": 1.0 if target and np.random.rand() > 0.4 else (1.0 if np.random.rand() > 0.8 else 0.0),
-            "breakout50": 1.0 if target and np.random.rand() > 0.6 else (1.0 if np.random.rand() > 0.9 else 0.0),
-            "rsi_rebound": 1.0 if target and np.random.rand() > 0.5 else 0.0,
-            "ema20_reclaim": 1.0 if target and np.random.rand() > 0.5 else 0.0,
-            "macd_histogram_improvement": 1.0 if target and np.random.rand() > 0.3 else 0.0,
-            "volume_spike_from_weakness": 1.0 if target and np.random.rand() > 0.5 else 0.0,
-            "momentum5": np.random.uniform(2, 10) if target else np.random.uniform(-8, 3),
-            "bbw20": np.random.uniform(0.02, 0.25),
-            "mtf_trend": 1.0 if target and np.random.rand() > 0.3 else (-1.0 if np.random.rand() > 0.5 else 0.0),
-            "vpoc_distance": np.random.uniform(-0.1, 0.1),
-            "adx14": np.random.uniform(15, 60),
-            "roc10": np.random.uniform(0, 15) if target else np.random.uniform(-10, 5),
-            "stoch_rsi": np.random.uniform(0.4, 1.0) if target else np.random.uniform(0.0, 0.7),
-            "vwap_mom10": np.random.uniform(0, 5) if target else np.random.uniform(-3, 2),
-            "avg_turnover_20": np.random.uniform(1000000, 20000000) if target else np.random.uniform(10000, 5000000),
-            "closed_at_limit_up": 1.0 if target and np.random.rand() > 0.85 else 0.0,
-        }
-        X.append([features[f] for f in FEATURES])
-        y.append(target)
-        
+    skipped = 0
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+
+        for idx, row in df.iterrows():
+            symbol = row["symbol"]
+            run_date = row["run_date"]
+            target = int(row["target"])
+
+            # Try cached indicator values first (Task 8 column, if it exists)
+            cached_json = row.get("indicator_values_json")
+            if cached_json and str(cached_json) != "None" and str(cached_json).strip():
+                try:
+                    import json
+                    cached_vals = json.loads(cached_json)
+                    feat_row = {}
+                    for indicator_name, feature_name in INDICATOR_TO_FEATURE.items():
+                        val = cached_vals.get(indicator_name, 0.0)
+                        if val != val:  # NaN
+                            val = 0.0
+                        feat_row[feature_name] = val
+                    X.append([feat_row[f] for f in FEATURES])
+                    y.append(target)
+                    continue
+                except Exception:
+                    pass  # Fall through to recalculate
+
+            # Recalculate from source_prices
+            stock = build_stock_from_prices(symbol, run_date, conn)
+            if stock is None:
+                skipped += 1
+                continue
+
+            feat_row = extract_features_from_stock(stock, scorer)
+            if feat_row is None:
+                skipped += 1
+                continue
+
+            X.append([feat_row[f] for f in FEATURES])
+            y.append(target)
+
+    logger.info(f"Extracted {len(X)} feature vectors, skipped {skipped} records (insufficient price data).")
     return pd.DataFrame(X, columns=FEATURES), np.array(y)
 
+
 def main():
-    logger.info("Connecting to praecursor.db for retraining...")
-    df = load_data_from_db()
+    logger.info("=== Praecursor-EGX Model Retraining (Real Features) ===")
+    logger.info(f"Database: {DB_PATH}")
+
+    df = load_outcomes()
     logger.info(f"Loaded {len(df)} historical labelled examples.")
-    
+
+    if len(df) < 30:
+        logger.warning(f"Only {len(df)} labelled examples available. Need at least 30 for meaningful training. Aborting.")
+        return
+
     X, y = extract_features(df)
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    logger.info(f"Training XGBoost on {len(X_train)} samples with {len(FEATURES)} EGX-specific features...")
-    
+
+    if len(X) < 30:
+        logger.warning(f"Only {len(X)} usable feature vectors. Need at least 30. Aborting.")
+        return
+
+    # Check class balance
+    n_pos = int(y.sum())
+    n_neg = len(y) - n_pos
+    logger.info(f"Class balance: {n_pos} positive (hit) / {n_neg} negative (miss)")
+
+    if n_pos < 5 or n_neg < 5:
+        logger.warning("Insufficient class balance for training. Need at least 5 of each class. Aborting.")
+        return
+
+    # Use stratified split to maintain class balance
+    test_size = min(0.2, max(10, len(X) // 5) / len(X))
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42, stratify=y
+    )
+
+    logger.info(f"Training XGBoost on {len(X_train)} samples ({len(FEATURES)} real EGX features)...")
+
     model = xgb.XGBClassifier(
         n_estimators=100,
         learning_rate=0.05,
@@ -151,24 +236,37 @@ def main():
         colsample_bytree=0.8,
         use_label_encoder=False,
         eval_metric='logloss',
-        random_state=42
+        random_state=42,
+        scale_pos_weight=n_neg / n_pos,
     )
-    
+
     model.fit(X_train, y_train)
-    
+
     preds = model.predict(X_test)
     probs = model.predict_proba(X_test)[:, 1]
-    
+
     acc = accuracy_score(y_test, preds)
-    auc = roc_auc_score(y_test, probs)
-    
+    try:
+        auc = roc_auc_score(y_test, probs)
+    except ValueError:
+        auc = 0.0  # Only one class in test set
+
     logger.info(f"Retraining Complete! Test Accuracy: {acc:.2f} | AUC: {auc:.2f}")
-    
-    # Save the new 20-feature model to replace the old 14-feature one
+    logger.info(f"  Train: {len(X_train)} | Test: {len(X_test)}")
+
+    # Feature importance
+    importances = model.feature_importances_
+    feat_imp = sorted(zip(FEATURES, importances), key=lambda x: x[1], reverse=True)
+    logger.info("Top 10 feature importances:")
+    for name, imp in feat_imp[:10]:
+        logger.info(f"  {name}: {imp:.4f}")
+
+    # Save model
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = MODELS_DIR / "xgboost_next_day.json"
     model.save_model(str(model_path))
-    logger.info(f"Saved optimized EGX ML model to {model_path}")
-    
+    logger.info(f"Saved retrained model to {model_path}")
+
+
 if __name__ == "__main__":
     main()

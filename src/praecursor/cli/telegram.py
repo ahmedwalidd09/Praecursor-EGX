@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
+import argparse
 import json
 import sqlite3
+import sys
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding='utf-8')
 
 from praecursor.notifications.telegram import TelegramClient, TelegramReportFormatter, TelegramSettings
 from praecursor.storage.signal_history import SignalHistoryStore
@@ -18,8 +23,6 @@ class MinimalResultRow:
     symbol: str
     next_day_score: float
     next_day_label: str
-    swing_score: float
-    swing_label: str
     opportunity_score: MinimalOppScore
 
 
@@ -29,58 +32,57 @@ class MinimalRunResult:
     success_count: int
     error_count: int
     next_day_results: list
-    swing_results: list
     report_path: str = None
     markdown_report_path: str = None
     next_day_report_path: str = None
-    swing_report_path: str = None
     dashboard_report_path: str = None
 
 
 def load_latest_scan_result() -> MinimalRunResult | None:
     """Fetch latest scanner run results directly from the signal history database."""
     store = SignalHistoryStore()
-    with store._connect() as conn:
-        conn.row_factory = sqlite3.Row
-        latest_run = conn.execute("SELECT * FROM scanner_runs ORDER BY id DESC LIMIT 1").fetchone()
-        if not latest_run:
-            return None
+    try:
+        with store._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            latest_run = conn.execute("SELECT * FROM scanner_runs ORDER BY id DESC LIMIT 1").fetchone()
+            if not latest_run:
+                return None
 
-        run_id = latest_run["id"]
-        generated_at = datetime.fromisoformat(latest_run["generated_at"])
-        success_count = latest_run["success_count"]
-        error_count = latest_run["error_count"]
+            run_id = latest_run["id"]
+            gen_at_str = latest_run["generated_at"]
+            if isinstance(gen_at_str, str):
+                generated_at = datetime.fromisoformat(gen_at_str.replace('Z', '+00:00'))
+            else:
+                generated_at = datetime.now()
+            success_count = latest_run["success_count"]
+            error_count = latest_run["error_count"]
 
-        rows = conn.execute("SELECT * FROM scanner_signals WHERE run_id = ? ORDER BY rank ASC", (run_id,)).fetchall()
+            rows = conn.execute("SELECT * FROM scanner_signals WHERE run_id = ? ORDER BY rank ASC", (run_id,)).fetchall()
 
-        next_day_list = []
-        swing_list = []
-        for r in rows:
-            row = dict(r)
-            item = MinimalResultRow(
-                symbol=row["symbol"],
-                next_day_score=row.get("next_day_score", 0.0),
-                next_day_label=row.get("next_day_label", ""),
-                swing_score=row.get("swing_score", 0.0),
-                swing_label=row.get("swing_label", ""),
-                opportunity_score=MinimalOppScore(latest_close=row["latest_close"]),
+            next_day_list = []
+            for r in rows:
+                row = dict(r)
+                item = MinimalResultRow(
+                    symbol=row["symbol"],
+                    next_day_score=row.get("next_day_score", 0.0) or 0.0,
+                    next_day_label=row.get("next_day_label", "") or "",
+                    opportunity_score=MinimalOppScore(latest_close=row["latest_close"]),
+                )
+                next_day_list.append(item)
+
+            next_day_list = sorted(next_day_list, key=lambda x: x.next_day_score, reverse=True)
+
+            return MinimalRunResult(
+                generated_at=generated_at,
+                success_count=success_count,
+                error_count=error_count,
+                next_day_results=next_day_list,
+                report_path=latest_run["report_path"],
+                markdown_report_path=latest_run["markdown_report_path"],
+                dashboard_report_path="reports/dashboard.html",
             )
-            next_day_list.append(item)
-            swing_list.append(item)
-
-        next_day_list = sorted(next_day_list, key=lambda x: x.next_day_score, reverse=True)
-        swing_list = sorted(swing_list, key=lambda x: x.swing_score, reverse=True)
-
-        return MinimalRunResult(
-            generated_at=generated_at,
-            success_count=success_count,
-            error_count=error_count,
-            next_day_results=next_day_list,
-            swing_results=swing_list,
-            report_path=latest_run["report_path"],
-            markdown_report_path=latest_run["markdown_report_path"],
-            dashboard_report_path="reports/dashboard.html",
-        )
+    except Exception as e:
+        return None
 
 
 def main() -> int:
@@ -90,7 +92,8 @@ def main() -> int:
     if args.use_latest:
         result = load_latest_scan_result()
         if result is None:
-            raise SystemExit("No scanner runs found in database.")
+            print("Warning: No scanner runs found in database. Exiting cleanly.")
+            return 0
         message = TelegramReportFormatter().format_scanner_result(result, top_n=args.top)
     elif args.run_scanner:
         result = ScannerWorkflow().run(symbols=parse_symbols(args.symbols))
@@ -100,7 +103,8 @@ def main() -> int:
     else:
         result = load_latest_scan_result()
         if result is None:
-            raise SystemExit("Use --use-latest, --run-scanner, or --message.")
+            print("Warning: No scanner runs found in database. Exiting cleanly.")
+            return 0
         message = TelegramReportFormatter().format_scanner_result(result, top_n=args.top)
 
     if args.dry_run:
@@ -138,7 +142,6 @@ def parse_symbols(value: str | None) -> list[str] | None:
 def send_report_files(client: TelegramClient, result) -> None:
     paths = [
         result.next_day_report_path,
-        result.swing_report_path,
         result.report_path,
         result.markdown_report_path,
         result.dashboard_report_path,

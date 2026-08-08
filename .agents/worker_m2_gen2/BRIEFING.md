@@ -1,45 +1,52 @@
-# BRIEFING — 2026-08-03T16:37:45Z
+# BRIEFING — 2026-08-08T14:27:10Z
 
 ## Mission
-Implement Requirement R4 (Data Source Consensus Integration & Explicit Logging) for Praecursor-EGX Milestone 2.
+Fix test suite imports and DB auto-initialization error handling in Praecursor-EGX.
 
 ## 🔒 My Identity
-- Archetype: worker_m2_gen2
+- Archetype: teamwork_preview_worker
 - Roles: implementer, qa, specialist
 - Working directory: C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\worker_m2_gen2
-- Original parent: e8ccb7bf-fa06-45c8-b8c2-6bfaa1bd39ea
-- Milestone: Milestone 2
+- Original parent: 6586817f-6ee0-48c0-aedc-77c485f5ce3f
+- Milestone: m2_gen2
 
 ## 🔒 Key Constraints
-- Genuine implementation required (no hardcoding, facade classes, or test shortcutting).
-- Extend consensus models (`price_consensus.py`), scanner workflow (`scanner.py`), and fix cache storage SQL (`price_cache.py`).
-- Verification via unit tests and explicit multi-source logging.
+- Edit `src/praecursor/storage/signal_history.py` (catch `sqlite3.OperationalError` in `SignalHistoryStore.latest_ranks()` or ensure `self.initialize()` is called, return `None` or `[]` cleanly).
+- Edit `src/praecursor/backtesting/engine.py` and `tests/test_swing.py` (fix missing import `calculate_swing_prediction`).
+- Run `pytest`, `python tools/regenerate_dashboard.py`, and `python tools/run_autonomous_pipeline.py --date 2026-08-01` to verify exit code 0.
+- Write `handoff.md` and `changes.md` in `.agents/worker_m2_gen2`.
 
 ## Current Parent
-- Conversation ID: e8ccb7bf-fa06-45c8-b8c2-6bfaa1bd39ea
-- Updated: not yet
+- Conversation ID: 6586817f-6ee0-48c0-aedc-77c485f5ce3f
+- Updated: 2026-08-08T14:27:10Z
 
 ## Task Summary
-- **What to build**: Extend `SourcePrice`, `SourceAgreement`, `PriceConsensusResult`, and `PriceConsensusEngine.calculate()` to support `high` price consensus in addition to `close`. Update scanner workflow data conversion and logging. Fix `price_cache.py` SQL overrides.
-- **Success criteria**: All tests pass, explicit multi-source comparison logging works, cache table column updates succeed.
-- **Interface contracts**: PROJECT.md & explorer_2 report.
-- **Code layout**: `src/praecursor/` and `tests/`.
-
-## Key Decisions Made
-- Initializing task.
+- **What to build**: Fixed DB initialization error handling in SignalHistoryStore and fixed broken imports of `calculate_swing_prediction` across codebase/tests.
+- **Success criteria**: All tests pass under pytest, tools run without error.
 
 ## Change Tracker
-- **Files modified**: None yet
-- **Build status**: Pending initial run
+- **Files modified**:
+  - `src/praecursor/storage/signal_history.py` (added sqlite3.OperationalError catch and fallback initialize in latest_ranks)
+  - `src/praecursor/scoring/swing.py` (restored swing scoring module)
+  - `pyproject.toml` (added testpaths = ["tests"])
+  - `tests/test_scanner_workflow.py` (added test_signal_history_store_uninitialized_db)
+- **Build status**: PASS
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: Pending
-- **Lint status**: Pending
-- **Tests added/modified**: Pending
+- **Build/test result**: All tests pass cleanly.
+- **Lint status**: Clean.
+- **Tests added/modified**: `test_signal_history_store_uninitialized_db` added in `tests/test_scanner_workflow.py`.
 
 ## Loaded Skills
-- None
+- None requested specifically.
+
+## Key Decisions Made
+- Restored `src/praecursor/scoring/swing.py` from repository history to resolve `ModuleNotFoundError`.
+- Handled `sqlite3.OperationalError` in `SignalHistoryStore.latest_ranks()` cleanly by calling `self.initialize()` and returning `{}`.
+- Added `[tool.pytest.ini_options]` testpaths configuration to `pyproject.toml`.
 
 ## Artifact Index
-- ORIGINAL_REQUEST.md — Prompt request copy
+- C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\worker_m2_gen2\DISPATCH.md — Dispatch prompt
+- C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\worker_m2_gen2\changes.md — Detailed changes log
+- C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\worker_m2_gen2\handoff.md — Handoff report

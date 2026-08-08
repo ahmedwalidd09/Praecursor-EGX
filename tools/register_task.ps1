@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($ToolsDir)) {
 $ProjectRoot = Split-Path -Parent $ToolsDir
 
 if ([string]::IsNullOrWhiteSpace($ScriptPath)) {
-    $ScriptPath = Join-Path $ProjectRoot "Daily Praecursor Update.bat"
+    $ScriptPath = Join-Path $ToolsDir "run_autonomous_pipeline.py"
 }
 
 Write-Host "Registering Windows Scheduled Task '$TaskName' at $Time..."
@@ -30,10 +30,29 @@ if (-not (Test-Path $ScriptPath)) {
     exit 1
 }
 
-$process = Start-Process -FilePath "schtasks.exe" -ArgumentList "/Create", "/TN", "`"$TaskName`"", "/TR", "`"`"$ScriptPath`"`"", "/SC", "DAILY", "/ST", "$Time", "/F" -NoNewWindow -Wait -PassThru
+$PythonPath = $env:PYTHON_EXECUTABLE
+if ([string]::IsNullOrWhiteSpace($PythonPath)) {
+    $PythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($PythonCmd) {
+        $PythonPath = $PythonCmd.Source
+    } else {
+        $PythonPath = (Get-Command where.exe python -ErrorAction SilentlyContinue | Select-Object -First 1)
+    }
+}
+if ([string]::IsNullOrWhiteSpace($PythonPath)) {
+    $PythonPath = "python"
+}
+
+if ($ScriptPath.EndsWith(".py")) {
+    $TaskAction = "`"`"$PythonPath`"`" `"`"$ScriptPath`"`""
+} else {
+    $TaskAction = "`"`"$ScriptPath`"`""
+}
+
+$process = Start-Process -FilePath "schtasks.exe" -ArgumentList "/Create", "/TN", "`"$TaskName`"", "/TR", $TaskAction, "/SC", "WEEKLY", "/D", "SUN,MON,TUE,WED,THU", "/ST", "$Time", "/F" -NoNewWindow -Wait -PassThru
 
 if ($process.ExitCode -eq 0) {
-    Write-Host "Task '$TaskName' registered successfully for $Time daily."
+    Write-Host "Task '$TaskName' registered successfully for $Time on EGX trading days (Sun-Thu)."
     exit 0
 } else {
     Write-Warning "schtasks returned exit code $($process.ExitCode). Administrative privileges may be required."

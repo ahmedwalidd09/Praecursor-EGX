@@ -1,18 +1,13 @@
-# Progress Report — Praecursor-EGX
+# Progress Log — Praecursor-EGX HTML & Pipeline Stability
 
 ## Current Status
-Last visited: 2026-08-03T21:56:45Z
+Last visited: 2026-08-08T14:39:50Z
+
+- [x] Initialized Project Orchestrator state and heartbeat cron (task-23)
+- [x] Phase 0: Survey codebase (3 parallel Explorers complete - identified HTML tag duplication, CLI --date argument mismatch, empty DB exit codes)
+- [x] Milestone 1: HTML Generation Logic Fixes (R1) (worker_m1 complete - removed extra </div>, added HTML escaping & StrictHTMLValidator)
+- [x] Milestone 2: Pipeline Execution Stability (R2) (worker_m2 complete - added --date to cli/scanner.py, hardened regenerate_dashboard.py, retrain_models.py, telegram.py)
+- [/] Milestone 3: E2E Verification & Forensic Audit (Iteration 2: FAIL due to 9 test failures in full pytest suite; Iteration 3 remediation dispatched)
 
 ## Iteration Status
-Current iteration: 1 / 32
-
-## Checklist
-- [x] Initialized metadata files (`BRIEFING.md`, `progress.md`, `PROJECT.md`)
-- [x] Codebase Exploration & Architecture Assessment
-- [x] Dual Track: E2E Testing Track setup & test suite creation
-- [x] Milestone 1: Intraday Target Verification & Historical Archiving
-- [x] Milestone 2: PriceConsensusEngine Integration
-- [x] Milestone 3: Task Scheduler & Autonomous Pipeline
-- [/] Test suite verification execution via worker (`db5fe549-8b6b-43ab-aaa3-410267f41373`)
-- [ ] Project Completion & Victory Handoff to Sentinel
-
+Current iteration: 3 / 32

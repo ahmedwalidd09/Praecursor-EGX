@@ -1,13 +1,56 @@
 import unittest
 from datetime import date
+from html.parser import HTMLParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from praecursor.collectors.fake_market_data_source import FakeMarketDataSource
 from praecursor.data.data_manager import DataManager
-from praecursor.reporting.dashboard import ScannerDashboardWriter
+from praecursor.reporting.dashboard import DEFAULT_DASHBOARD_REPORT, ScannerDashboardWriter
 from praecursor.storage.price_cache import PriceCache
 from praecursor.workflows.scanner import ScannerWorkflow
+
+
+class StrictHTMLValidator(HTMLParser):
+    VOID_TAGS = {
+        'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+        'link', 'meta', 'param', 'source', 'track', 'wbr', '!doctype'
+    }
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.errors = []
+
+    def handle_starttag(self, tag, attrs):
+        t = tag.lower()
+        if t not in self.VOID_TAGS:
+            self.stack.append((t, self.getpos()))
+
+    def handle_endtag(self, tag):
+        t = tag.lower()
+        if t in self.VOID_TAGS:
+            return
+        if not self.stack:
+            self.errors.append(f"Line {self.getpos()[0]}:{self.getpos()[1]} - Unexpected </{t}> with empty stack")
+        elif self.stack[-1][0] == t:
+            self.stack.pop()
+        else:
+            open_tags = [x[0] for x in self.stack]
+            if t in open_tags:
+                while self.stack and self.stack[-1][0] != t:
+                    popped, pos = self.stack.pop()
+                    self.errors.append(f"Unclosed tag <{popped}> from line {pos[0]}:{pos[1]} when encountering </{t}>")
+                self.stack.pop()
+            else:
+                self.errors.append(f"Line {self.getpos()[0]}:{self.getpos()[1]} - Unexpected </{t}> (stack top: <{self.stack[-1][0]}>)")
+
+    def validate(self, content: str) -> tuple[bool, list[str]]:
+        self.feed(content)
+        if self.stack:
+            for tag, pos in self.stack:
+                self.errors.append(f"Unclosed tag <{tag}> opened at line {pos[0]}:{pos[1]}")
+        return len(self.errors) == 0, self.errors
 
 
 class DashboardReportTests(unittest.TestCase):
@@ -33,7 +76,6 @@ class DashboardReportTests(unittest.TestCase):
                 end_date=date(2026, 7, 27),
                 report_path=directory_path / "ranking.csv",
                 next_day_report_path=directory_path / "next.csv",
-                swing_report_path=directory_path / "swing.csv",
                 markdown_report_path=directory_path / "ranking.md",
                 dashboard_report_path=directory_path / "dashboard.html",
             )
@@ -42,8 +84,20 @@ class DashboardReportTests(unittest.TestCase):
 
         self.assertIn("Praecursor-EGX", html)
         self.assertIn("Next-Day Candidates", html)
-        self.assertIn("Swing Candidates", html)
+        self.assertIn("Overall Opportunity Ranking", html)
+
+        validator = StrictHTMLValidator()
+        is_valid, errors = validator.validate(html)
+        self.assertTrue(is_valid, f"Generated HTML has malformed or unclosed tags: {errors}")
+
+    def test_reports_dashboard_html_has_zero_unclosed_or_malformed_tags(self):
+        if DEFAULT_DASHBOARD_REPORT.exists():
+            html = DEFAULT_DASHBOARD_REPORT.read_text(encoding="utf-8")
+            validator = StrictHTMLValidator()
+            is_valid, errors = validator.validate(html)
+            self.assertTrue(is_valid, f"reports/dashboard.html has malformed or unclosed tags: {errors}")
 
 
 if __name__ == "__main__":
     unittest.main()
+

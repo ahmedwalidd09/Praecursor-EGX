@@ -1,65 +1,53 @@
-# BRIEFING — 2026-08-03T21:46:45Z
+# BRIEFING — 2026-08-08T14:43:00Z
 
 ## Mission
-Implement Requirement R1: Autonomous 5 PM Scheduling & Pipeline Automation for Praecursor-EGX Milestone 3.
+Fix full test suite schema, signature, and assertion failures in Praecursor-EGX so `pytest tests/` achieves 100% pass (0 failures, 0 errors) alongside cleanly executing CLI scripts.
 
 ## 🔒 My Identity
-- Archetype: implementer/qa/specialist
-- Roles: implementer, qa, specialist
+- Archetype: implementer, qa
+- Roles: implementer, qa
 - Working directory: C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\worker_m3_gen3
-- Original parent: e8ccb7bf-fa06-45c8-b8c2-6bfaa1bd39ea
-- Milestone: Milestone 3 (Autonomous 5 PM Task Scheduler Integration & Automation)
+- Original parent: 6586817f-6ee0-48c0-aedc-77c485f5ce3f
+- Milestone: M3
 
 ## 🔒 Key Constraints
-- CODE_ONLY network mode.
-- Minimal change principle. No shortcuts or hardcoded test facades.
-- All code in standard project locations, non-code metadata in `.agents/worker_m3_gen3`.
+- DO NOT CHEAT. All implementations must be genuine.
+- DO NOT hardcode test results or fabricate verification outputs.
+- Make minimal targeted edits.
 
 ## Current Parent
-- Conversation ID: e8ccb7bf-fa06-45c8-b8c2-6bfaa1bd39ea
-- Updated: 2026-08-03T21:46:45Z
+- Conversation ID: 6586817f-6ee0-48c0-aedc-77c485f5ce3f
+- Updated: 2026-08-08T14:43:00Z
 
 ## Task Summary
-- **What to build**:
-  1. `tools/run_autonomous_pipeline.py` (headless sequential runner of 4 stages with file logging, exit codes, no popups/pauses).
-  2. `tools/register_scheduled_task.ps1` (PowerShell installer registering Windows Scheduled Task `Praecursor-EGX Daily Scanner` at 17:00 Sun-Thu).
-  3. `tools/register_scheduled_task.bat` (batch wrapper calling `.ps1` with ExecutionPolicy Bypass).
-  4. `tools/unregister_scheduled_task.ps1` (uninstaller script removing the task if present).
-  5. `tests/test_scheduled_task.py` (unit/integration tests verifying script creation, parameter formatting, exit code handling).
-- **Success criteria**:
-  - Non-interactive headless execution of the 4 pipeline stages.
-  - Correct logging to `logs/scheduled_pipeline_YYYYMMDD.log`.
-  - Windows Task Scheduler registration script correctly formatted and functional (Sunday-Thursday 17:00).
-  - Clean uninstall script.
-  - Tests passing (88/88 passed).
-- **Interface contracts**: `C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\orchestrator\PROJECT.md`
-- **Code layout**: `C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX`
+- **What to build**: Fix schema mismatch in `signal_history.py` (add `swing_score`, `swing_label`, `swing_stop_loss`), fix `ScannerWorkflow.run()` signature in `workflows/scanner.py` / `cli/scanner.py`, fix test assertions in `test_scoring.py`, `test_telegram.py`, `test_accuracy_tracker.py`, `test_challenger_2_empirical.py`, `test_tier4_scenarios.py`.
+- **Success criteria**: `pytest tests/` passes 100% (0 errors, 0 failures), `regenerate_dashboard.py` exit code 0, `run_autonomous_pipeline.py --date 2026-08-01` exit code 0.
+- **Interface contracts**: `PROJECT.md`
+- **Code layout**: `PROJECT.md`
 
 ## Change Tracker
-- **Files verified & maintained**:
-  - `tools/run_autonomous_pipeline.py`: Headless 4-stage pipeline execution engine with logging and exit code handling.
-  - `tools/register_scheduled_task.ps1`: PowerShell installer registering `Praecursor-EGX Daily Scanner` at 17:00 Sun-Thu with 30m time limit, start on battery, restart on failure.
-  - `tools/register_scheduled_task.bat`: 1-click batch wrapper invoking `.ps1` with Bypass policy.
-  - `tools/unregister_scheduled_task.ps1`: Uninstaller removing scheduled task cleanly.
-  - `tests/test_scheduled_task.py`: Unit test suite testing script parameter formatting, logging, stage failure handling, and exit code propagation.
-- **Build status**: PASS (88/88 tests passing)
+- **Files modified**:
+  - `src/praecursor/storage/signal_history.py`: Added `swing_score`, `swing_label`, `swing_stop_loss` schema columns, migrations, and `save_run` insert.
+  - `src/praecursor/workflows/scanner.py`: Added swing properties to results dataclasses & `swing_report_path` / `**kwargs` to `ScannerWorkflow.run()`.
+  - `src/praecursor/notifications/telegram.py`: Added `🎯 Swing Candidates` section formatting.
+  - `tests/test_scoring.py`: Updated component assertion to `"EMA Alignment"`.
+- **Build status**: PASSING
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: 88/88 passed (7/7 in test_scheduled_task.py, 10/10 in test_r1_scheduling.py, 88/88 total suite)
+- **Build/test result**: PASS (100% pass across 96 tests)
 - **Lint status**: Clean
-- **Tests added/modified**: `tests/test_scheduled_task.py`, `tests/e2e/test_r1_scheduling.py`
-
-## Loaded Skills
-- None
+- **Tests added/modified**: `tests/test_scoring.py`, `tests/test_telegram.py`
 
 ## Key Decisions Made
-- Confirmed non-interactive execution by eliminating all `pause`, `start http://`, and interactive shell spawn dependencies.
-- Verified Windows Task Scheduler integration via PowerShell `New-ScheduledTaskTrigger` (-Weekly, -DaysOfWeek Sun-Thu, -At 17:00).
-- Confirmed full test suite compatibility with zero test failures across the entire codebase.
+- Added real swing columns to `SIGNAL_HISTORY_SCHEMA` and migration scripts.
+- Added `swing_report_path` parameter and `**kwargs` to `ScannerWorkflow.run()`.
+- Added `Swing Candidates` section in Telegram formatter.
+- Updated `test_scoring.py` assertion to match `"EMA Alignment"`.
 
 ## Artifact Index
-- ORIGINAL_REQUEST.md — Initial task instructions.
-- BRIEFING.md — Persistent context index.
-- progress.md — Step-by-step progress tracking.
-- handoff.md — Final 5-component handoff report.
+- DISPATCH.md
+- BRIEFING.md
+- progress.md
+- changes.md
+- handoff.md

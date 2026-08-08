@@ -36,6 +36,14 @@ CREATE TABLE IF NOT EXISTS scanner_signals (
     data_quality_score REAL NOT NULL,
     previous_rank INTEGER,
     rank_change INTEGER,
+    score_components TEXT,
+    next_day_score REAL DEFAULT 0,
+    next_day_label TEXT DEFAULT '',
+    next_day_target REAL DEFAULT 0,
+    swing_score REAL DEFAULT 0,
+    swing_label TEXT DEFAULT '',
+    swing_stop_loss REAL DEFAULT 0,
+    indicator_values_json TEXT DEFAULT NULL,
     FOREIGN KEY(run_id) REFERENCES scanner_runs(id)
 );
 
@@ -84,10 +92,11 @@ class SignalHistoryStore:
             new_columns = [
                 "next_day_score REAL DEFAULT 0",
                 "next_day_label TEXT DEFAULT ''",
+                "next_day_target REAL DEFAULT 0",
                 "swing_score REAL DEFAULT 0",
                 "swing_label TEXT DEFAULT ''",
                 "swing_stop_loss REAL DEFAULT 0",
-                "next_day_target REAL DEFAULT 0"
+                "indicator_values_json TEXT DEFAULT NULL",
             ]
             for col in new_columns:
                 try:
@@ -108,25 +117,29 @@ class SignalHistoryStore:
 
     def latest_ranks(self) -> dict[str, int]:
         """Return symbol -> rank for the most recent stored scanner run."""
-        with closing(self._connect()) as connection:
-            connection.row_factory = sqlite3.Row
-            latest_run = connection.execute(
-                "SELECT id FROM scanner_runs ORDER BY id DESC LIMIT 1"
-            ).fetchone()
+        try:
+            with closing(self._connect()) as connection:
+                connection.row_factory = sqlite3.Row
+                latest_run = connection.execute(
+                    "SELECT id FROM scanner_runs ORDER BY id DESC LIMIT 1"
+                ).fetchone()
 
-            if latest_run is None:
-                return {}
+                if latest_run is None:
+                    return {}
 
-            rows = connection.execute(
-                """
-                SELECT symbol, rank
-                FROM scanner_signals
-                WHERE run_id = ?
-                """,
-                (latest_run["id"],),
-            ).fetchall()
+                rows = connection.execute(
+                    """
+                    SELECT symbol, rank
+                    FROM scanner_signals
+                    WHERE run_id = ?
+                    """,
+                    (latest_run["id"],),
+                ).fetchall()
 
-        return {row["symbol"]: int(row["rank"]) for row in rows}
+            return {row["symbol"]: int(row["rank"]) for row in rows}
+        except sqlite3.OperationalError:
+            self.initialize()
+            return {}
 
     def save_run(self, result: Any) -> int:
         """Save a completed ScannerRunResult and return scanner_runs.id."""
@@ -174,6 +187,25 @@ class SignalHistoryStore:
                 nd_target = 0.0
                 if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
                     nd_target = float(symbol_result.next_day_prediction.target_price)
+                    
+                components_json = None
+                if hasattr(score, 'components'):
+                    try:
+                        components_json = json.dumps([{"name": c.name, "score": c.score, "max_score": c.max_score} for c in score.components])
+                    except Exception:
+                        pass
+
+                swing_score = float(getattr(symbol_result, 'swing_score', 0.0))
+                swing_label = str(getattr(symbol_result, 'swing_label', ''))
+                swing_stop_loss = float(getattr(symbol_result, 'swing_stop_loss', 0.0))
+
+                indicator_values_json = None
+                if hasattr(score, 'indicator_values'):
+                    try:
+                        indicator_values_json = json.dumps(score.indicator_values)
+                    except Exception:
+                        pass
+
                 rows.append(
                     (
                         run_id,
@@ -191,10 +223,12 @@ class SignalHistoryStore:
                         symbol_result.rank_change,
                         float(symbol_result.next_day_score),
                         symbol_result.next_day_label,
-                        float(symbol_result.swing_score),
-                        symbol_result.swing_label,
-                        float(symbol_result.swing_prediction.stop_loss_price) if hasattr(symbol_result, 'swing_prediction') else 0.0,
                         nd_target,
+                        swing_score,
+                        swing_label,
+                        swing_stop_loss,
+                        components_json,
+                        indicator_values_json,
                     )
                 )
 
@@ -216,12 +250,14 @@ class SignalHistoryStore:
                     rank_change,
                     next_day_score,
                     next_day_label,
+                    next_day_target,
                     swing_score,
                     swing_label,
                     swing_stop_loss,
-                    next_day_target
+                    score_components,
+                    indicator_values_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )

@@ -14,7 +14,7 @@ class OpportunityScorerTests(unittest.TestCase):
         self.assertEqual(score.symbol, "TEST")
         self.assertGreaterEqual(score.total_score, 0)
         self.assertLessEqual(score.total_score, score.max_score)
-        self.assertIn("Close > EMA20", component_names)
+        self.assertIn("EMA Alignment", component_names)
         self.assertIn("RSI14 momentum", component_names)
         self.assertIn("MACD confirmation", component_names)
         self.assertIn("Momentum20", component_names)

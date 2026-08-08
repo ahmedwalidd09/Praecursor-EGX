@@ -75,7 +75,7 @@ def run_scanner_sync() -> None:
 async def get_dashboard() -> HTMLResponse:
     if not DEFAULT_DASHBOARD_REPORT.exists():
         return HTMLResponse(
-            "<html><head>"
+            "<!doctype html><html><head>"
             "<style>"
             ".loader { border: 4px solid #f3f3f3; border-top: 4px solid #2f80ed; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; }"
             "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }"
@@ -129,7 +129,7 @@ async def get_dashboard() -> HTMLResponse:
     
     # Inject auto-refresh every 60s
     if "<head>" in html and "http-equiv=\"refresh\"" not in html:
-        html = html.replace("<head>", "<head>\n  <meta http-equiv=\"refresh\" content=\"60\" />")
+        html = html.replace("<head>", "<head>\n  <meta http-equiv=\"refresh\" content=\"300\" />")
 
     # Add a floating action button to trigger scan
     fab_html = """
@@ -195,7 +195,7 @@ async def get_dashboard() -> HTMLResponse:
             .catch(e => { alert('Error: ' + e); btn.innerText = 'Run Scan'; btn.disabled = false; });
     }
     </script>
-    <button id="scan-btn" onclick="triggerScan()" style="position:fixed;bottom:20px;right:20px;padding:12px 20px;background-color:#2f80ed;color:white;border:none;border-radius:24px;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-weight:bold;z-index:9999;">Run Scan</button>
+    <button id="scan-btn" onclick="triggerScan()" style="position:fixed;bottom:20px;right:20px;padding:12px 20px;background-color:#1e88e5;color:white;border:none;border-radius:24px;box-shadow:0 4px 12px rgba(30,136,229,0.3);cursor:pointer;font-weight:bold;z-index:9999;">Run Scan</button>
     </body>
     """
     html = html.replace("</body>", fab_html)
@@ -229,6 +229,7 @@ async def list_reports() -> list[str]:
 
 
 # Mount static files for easy CSV downloads
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
 

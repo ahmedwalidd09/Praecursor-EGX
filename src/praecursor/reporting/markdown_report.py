@@ -18,8 +18,8 @@ class ScannerMarkdownReportWriter:
         lines = [
             "# Praecursor-EGX Opportunity Ranking",
             "",
-            "| Rank | Symbol | Previous | Change | Opportunity Score | Final Score | Label | Next-Day Score | Next-Day Label | Swing Score | Swing Label | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
-            "| ---: | --- | ---: | --- | ---: | ---: | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
+            "| Rank | Symbol | Previous | Change | Opportunity Score | Final Score | Label | Next-Day Score | Next-Day Label | Latest Close | EMA20 | EMA50 | EMA200 | RSI14 | MACD Hist | Momentum20 | RelVol20 | Breakout20 | Breakout50 | NearHigh250% | ATR% | Consensus | Consensus Confidence | Data Quality | H/L Quality |",
+            "| ---: | --- | ---: | --- | ---: | ---: | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"
         ]
 
         for rank, result in enumerate(results, start=1):
@@ -41,8 +41,6 @@ class ScannerMarkdownReportWriter:
                 f"{result.predictor_label} | "
                 f"{result.next_day_score:.0f}/100 | "
                 f"{result.next_day_label} | "
-                f"{result.swing_score:.0f}/100 | "
-                f"{result.swing_label} | "
                 f"{score.latest_close:.2f} | "
                 f"{self._format_value(score.indicator_values.get('EMA20', float('nan')))} | "
                 f"{self._format_value(score.indicator_values.get('EMA50', float('nan')))} | "
@@ -77,9 +75,6 @@ class ScannerMarkdownReportWriter:
                     f"- Next-day score: **{result.next_day_score:.0f}/100**",
                     f"- Next-day label: **{result.next_day_label}**",
                     f"- Next-day reasons: {result.next_day_reasons_text}",
-                    f"- Swing score: **{result.swing_score:.0f}/100**",
-                    f"- Swing label: **{result.swing_label}**",
-                    f"- Swing reasons: {result.swing_reasons_text}",
                     f"- Previous rank: **{result.previous_rank if result.previous_rank is not None else 'new'}**",
                     f"- Rank change: **{result.rank_change_text}**",
                     f"- Latest close: **{score.latest_close:.2f}**",

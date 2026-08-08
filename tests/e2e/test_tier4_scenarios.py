@@ -38,11 +38,17 @@ class TestTier4Scenarios:
         # Add Day 2 price bar
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS source_prices (
-                ticker TEXT, trade_date TEXT, open REAL, high REAL, low REAL, close REAL, volume INTEGER, source TEXT,
-                PRIMARY KEY (ticker, trade_date, source)
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL, trade_date TEXT NOT NULL, source TEXT NOT NULL,
+                open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL,
+                volume INTEGER NOT NULL, confidence REAL NOT NULL DEFAULT 0, collected_at TEXT NOT NULL,
+                UNIQUE(ticker, trade_date, source)
             )
         """)
-        cursor.execute("INSERT INTO source_prices VALUES ('COMI', '2026-08-02', 80.0, 83.5, 79.5, 81.0, 5000, 'consensus')")
+        cursor.execute("""
+            INSERT INTO source_prices (ticker, trade_date, open, high, low, close, volume, source, collected_at)
+            VALUES ('COMI', '2026-08-02', 80.0, 83.5, 79.5, 81.0, 5000, 'consensus', '2026-08-02T17:00:00')
+        """)
         conn.commit()
         conn.close()
 

@@ -1,33 +1,47 @@
-# Project: Praecursor-EGX Autonomous Updater & Multi-Source Target Verifier
+# Project: Praecursor-EGX HTML Generation & Pipeline Stability Audit
 
 ## Architecture
-Praecursor-EGX is a Python-based stock market daily updater and scanner for EGX (Egyptian Exchange).
-The pipeline supports:
-1. Scheduled autonomous execution at 5 PM on trading days (via Windows Task Scheduler).
-2. Data consensus using `PriceConsensusEngine` fetching from TradingView, Mubasher, etc.
-3. Intraday target verification (evaluating high price vs target % return even if close is lower).
-4. Cumulative historical archiving appending daily hits/misses, retaining 16 baseline accuracy records.
+Praecursor-EGX is a Python-based stock market daily scanner and accuracy tracker for EGX (Egyptian Exchange).
+The current phase focuses on:
+1. HTML Dashboard Generation Audit (`src/praecursor/reporting/dashboard.py` and `src/praecursor/cli/dashboard.py`).
+2. Pipeline Execution Stability (`tools/regenerate_dashboard.py` and `tools/run_autonomous_pipeline.py`).
+3. Output HTML Verification (`reports/dashboard.html` malformed tag / structural checks).
 
 ## Code Layout
-- `src/`: Core Python packages (updaters, consensus engines, historical verifiers, scanners)
-- `tools/` or `scripts/`: Registration scripts for Windows Task Scheduler (`register_task.ps1`, `Daily Praecursor Update.bat`)
-- `tests/`: Unit and integration test suite (`tests/`, `tests/e2e/`)
-- `database/` / `data/`: Signal history and historical archives (`database/praecursor.db`, `reports/archive/accuracy_history_archive.csv`)
+- `src/praecursor/reporting/dashboard.py`: Core dashboard HTML rendering logic.
+- `src/praecursor/cli/dashboard.py`: CLI wrapper for dashboard generation.
+- `src/praecursor/cli/scanner.py`: Scanner CLI interface parsing `--date` and workflow options.
+- `src/praecursor/cli/telegram.py`: Telegram reporting CLI interface.
+- `tools/regenerate_dashboard.py`: Script to regenerate `reports/dashboard.html`.
+- `tools/run_autonomous_pipeline.py`: Script running the full daily autonomous pipeline.
+- `tools/retrain_models.py`: Model retraining tool.
+- `tests/test_dashboard_report.py`: Tests for HTML dashboard generation.
+- `reports/dashboard.html`: Generated HTML dashboard report.
+
+## Feature Inventory
+| # | Feature | Description | Milestone | Source |
+|---|---------|-------------|-----------|--------|
+| 1 | HTML Generation Audit & Fixes | Remove extra `</div>` tag on line 79, add HTML escaping & null safety in `dashboard.py`, fix `cli/dashboard.py` doctype | M1 | R1 |
+| 2 | Regenerate Dashboard Stability | Wrap `regenerate_dashboard.py` in `try...except`, handle empty DB with fallback, return exit code 0 | M2 | R2 / Criteria 1 |
+| 3 | Autonomous Pipeline Stability | Add `--date` to `cli/scanner.py`, harden `retrain_models.py` & `telegram.py` empty DB handling, return exit code 0 | M2 | R2 / Criteria 2 |
+| 4 | HTML Well-Formedness Verification | Add `StrictHTMLValidator` (`html.parser.HTMLParser`) to `tests/test_dashboard_report.py` ensuring zero tag errors | M3 | Criteria 3 |
+| 5 | E2E & Forensic Audit | Review, challenge, and audit all implementation changes for correctness and low credit usage | M3 | Criteria 4 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Intraday Target Verification & Historical Archiving | Verify intraday high target hits; persistent cumulative append archive with 16-record baseline | None | DONE |
-| M2 | Multi-Source Consensus Integration | Integrate/extend PriceConsensusEngine to fetch/compare from TradingView & Mubasher | M1 | DONE |
-| M3 | Autonomous 5 PM Scheduling & CLI Pipeline | Windows Task Scheduler registration (.ps1/.bat) executing update & scan | M1, M2 | DONE |
-| M4 | E2E Testing & Hardening | Opaque-box E2E test suite validation & Tier 5 adversarial coverage hardening | M1, M2, M3 | DONE |
+| M1 | HTML Generation Logic Fixes | Audit & fix `src/praecursor/reporting/dashboard.py` and `src/praecursor/cli/dashboard.py` | None | DONE |
+| M2 | Pipeline Execution Stability | Fix stability & runtime issues in `tools/regenerate_dashboard.py`, `tools/run_autonomous_pipeline.py`, `src/praecursor/cli/scanner.py`, `src/praecursor/cli/telegram.py`, and `tools/retrain_models.py` | M1 | DONE |
+| M3 | E2E Verification & Forensic Audit | Run end-to-end verification, HTML validation, reviewer & challenger checks, and forensic audit | M1, M2 | IN_PROGRESS |
 
 ## Interface Contracts
-### PriceConsensusEngine
-- Interface for querying multiple data providers (TradingView, Mubasher, etc.)
-- Returns consensus intraday high and close prices with log outputs detailing source comparisons.
+### Dashboard HTML Generation (`src/praecursor/reporting/dashboard.py`, `src/praecursor/cli/dashboard.py`)
+- Takes pipeline scan results and historical evaluation data.
+- Generates `reports/dashboard.html`.
+- Must output clean, valid HTML5 with matching start and end tags.
+- Maintains black background, neon blue accents, red/green hit/miss styling.
 
-### Accuracy Tracker & History Archive
-- Function to update signal history with daily target checks.
-- Logic: `intraday_high >= entry_price * (1 + target_pct)` -> HIT.
-- Append to persistent archive (`praecursor.db` / `accuracy_history_archive.csv`) keeping running accuracy total.
+### Pipeline Execution (`tools/regenerate_dashboard.py`, `tools/run_autonomous_pipeline.py`, `src/praecursor/cli/scanner.py`)
+- Accepts optional `--date YYYY-MM-DD` parameter in `cli/scanner.py` and `run_autonomous_pipeline.py`.
+- Executes data fetching, scoring, archive updating, and HTML dashboard rendering.
+- Exits cleanly with status code 0 on valid inputs or empty historical database.

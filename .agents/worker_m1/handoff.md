@@ -1,103 +1,90 @@
-# Handoff Report: Milestone 1 (Intraday Target Verification & Historical Archiving)
+# Handoff Report — Milestone 1: HTML Generation Logic Fixes & Unit Tests
+
+**Agent**: teamwork_preview_worker (worker_m1)  
+**Milestone**: Milestone 1 (HTML Generation Logic Fixes & Unit Tests)  
+**Working Directory**: `C:\Users\moody\.gemini\antigravity\scratch\Praecursor-EGX\.agents\worker_m1`  
+**Date**: 2026-08-08  
+
+---
 
 ## 1. Observation
 
-### Code Modifications & Additions
-1. **`src/praecursor/analysis/accuracy_tracker.py`**:
-   - Updated `update_historical_outcomes()`:
-     - Target hit evaluation logic replaced with strict verification:
-       ```python
-       next_day_hit = 1 if high >= target else 0
-       ```
-     - Removed the `is_solid_gain = ((high - latest_close) / latest_close) >= 0.025` fallback which previously marked any +2.5% intraday gain as a HIT even when `high < next_day_target`.
-     - Intraday high comparison ensures that if `high >= target_price`, it is recorded as a `HIT` (`next_day_hit = 1`) even if closing price `close < target_price`.
-     - Added max return tracking calculation `next_day_max_return = ((high - latest_close) / latest_close * 100.0)` if `latest_close > 0` else `0.0`.
-     - Upserts into `scanner_signal_outcomes` with `next_day_max_return` column.
-     - Added call to `self.export_accuracy_history_archive()` at the end of `update_historical_outcomes()`.
-   - Added method `export_accuracy_history_archive(self, export_path=None)`:
-     - Generates `reports/archive/accuracy_history_archive.csv`.
-     - Maintains running total accuracy metrics (`cumulative_total`, `cumulative_hits`, `cumulative_accuracy_pct`) across all evaluated historical runs without overwriting prior records.
-
-2. **`src/praecursor/storage/signal_history.py`**:
-   - Added `next_day_max_return REAL` column definition to `scanner_signal_outcomes` table schema.
-   - Added safe migration in `SignalHistoryStore.initialize()`:
-     ```python
-     outcome_columns = [
-         "next_day_max_return REAL DEFAULT 0"
-     ]
-     for col in outcome_columns:
-         try:
-             connection.execute(f"ALTER TABLE scanner_signal_outcomes ADD COLUMN {col}")
-         except sqlite3.OperationalError:
-             pass
-     ```
-
-3. **`tests/test_accuracy_tracker.py`**:
-   - Created comprehensive unit tests:
-     - `test_intraday_high_hits_target_even_when_close_is_lower`: Validates candidate target hit when intraday high reaches target price even if close is lower.
-     - `test_intraday_high_misses_target_even_if_over_2_point_5_percent`: Validates candidate target miss when intraday high fails to reach target price, even if intraday gain > 2.5%.
-     - `test_running_updater_multiple_times_appends_and_maintains_baseline_count`: Validates that running updater multiple times appends to history archive CSV and maintains the 16 baseline evaluation records count without duplicates.
-
-4. **`reports/archive/accuracy_history_archive.csv`**:
-   - Generated cumulative historical accuracy archive CSV file.
-
-### Verification Commands Executed
-- `python -m unittest tests/test_accuracy_tracker.py` — Passed (3/3 tests OK in 0.052s).
-- `python -m unittest discover tests` — Passed (all unit tests OK).
+- **`src/praecursor/reporting/dashboard.py`**:
+  - Located extra closing tag `</div>` inside `<div id="live-pulse">` tab container block. Line 79 had 4 closing `</div>` tags for 3 opening `<div>` tags (`live-pulse`, `grid layout`, `main-content`), causing `<main>` to be closed prematurely.
+  - Historical signal table rows directly interpolated dictionary values (`r['signal_date']`, `r['symbol']`, `r['next_day_label']`) without `html.escape()` or `.get()` defaults.
+  - `reasons = item.next_day_reasons_text` caused potential `AttributeError` when `next_day_reasons_text` is `None`.
+- **`src/praecursor/cli/dashboard.py`**:
+  - Fallback `HTMLResponse` returned when `reports/dashboard.html` does not exist lacked `<!doctype html>` boilerplate.
+- **`tests/test_dashboard_report.py`**:
+  - Contained basic `assertIn()` assertions without structural HTML tag validation.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Target Verification (R2)**:
-   - *Observation*: Previously in `accuracy_tracker.py`, line 96-97 set `is_solid_gain = ((high - latest_close) / latest_close) >= 0.025`, and `next_day_hit = 1 if (high >= target or is_solid_gain) else 0`.
-   - *Reasoning*: This fallback caused signals with aggressive targets (e.g. +7.5%) to be marked as HITs whenever intraday high reached +2.5%, diluting verification integrity. By replacing this with `next_day_hit = 1 if high >= target else 0`, a candidate is marked as a HIT if and only if `intraday_high >= target_price`. If `high >= target_price`, it is recorded as a `HIT` regardless of closing price `close`.
-
-2. **Cumulative Archiving (R3)**:
-   - *Observation*: Baseline consists of 16 top candidates across 2 scanner runs (8 candidates from 2026-08-01 run 25 + 8 candidates from 2026-08-02 run 57). `scanner_signal_outcomes` table has `UNIQUE(run_id, symbol)` constraint.
-   - *Reasoning*: `update_historical_outcomes()` executes an `UPSERT` (`ON CONFLICT(run_id, symbol) DO UPDATE SET...`), preserving existing historical outcome rows and adding new ones without creating duplicate records on repeated execution.
-   - *Reasoning*: `export_accuracy_history_archive()` queries `scanner_signal_outcomes` chronologically and writes running total metrics (`cumulative_total`, `cumulative_hits`, `cumulative_accuracy_pct`) to `reports/archive/accuracy_history_archive.csv`.
+1. Removing the extra `</div>` tag in `src/praecursor/reporting/dashboard.py` aligns the closing tags with the opening `<div>` tags inside `live-pulse`, ensuring `<main>` remains open until line 133 and preventing unclosed/mismatched tag cascades in generated HTML documents.
+2. Replacing raw dictionary access with `r.get(...)` defaults and `html.escape()` protects against missing keys and special character HTML injection vulnerabilities.
+3. Setting `reasons = item.next_day_reasons_text or ""` ensures `reasons` is always a string, preventing `AttributeError` during string operations like `"no strong" not in reasons.lower()`.
+4. Adding `<!doctype html>` to `src/praecursor/cli/dashboard.py` ensures valid HTML5 standard compliance on initial/fallback responses.
+5. Implementing `StrictHTMLValidator` (inheriting from `html.parser.HTMLParser`) in `tests/test_dashboard_report.py` provides programmatic verification of zero unclosed tags and zero structural errors across generated HTML reports.
 
 ---
 
 ## 3. Caveats
 
-No caveats. All requirements R2 and R3 have been implemented, tested, and verified against the repository codebase.
+- **Scope Limits**: Only files in the exclusive ownership list (`src/praecursor/reporting/dashboard.py`, `src/praecursor/cli/dashboard.py`, `tests/test_dashboard_report.py`) were modified.
+- **Visual Styling**: Black (`#000000`), neon blue (`#42a5f5`), red (`#ef4444`), and green (`#22c55e`) institutional theme aesthetics were fully preserved without CSS alterations.
 
 ---
 
 ## 4. Conclusion
 
-- Requirement R2 (Intraday Target Verification) is fully implemented in `src/praecursor/analysis/accuracy_tracker.py`.
-- Requirement R3 (Cumulative Historical Archive) is fully implemented in `src/praecursor/analysis/accuracy_tracker.py` and `src/praecursor/storage/signal_history.py`.
-- 16 baseline evaluation records across daily scanner runs are preserved with persistent SQLite appending and cumulative CSV export.
-- 100% test pass rate achieved across all unit test suites.
+Milestone 1 implementation is complete and fully verified.
+- The extra closing `</div>` tag was removed from `dashboard.py`.
+- HTML escaping and safe dictionary getters were added to historical signal rendering.
+- Null safety for `next_day_reasons_text` was implemented.
+- `<!doctype html>` was added to CLI fallback response.
+- `StrictHTMLValidator` was integrated into unit tests, confirming `reports/dashboard.html` has zero unclosed or malformed tags.
 
 ---
 
 ## 5. Verification Method
 
-### Test 1: Unit Test Verification
-Run:
-```bash
-python -m unittest tests/test_accuracy_tracker.py
-```
-Expected output:
-```
-Ran 3 tests in ... OK
-```
+To independently verify the implementation:
 
-### Test 2: Full Project Test Suite Discovery
-Run:
-```bash
-python -m unittest discover tests
-```
-Expected output:
-```
-OK
-```
+1. **Regenerate Dashboard**:
+   ```powershell
+   python tools/regenerate_dashboard.py
+   ```
+   *Expected Result*: Exits with code `0`. Output: `Dashboard instantly regenerated from history!`.
 
-### Test 3: CSV Archive Verification
-Inspect `reports/archive/accuracy_history_archive.csv`:
-- Check column headers: `signal_date,run_id,symbol,latest_close,next_day_target,next_day_label,next_day_hit,next_day_return,next_day_max_return,cumulative_total,cumulative_hits,cumulative_accuracy_pct`
-- Confirm `cumulative_total` increases monotonically across evaluated records.
+2. **Run Standard Library HTML Tag Validation**:
+   ```powershell
+   python -c "from html.parser import HTMLParser; from pathlib import Path;
+   class V(HTMLParser):
+       def __init__(self):
+           super().__init__(convert_charrefs=True)
+           self.stack = []
+           self.errors = []
+       def handle_starttag(self, tag, attrs):
+           if tag.lower() not in {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}:
+               self.stack.append((tag.lower(), self.getpos()))
+       def handle_endtag(self, tag):
+           t = tag.lower()
+           if t in {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}: return
+           if not self.stack: self.errors.append(f'Unexpected </{t}> empty stack at {self.getpos()}')
+           elif self.stack[-1][0] == t: self.stack.pop()
+           else: self.errors.append(f'Unexpected </{t}> at {self.getpos()}, top is <{self.stack[-1][0]}>')
+
+   v = V()
+   v.feed(Path('reports/dashboard.html').read_text('utf-8'))
+   print('ERRORS:', len(v.errors), v.errors)
+   print('STACK:', len(v.stack), v.stack)"
+   ```
+   *Expected Result*: `ERRORS: 0 []`, `STACK: 0 []`.
+
+3. **Run Unit Tests**:
+   ```powershell
+   pytest tests/test_dashboard_report.py
+   ```
+   *Expected Result*: `2 passed`.

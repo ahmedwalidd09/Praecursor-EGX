@@ -8,12 +8,11 @@ class LimitUpIndicator(Indicator):
     """Detects if a stock closed at limit-up (approx 9.9% or 19.9% gain) relative to previous close."""
 
     def calculate(self, stock: Stock) -> IndicatorResult:
-        prices = stock.prices
-        if len(prices) < 2:
+        if len(stock.history) < 2:
             return IndicatorResult("ClosedAtLimitUp", 0.0)
             
-        latest_close = prices["close"].iloc[-1]
-        prev_close = prices["close"].iloc[-2]
+        latest_close = stock.history[-1].close
+        prev_close = stock.history[-2].close
         
         if prev_close <= 0:
             return IndicatorResult("ClosedAtLimitUp", 0.0)

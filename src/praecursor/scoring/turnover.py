@@ -11,11 +11,10 @@ class AverageTurnoverIndicator(Indicator):
         self.period = period
 
     def calculate(self, stock: Stock) -> IndicatorResult:
-        prices = stock.prices
-        if len(prices) < self.period:
+        if len(stock.history) < self.period:
             return IndicatorResult(f"AvgTurnover{self.period}", float("nan"))
             
-        turnover = prices["volume"] * prices["close"]
-        avg_turnover = turnover.rolling(window=self.period).mean().iloc[-1]
+        turnovers = [bar.volume * bar.close for bar in stock.history[-self.period:]]
+        avg_turnover = sum(turnovers) / len(turnovers)
         
         return IndicatorResult(f"AvgTurnover{self.period}", float(avg_turnover))

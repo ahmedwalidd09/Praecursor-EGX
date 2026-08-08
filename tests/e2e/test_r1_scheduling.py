@@ -45,24 +45,103 @@ class TestR1SchedulingTier1:
         subprocess.run(["schtasks", "/Delete", "/TN", "PraecursorE2ETestTrigger", "/F"], capture_output=True)
 
     def test_r1_scheduled_task_action_command(self, run_task_script, project_root):
-        """Verify action command invokes python script/bat file correctly."""
-        target_bat = project_root / "Daily Praecursor Update.bat"
-        assert target_bat.exists()
+        """Verify action command invokes python script run_autonomous_pipeline.py correctly."""
+        target_py = project_root / "tools" / "run_autonomous_pipeline.py"
+        assert target_py.exists()
 
         res = run_task_script("register_task.ps1", "PraecursorE2ETestAction", "17:00")
         assert res.returncode == 0
         query_res = subprocess.run(["schtasks", "/Query", "/TN", "PraecursorE2ETestAction", "/V", "/FO", "LIST"], capture_output=True, text=True)
         assert query_res.returncode == 0
-        assert "Daily Praecursor Update.bat" in query_res.stdout
+        assert "run_autonomous_pipeline.py" in query_res.stdout
 
         subprocess.run(["schtasks", "/Delete", "/TN", "PraecursorE2ETestAction", "/F"], capture_output=True)
 
     def test_r1_scheduled_task_exit_code(self, run_task_script):
         """Verify scheduled task script returns exit code 0 on successful run."""
-        res = run_task_script("tools/register_task.bat", "PraecursorE2ETestExitCode", "17:00")
+        res = run_task_script("register_task.ps1", "PraecursorE2ETestExitCode", "17:00")
         assert res.returncode == 0, f"Expected 0 exit code, got {res.returncode}"
 
         subprocess.run(["schtasks", "/Delete", "/TN", "PraecursorE2ETestExitCode", "/F"], capture_output=True)
+
+    def test_r1_pipeline_trading_day_logging(self, tmp_path, monkeypatch):
+        """Verify pipeline explicitly logs PROCESSING on EGX trading days (Sun-Thu)."""
+        from datetime import date
+        from tools.run_autonomous_pipeline import run_pipeline, is_egx_trading_day
+
+        trading_date = date(2026, 8, 2)
+        assert is_egx_trading_day(trading_date) is True
+
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr("tools.run_autonomous_pipeline.run_stage", lambda *args, **kwargs: True)
+
+        code = run_pipeline(logs_dir=logs_dir, run_date=trading_date)
+        assert code == 0
+
+        log_file = logs_dir / "scheduled_pipeline_20260802.log"
+        assert log_file.exists()
+        log_content = log_file.read_text(encoding="utf-8")
+        assert "PROCESSING: EGX Trading Day (2026-08-02) - executing autonomous scan pipeline." in log_content
+
+    def test_r1_pipeline_non_trading_day_skip_logging(self, tmp_path):
+        """Verify pipeline explicitly logs SKIPPED and exits with code 0 on non-trading days (Fri-Sat)."""
+        from datetime import date
+        from tools.run_autonomous_pipeline import run_pipeline, is_egx_trading_day
+
+        non_trading_date = date(2026, 8, 7)
+        assert is_egx_trading_day(non_trading_date) is False
+
+        logs_dir = tmp_path / "logs"
+
+        code = run_pipeline(logs_dir=logs_dir, run_date=non_trading_date)
+        assert code == 0
+
+        log_file = logs_dir / "scheduled_pipeline_20260807.log"
+        assert log_file.exists()
+        log_content = log_file.read_text(encoding="utf-8")
+        assert "SKIPPED: Non-trading day (2026-08-07) - skipping automated scan." in log_content
+
+    def test_r1_pipeline_forced_execution_on_non_trading_day(self, tmp_path, monkeypatch):
+        """Verify --force flag overrides non-trading day skip check."""
+        from datetime import date
+        from tools.run_autonomous_pipeline import run_pipeline
+
+        non_trading_date = date(2026, 8, 7)
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr("tools.run_autonomous_pipeline.run_stage", lambda *args, **kwargs: True)
+
+        code = run_pipeline(logs_dir=logs_dir, run_date=non_trading_date, force=True)
+        assert code == 0
+
+        log_file = logs_dir / "scheduled_pipeline_20260807.log"
+        assert log_file.exists()
+        log_content = log_file.read_text(encoding="utf-8")
+        assert "PROCESSING: Forced execution on non-trading day (2026-08-07)" in log_content
+
+    def test_r1_stage_retry_logic(self, monkeypatch):
+        """Verify run_stage executes retries with backoff on stage failure."""
+        import logging
+        from pathlib import Path
+        from tools.run_autonomous_pipeline import run_stage
+
+        logger = logging.getLogger("test_retry")
+        call_count = 0
+
+        def mock_subprocess_run(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            class Result:
+                returncode = 1 if call_count < 3 else 0
+                stdout = "Output"
+                stderr = "Error"
+            return Result()
+
+        monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+        monkeypatch.setattr("time.sleep", lambda secs: None)
+
+        success = run_stage(logger, 1, "Test Stage", ["echo", "test"], Path("."), max_attempts=3, initial_backoff=0.01)
+        assert success is True
+        assert call_count == 3
 
 
 class TestR1SchedulingTier2:

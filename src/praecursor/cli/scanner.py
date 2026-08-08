@@ -1,6 +1,8 @@
 import argparse
+from datetime import datetime
 from math import isnan
 from pathlib import Path
+import sys
 
 from praecursor.core.settings import DEFAULT_SCANNER_SETTINGS, ScannerSettings
 from praecursor.scoring.opportunity_score import OpportunityScore
@@ -14,6 +16,14 @@ WARNING_PREVIEW_LIMIT = 3
 def main() -> int:
     args, settings = parse_args()
     
+    target_date = None
+    if args.date:
+        try:
+            target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"Error: Invalid date format '{args.date}'. Expected YYYY-MM-DD.", file=sys.stderr)
+            return 1
+
     if args.watchlist:
         symbol_mapper = SymbolMapper.from_csv(args.watchlist)
         symbols = parse_symbols(args.symbols) or symbol_mapper.get_yahoo_symbols()
@@ -30,15 +40,18 @@ def main() -> int:
         enable_archive_reports=not args.no_archive_reports,
         symbol_mapper=symbol_mapper,
     )
-    result = workflow.run(symbols=symbols)
+    result = workflow.run(symbols=symbols, end_date=target_date)
 
     print_header(result, settings)
     print_update_summary(result)
     print_candidate_list("Next-Day Candidates", result.next_day_results, "next_day")
-    print_candidate_list("Swing Candidates", result.swing_results, "swing")
     print_ranking(result.symbol_results)
     print_errors(result)
     print_report_location(result)
+
+    print("\n---------------------------------------------------------")
+    print(f"Total symbols processed: {result.success_count}")
+    print(f"Errors encountered: {result.error_count}")
 
     if result.success_count == 0:
         return 1
@@ -63,6 +76,12 @@ def parse_args() -> tuple[argparse.Namespace, ScannerSettings]:
     parser.add_argument(
         "--watchlist",
         help="Path to a custom CSV file containing a list of symbols to scan. Overrides default config/symbols.csv.",
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Target end date for scanner in YYYY-MM-DD format.",
     )
     parser.add_argument(
         "--lookback-days",
@@ -182,14 +201,9 @@ def print_candidate_list(title: str, results: list[SymbolScanResult], mode: str)
 
     for rank, symbol_result in enumerate(results, start=1):
         score = symbol_result.opportunity_score
-        if mode == "next_day":
-            candidate_score = symbol_result.next_day_score
-            candidate_label = symbol_result.next_day_label
-            candidate_reasons = symbol_result.next_day_reasons_text
-        else:
-            candidate_score = symbol_result.swing_score
-            candidate_label = symbol_result.swing_label
-            candidate_reasons = symbol_result.swing_reasons_text
+        candidate_score = symbol_result.next_day_score
+        candidate_label = symbol_result.next_day_label
+        candidate_reasons = symbol_result.next_day_reasons_text
 
         print("=" * 40)
         print(f"#{rank} {score.symbol} - {score.company}")
@@ -262,9 +276,6 @@ def print_report_location(result: ScannerRunResult) -> None:
 
     if result.next_day_report_path is not None:
         print(f"Next-day candidates CSV saved to: {result.next_day_report_path}")
-
-    if result.swing_report_path is not None:
-        print(f"Swing candidates CSV saved to: {result.swing_report_path}")
 
     if result.markdown_report_path is None:
         print("No Markdown report was generated because no symbols were successfully analyzed.")

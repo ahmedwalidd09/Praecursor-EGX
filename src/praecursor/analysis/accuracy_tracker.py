@@ -38,7 +38,7 @@ class AccuracyTracker:
                 SELECT id, date(generated_at) as run_date, generated_at
                 FROM scanner_runs
                 WHERE id IN (
-                    SELECT MAX(id) FROM scanner_runs
+                    SELECT MIN(id) FROM scanner_runs
                     GROUP BY date(generated_at)
                 )
                 ORDER BY generated_at ASC
@@ -140,7 +140,7 @@ class AccuracyTracker:
             conn.row_factory = sqlite3.Row
             query = """
             WITH day_runs AS (
-                SELECT MAX(id) as run_id, date(generated_at) as run_date
+                SELECT MIN(id) as run_id, date(generated_at) as run_date
                 FROM scanner_runs
                 GROUP BY date(generated_at)
             ),
@@ -218,7 +218,7 @@ class AccuracyTracker:
             # ---- aggregate next-day accuracy (top 8 only) ----
             next_day_query = """
             WITH day_runs AS (
-                SELECT MAX(id) as run_id, date(generated_at) as run_date
+                SELECT MIN(id) as run_id, date(generated_at) as run_date
                 FROM scanner_runs
                 GROUP BY date(generated_at)
             ),
@@ -238,7 +238,7 @@ class AccuracyTracker:
             # ---- history rows (top 8 per day, most recent days first) ----
             history_query = """
             WITH day_runs AS (
-                SELECT MAX(id) as run_id, date(generated_at) as run_date
+                SELECT MIN(id) as run_id, date(generated_at) as run_date
                 FROM scanner_runs
                 GROUP BY date(generated_at)
                 ),

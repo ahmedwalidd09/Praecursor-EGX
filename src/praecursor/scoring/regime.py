@@ -23,11 +23,13 @@ def get_egx30_data(lookback_days=1000) -> pd.DataFrame:
             df = ticker.history(period=f"{lookback_days}d")
             if df.empty:
                 logger.warning("Could not fetch EGX30 data from Yahoo.")
+                _EGX30_CACHE = df
                 return df
             _EGX30_CACHE = df.dropna()
         except Exception as e:
             logger.error(f"Error fetching EGX30: {e}")
-            return pd.DataFrame()
+            _EGX30_CACHE = pd.DataFrame()
+            return _EGX30_CACHE
     return _EGX30_CACHE
 
 class MarketRegimeModel:

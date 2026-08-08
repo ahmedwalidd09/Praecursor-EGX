@@ -92,6 +92,25 @@ class ScannerWorkflowTests(unittest.TestCase):
             self.assertEqual(loaded_bars[0].high, 150.0)
             self.assertEqual(loaded_bars[0].close, 145.0)
 
+    def test_signal_history_store_uninitialized_db(self):
+        with TemporaryDirectory() as directory:
+            directory_path = Path(directory)
+            db_path = directory_path / "uninitialized.db"
+            db_path.touch()
+            from praecursor.storage.signal_history import SignalHistoryStore
+            store = SignalHistoryStore(database_path=db_path)
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("DROP TABLE IF EXISTS scanner_signals")
+                conn.execute("DROP TABLE IF EXISTS scanner_runs")
+                conn.commit()
+            finally:
+                conn.close()
+
+            ranks = store.latest_ranks()
+            self.assertEqual(ranks, {})
+
 
 if __name__ == "__main__":
     unittest.main()

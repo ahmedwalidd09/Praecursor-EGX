@@ -105,7 +105,7 @@ class TelegramReportFormatter:
 
     def format_scanner_result(self, result: Any, top_n: int = 5) -> str:
         next_day = result.next_day_results[:top_n]
-        swing = result.swing_results[:top_n]
+        swing = getattr(result, "swing_results", result.symbol_results)[:top_n] if hasattr(result, "swing_results") else []
         lines = [
             "📈 Praecursor-EGX Scan",
             f"Generated: {result.generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
@@ -114,25 +114,20 @@ class TelegramReportFormatter:
             "",
             "🚀 Next-Day Candidates",
         ]
-        lines.extend(self._format_candidate_rows(next_day, mode="next_day"))
-        lines.extend(["", "📊 Swing Candidates"])
-        lines.extend(self._format_candidate_rows(swing, mode="swing"))
-        lines.extend(["", "Reports:", "- reports/dashboard.html", "- reports/next_day_candidates.csv", "- reports/swing_candidates.csv"])
+        lines.extend(self._format_candidate_rows(next_day))
+        lines.extend(["", "🎯 Swing Candidates"])
+        lines.extend(self._format_candidate_rows(swing))
+        lines.extend(["", "Reports:", "- reports/dashboard.html", "- reports/next_day_candidates.csv"])
         return "\n".join(lines)
 
-    def _format_candidate_rows(self, results: list[Any], mode: str) -> list[str]:
+    def _format_candidate_rows(self, results: list[Any]) -> list[str]:
         if not results:
             return ["No candidates."]
 
         rows = []
         for rank, item in enumerate(results, start=1):
-            if mode == "next_day":
-                score = item.next_day_score
-                label = item.next_day_label
-            else:
-                score = item.swing_score
-                label = item.swing_label
-
+            score = item.next_day_score
+            label = item.next_day_label
             rows.append(
                 f"{rank}. {item.symbol} — {score:.0f}/100 — {label} — close {item.opportunity_score.latest_close:.2f}"
             )

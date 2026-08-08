@@ -19,6 +19,7 @@ class TestAccuracyTracker(unittest.TestCase):
         # Initialize schemas for signals, outcomes, and price cache
         self.store = SignalHistoryStore(self.db_path)
         self.cache = PriceCache(self.db_path)
+        self.cache.initialize()  # Create source_prices table
         self.tracker = AccuracyTracker(self.db_path)
 
     def tearDown(self):

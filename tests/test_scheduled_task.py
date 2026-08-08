@@ -113,7 +113,7 @@ class TestHeadlessPipelineRunner(unittest.TestCase):
     def test_run_pipeline_success_exit_code(self, mock_run_stage):
         mock_run_stage.side_effect = [True, True, True, True]
         with tempfile.TemporaryDirectory() as tmp_dir:
-            exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs")
+            exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs", force=True)
             self.assertEqual(exit_code, 0)
             self.assertEqual(mock_run_stage.call_count, 4)
 
@@ -121,7 +121,7 @@ class TestHeadlessPipelineRunner(unittest.TestCase):
     def test_run_pipeline_stage1_failure_aborts(self, mock_run_stage):
         mock_run_stage.side_effect = [False]
         with tempfile.TemporaryDirectory() as tmp_dir:
-            exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs")
+            exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs", force=True)
             self.assertEqual(exit_code, 1)
             self.assertEqual(mock_run_stage.call_count, 1)
 
@@ -129,7 +129,7 @@ class TestHeadlessPipelineRunner(unittest.TestCase):
     def test_run_pipeline_stage2_failure_propagates(self, mock_run_stage):
         mock_run_stage.side_effect = [True, False, True, True]
         with tempfile.TemporaryDirectory() as tmp_dir:
-            exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs")
+            exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs", force=True)
             self.assertEqual(exit_code, 1)
             self.assertEqual(mock_run_stage.call_count, 4)
 

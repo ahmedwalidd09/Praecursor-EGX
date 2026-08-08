@@ -89,7 +89,7 @@ class OpportunityScorer:
     Total: 125 points (normalized to 100%)
     """
 
-    MAX_SCORE = 125.0
+    MAX_SCORE = 130.0
 
     def __init__(self):
         self.analyzer = Analyzer()
@@ -250,6 +250,8 @@ class OpportunityScorer:
             self._score_breakout_setup(
                 breakout20, breakout50, near_close_high250, close_high250, volume_confirmed_breakout
             ),
+            # Volatility (5 pts)
+            self._score_volatility(atr_pct14),
             # Reversal & Reclaim (10 pts)
             self._score_rsi_rebound(rsi_rebound),
             self._score_ema20_reclaim(ema20_reclaim),
@@ -540,6 +542,13 @@ class OpportunityScorer:
         max_score = 2.0
         if self._missing(bbw20): return ScoreComponent("BBW", 0.0, max_score, "Unavailable.")
         return ScoreComponent("BBW", max_score/2, max_score, "Normal BBW.")
+
+    def _score_volatility(self, atr_pct14: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(atr_pct14): return ScoreComponent("Volatility", 0.0, max_score, "ATR% unavailable.")
+        if atr_pct14 >= 5.0: return ScoreComponent("Volatility", max_score, max_score, f"Explosive volatility ({atr_pct14:.1f}%).")
+        if atr_pct14 >= 3.0: return ScoreComponent("Volatility", 3.0, max_score, f"Healthy volatility ({atr_pct14:.1f}%).")
+        return ScoreComponent("Volatility", 0.0, max_score, f"Low volatility ({atr_pct14:.1f}%).")
 
     def _score_rsi_rebound(self, rsi_rebound: float) -> ScoreComponent:
         max_score = 2.0

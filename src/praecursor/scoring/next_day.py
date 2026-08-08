@@ -260,6 +260,30 @@ def calculate_next_day_prediction(
                 reasons.append("RSI is not supportive")
 
     score = max(0.0, min(score, 100.0))
+    
+    # ----------------------------------------------------
+    # Smart Volatility & Liquidity Overrides
+    # ----------------------------------------------------
+    atr_pct = values.get("ATRPercent14", float("nan"))
+    turnover20 = values.get("AvgTurnover20", float("nan"))
+    
+    if not _missing(atr_pct):
+        # 1. Low Volatility Penalty (Mega-caps or stagnant stocks)
+        if atr_pct < 2.5:
+            score -= 20.0
+            reasons.append(f"Low volatility (ATR {atr_pct:.1f}% < 2.5%): Deprioritized for rapid next-day moves")
+        
+        # 2. Explosive Small/Mid-Cap Bonus
+        elif atr_pct > 5.0 and not _missing(turnover20) and turnover20 > 2_000_000:
+            score += 12.0
+            reasons.append(f"High volatility (ATR {atr_pct:.1f}% > 5.0%) with acceptable liquidity: Explosive setup")
+            
+        # 3. Heavy Mega-Cap Penalty
+        if not _missing(turnover20) and turnover20 > 100_000_000 and atr_pct < 4.0:
+            score -= 15.0
+            reasons.append(f"Heavy mega-cap (Turnover > 100M) lacks volatility for fast intraday swings")
+
+    score = max(0.0, min(score, 100.0))
     label = _label(score, rsi14, breakout20, breakout50, volume_confirmed_breakout, consensus_accepted, opp_score=opportunity_score.score_percent)
 
     if not reasons:

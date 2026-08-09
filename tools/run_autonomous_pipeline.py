@@ -115,6 +115,12 @@ def run_pipeline(
     effective_date = run_date or datetime.now().date()
     date_str = effective_date.strftime("%Y-%m-%d")
     
+    from datetime import timedelta
+    next_trading_day = effective_date + timedelta(days=1)
+    while next_trading_day.weekday() in (4, 5):  # Friday, Saturday
+        next_trading_day += timedelta(days=1)
+    next_trading_day_str = next_trading_day.strftime("%Y-%m-%d")
+    
     # Ensure reports output directories are prepared for next-day scan output files
     reports_dir = root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -131,7 +137,8 @@ def run_pipeline(
         logger.info("Praecursor-EGX Autonomous Daily Pipeline Started")
         logger.info(f"Project Root: {root}")
         logger.info(f"Log File: {log_file}")
-        logger.info(f"Target Date: {date_str}")
+        logger.info(f"Scan Date: {date_str}")
+        logger.info(f"Target Date: {next_trading_day_str}")
         logger.info("==================================================")
 
         trading_day = is_egx_trading_day(effective_date)

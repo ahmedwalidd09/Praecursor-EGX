@@ -19,7 +19,7 @@ class ScannerDashboardWriter:
 
     def _html(self, result: Any) -> str:
         import os
-        from datetime import datetime
+        from datetime import datetime, timedelta
         try:
             tracker = AccuracyTracker(result.database_path)
             stats = tracker.get_accuracy_stats()
@@ -32,6 +32,11 @@ class ScannerDashboardWriter:
             model_time_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
         except Exception:
             model_time_str = "Unknown"
+
+        generated_dt = result.generated_at.astimezone(ZoneInfo('Africa/Cairo'))
+        next_day = generated_dt.date() + timedelta(days=1)
+        while next_day.weekday() in (4, 5):  # Friday, Saturday
+            next_day += timedelta(days=1)
 
         return f"""<!doctype html>
 <html lang="en">
@@ -48,7 +53,8 @@ class ScannerDashboardWriter:
       <h1>Opportunity Pulse</h1>
     </div>
     <div class="meta">
-      <span>Generated {escape(result.generated_at.astimezone(ZoneInfo('Africa/Cairo')).isoformat()[:16].replace('T', ' '))} (Cairo Time)</span>
+      <span>Generated {escape(generated_dt.isoformat()[:16].replace('T', ' '))} (Cairo Time)</span>
+      <span>Next-Day Predictions for: {escape(str(next_day))}</span>
       <span>{len(result.symbol_results)} Symbols Scanned</span>
       <span>Primary: {escape(result.source_name)}</span>
       <span>Model Updated: {escape(model_time_str)}</span>

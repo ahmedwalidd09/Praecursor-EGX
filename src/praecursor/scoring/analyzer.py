@@ -1,5 +1,6 @@
 from praecursor.core.stock import Stock
 from praecursor.scoring.indicator import Indicator
+from praecursor.scoring.result import IndicatorResult
 
 
 class Analyzer:

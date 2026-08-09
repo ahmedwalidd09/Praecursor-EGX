@@ -97,13 +97,13 @@ def calculate_next_day_prediction(
             "Breakout20", "Breakout50", "RSIRebound", "EMA20Reclaim", 
             "MACDHistogramImprovement", "VolumeSpikeFromWeakness", "Momentum5", "BBW20",
             "MTF_Trend", "VPOC_Distance", "ADX14", "ROC10", "StochRSI", "VWAPMom10",
-            "AvgTurnover20", "ClosedAtLimitUp"
+            "AvgTurnover20", "ClosedAtLimitUp", "ATRPercent14",  # v0.4.0: native volatility feature
         ]
         csv_features = [
             "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
             "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
             "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10",
-            "avg_turnover_20", "closed_at_limit_up"
+            "avg_turnover_20", "closed_at_limit_up", "atr_pct14",  # v0.4.0
         ]
         
         row_data = {csv_name: values.get(orig_name, 0.0) for csv_name, orig_name in zip(csv_features, features)}
@@ -114,18 +114,25 @@ def calculate_next_day_prediction(
         df = pd.DataFrame([row_data])
         
         try:
-            # We will use all 20 features for the retrained model.
-            # If the old model with 14 features is still there, it might fail,
-            # so we try 20 first, then fall back to 14.
+            # Try 21 features (v0.4.0 model) first, then fall back to 20, then 14
             try:
                 prob = model.predict_proba(df.values)[0][1]
             except Exception:
-                old_features = [
+                old_features_20 = [
                     "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
                     "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
-                    "mtf_trend", "vpoc_distance"
+                    "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10",
+                    "avg_turnover_20", "closed_at_limit_up"
                 ]
-                prob = model.predict_proba(df[old_features].values)[0][1]
+                try:
+                    prob = model.predict_proba(df[old_features_20].values)[0][1]
+                except Exception:
+                    old_features_14 = [
+                        "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
+                        "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
+                        "mtf_trend", "vpoc_distance"
+                    ]
+                    prob = model.predict_proba(df[old_features_14].values)[0][1]
         except Exception:
             prob = 0.0
         
@@ -292,8 +299,28 @@ def calculate_next_day_prediction(
     atr14 = values.get("ATR14", float("nan"))
     latest_close = opportunity_score.latest_close
     
-    target_price = latest_close + (2.5 * atr14) if not _missing(atr14) else latest_close
-    stop_loss_price = latest_close - (1.2 * atr14) if not _missing(atr14) else latest_close
+    # --- Adaptive Target Pricing (v0.4.0) ---
+    # Multipliers scale with volatility tier so explosive stocks get wider targets
+    # and low-vol stocks get realistic, tighter targets. Regime further adjusts.
+    atr_pct_for_target = values.get("ATRPercent14", float("nan"))
+    if not _missing(atr_pct_for_target) and atr_pct_for_target >= 5.0:
+        target_mult, stop_mult = 3.0, 1.5   # Explosive stocks
+    elif not _missing(atr_pct_for_target) and atr_pct_for_target >= 3.0:
+        target_mult, stop_mult = 2.5, 1.2   # Normal volatility
+    else:
+        target_mult, stop_mult = 2.0, 1.0   # Low-vol: tighter, more realistic
+
+    # Regime adjustment (uses cached _REGIME_CACHE — no duplicate API call)
+    from praecursor.scoring.regime import MarketRegimeModel
+    _regime_for_target = MarketRegimeModel().get_latest_regime()
+    _regime_name = _regime_for_target.get("regime", "Unknown")
+    if "Bear" in _regime_name:
+        target_mult *= 0.8
+    elif "Bull" in _regime_name:
+        target_mult *= 1.1
+
+    target_price = latest_close + (target_mult * atr14) if not _missing(atr14) else latest_close
+    stop_loss_price = latest_close - (stop_mult * atr14) if not _missing(atr14) else latest_close
 
     return NextDayPrediction(
         score=score, 

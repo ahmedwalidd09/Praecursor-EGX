@@ -25,7 +25,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "database" / "praecursor.db"
 MODELS_DIR = ROOT / "models"
 
-# The exact 20 features the ML model uses in production (next_day.py lines 95-107)
+# The exact 21 features the ML model uses in production (next_day.py lines 95-107)
+# v0.4.0: Added ATRPercent14 so model natively learns volatile stocks are better candidates
 INDICATOR_TO_FEATURE = {
     "RSI14": "rsi14",
     "RelVolume20": "rel_volume20",
@@ -47,6 +48,7 @@ INDICATOR_TO_FEATURE = {
     "VWAPMom10": "vwap_mom10",
     "AvgTurnover20": "avg_turnover_20",
     "ClosedAtLimitUp": "closed_at_limit_up",
+    "ATRPercent14": "atr_pct14",   # v0.4.0: volatile stocks natively rewarded
 }
 
 FEATURES = list(INDICATOR_TO_FEATURE.values())
@@ -220,11 +222,11 @@ def main():
         logger.warning("Insufficient class balance for training. Need at least 5 of each class. Aborting.")
         return
 
-    # Use stratified split to maintain class balance
-    test_size = min(0.2, max(10, len(X) // 5) / len(X))
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42, stratify=y
-    )
+    # Time-based split: train on first 80%, test on last 20% chronologically.
+    # This eliminates look-ahead bias from random shuffling (v0.4.0 fix).
+    split_idx = int(len(X) * 0.8)
+    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_test = y[:split_idx], y[split_idx:]
 
     logger.info(f"Training XGBoost on {len(X_train)} samples ({len(FEATURES)} real EGX features)...")
 

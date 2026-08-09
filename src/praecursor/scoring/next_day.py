@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 _NEXT_DAY_MODEL = None
 _NEXT_DAY_LGB_MODEL = None
+_NEXT_DAY_META = None
 
 def _get_next_day_model():
     global _NEXT_DAY_MODEL
@@ -49,6 +50,22 @@ def _get_next_day_lgb_model():
         except Exception:
             _NEXT_DAY_LGB_MODEL = False
     return _NEXT_DAY_LGB_MODEL if _NEXT_DAY_LGB_MODEL is not False else None
+
+def _get_next_day_meta():
+    global _NEXT_DAY_META
+    if _NEXT_DAY_META is None:
+        try:
+            import json
+            meta_path = Path(__file__).resolve().parents[3] / "models" / "xgboost_next_day_meta.json"
+            if meta_path.exists():
+                with open(meta_path, "r") as f:
+                    _NEXT_DAY_META = json.load(f)
+            else:
+                _NEXT_DAY_META = {"threshold": 0.5}
+        except Exception as e:
+            logger.error(f"Failed to load next day model metadata: {e}")
+            _NEXT_DAY_META = {"threshold": 0.5}
+    return _NEXT_DAY_META
 
 
 @dataclass(frozen=True)
@@ -98,12 +115,14 @@ def calculate_next_day_prediction(
             "MACDHistogramImprovement", "VolumeSpikeFromWeakness", "Momentum5", "BBW20",
             "MTF_Trend", "VPOC_Distance", "ADX14", "ROC10", "StochRSI", "VWAPMom10",
             "AvgTurnover20", "ClosedAtLimitUp", "ATRPercent14",  # v0.4.0: native volatility feature
+            "Momentum1", "RSISlope3", "ConsecutiveGreen", "DayOfWeek",  # v0.5.0: temporal features
         ]
         csv_features = [
             "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
             "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
             "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10",
             "avg_turnover_20", "closed_at_limit_up", "atr_pct14",  # v0.4.0
+            "momentum1", "rsi_slope3", "consecutive_green", "day_of_week",  # v0.5.0
         ]
         
         row_data = {csv_name: values.get(orig_name, 0.0) for csv_name, orig_name in zip(csv_features, features)}
@@ -114,25 +133,34 @@ def calculate_next_day_prediction(
         df = pd.DataFrame([row_data])
         
         try:
-            # Try 21 features (v0.4.0 model) first, then fall back to 20, then 14
+            # Try 25 features (v0.5.0 model) first, then fall back to 21, 20, 14
             try:
                 prob = model.predict_proba(df.values)[0][1]
             except Exception:
-                old_features_20 = [
+                old_features_21 = [
                     "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
                     "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
                     "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10",
-                    "avg_turnover_20", "closed_at_limit_up"
+                    "avg_turnover_20", "closed_at_limit_up", "atr_pct14"
                 ]
                 try:
-                    prob = model.predict_proba(df[old_features_20].values)[0][1]
+                    prob = model.predict_proba(df[old_features_21].values)[0][1]
                 except Exception:
-                    old_features_14 = [
+                    old_features_20 = [
                         "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
                         "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
-                        "mtf_trend", "vpoc_distance"
+                        "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10",
+                        "avg_turnover_20", "closed_at_limit_up"
                     ]
-                    prob = model.predict_proba(df[old_features_14].values)[0][1]
+                    try:
+                        prob = model.predict_proba(df[old_features_20].values)[0][1]
+                    except Exception:
+                        old_features_14 = [
+                            "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
+                            "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
+                            "mtf_trend", "vpoc_distance"
+                        ]
+                        prob = model.predict_proba(df[old_features_14].values)[0][1]
         except Exception:
             prob = 0.0
         
@@ -160,7 +188,9 @@ def calculate_next_day_prediction(
             reasons.append(f"Regime {regime}: Boosting breakout score")
             
         reasons.append(f"AI Probability: {score:.1f}%")
-        if score >= 50:
+        meta = _get_next_day_meta()
+        threshold = meta.get("threshold", 0.5) if meta else 0.5
+        if score >= threshold * 100:
             reasons.append("ML model predicts a positive 1-day return")
             
         if not consensus_accepted:

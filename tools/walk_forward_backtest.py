@@ -59,6 +59,10 @@ INDICATOR_TO_FEATURE = {
     "AvgTurnover20": "avg_turnover_20",
     "ClosedAtLimitUp": "closed_at_limit_up",
     "ATRPercent14": "atr_pct14",
+    "Momentum1": "momentum1",
+    "RSISlope3": "rsi_slope3",
+    "ConsecutiveGreen": "consecutive_green",
+    "DayOfWeek": "day_of_week",
 }
 FEATURES = list(INDICATOR_TO_FEATURE.values())
 MIN_TRAIN_SAMPLES = 30
@@ -217,33 +221,47 @@ def main():
                 continue
 
             # Predict on today's candidates
-            predicted_hits = 0
-            actual_hits = 0
-            total = 0
+            day_candidates = []
 
             for _, row in day_data.iterrows():
                 feat = extract_features_for_row(row['symbol'], row['run_date'], conn, scorer)
                 if feat is None:
                     continue
-                prob = model.predict_proba([feat])[0][1]
-                predicted_positive = prob >= 0.5
+                prob = float(model.predict_proba([feat])[0][1])
                 actual_hit = int(row['target'])
-                if predicted_positive:
-                    predicted_hits += 1
-                if actual_hit:
-                    actual_hits += 1
-                total += 1
+                day_candidates.append((row['symbol'], prob, actual_hit))
 
-            day_accuracy = (actual_hits / total * 100.0) if total > 0 else 0.0
+            if not day_candidates:
+                continue
+
+            # Sort by prob descending
+            day_candidates.sort(key=lambda x: x[1], reverse=True)
+
+            # Take top 8
+            top8 = day_candidates[:8]
+            top8_hits = sum(1 for c in top8 if c[2] == 1)
+            top8_total = len(top8)
+            top8_hit_rate_pct = (top8_hits / top8_total * 100.0) if top8_total > 0 else 0.0
+
+            # All candidates
+            total_candidates = len(day_candidates)
+            actual_hits = sum(1 for c in day_candidates if c[2] == 1)
+            hit_rate_pct = (actual_hits / total_candidates * 100.0) if total_candidates > 0 else 0.0
+
             results.append({
                 'date': date_str,
-                'total_candidates': total,
+                'top8_hits': top8_hits,
+                'top8_total': top8_total,
+                'top8_hit_rate_pct': round(top8_hit_rate_pct, 1),
+                'total_candidates': total_candidates,
                 'actual_hits': actual_hits,
-                'predicted_hits': predicted_hits,
-                'hit_rate_pct': round(day_accuracy, 1),
+                'hit_rate_pct': round(hit_rate_pct, 1),
                 'training_samples': len(X_accumulated),
             })
-            logger.info(f"  {date_str}: {actual_hits}/{total} hits ({day_accuracy:.0f}%) | trained on {len(X_accumulated)} samples")
+            logger.info(
+                f"  {date_str}: Top-8 {top8_hits}/{top8_total} hits ({top8_hit_rate_pct:.0f}%) | "
+                f"All {actual_hits}/{total_candidates} ({hit_rate_pct:.0f}%) | trained on {len(X_accumulated)} samples"
+            )
 
     if not results:
         logger.warning("No walk-forward results generated. Need more historical outcome data.")
@@ -251,18 +269,23 @@ def main():
 
     # Summary
     df_results = pd.DataFrame(results)
-    total_candidates = df_results['total_candidates'].sum()
-    total_hits = df_results['actual_hits'].sum()
-    overall_accuracy = total_hits / total_candidates * 100.0 if total_candidates > 0 else 0.0
+    total_top8_hits = int(df_results['top8_hits'].sum())
+    total_top8_num = int(df_results['top8_total'].sum())
+    top8_overall_accuracy = (total_top8_hits / total_top8_num * 100.0) if total_top8_num > 0 else 0.0
+
+    total_candidates = int(df_results['total_candidates'].sum())
+    total_hits = int(df_results['actual_hits'].sum())
+    overall_accuracy = (total_hits / total_candidates * 100.0) if total_candidates > 0 else 0.0
 
     logger.info("\n" + "=" * 60)
     logger.info("WALK-FORWARD BACKTEST SUMMARY")
     logger.info("=" * 60)
-    logger.info(f"Dates simulated:    {len(df_results)}")
-    logger.info(f"Total candidates:   {total_candidates}")
-    logger.info(f"Total hits:         {total_hits}")
-    logger.info(f"Overall accuracy:   {overall_accuracy:.1f}%")
-    logger.info(f"Avg hit rate/day:   {df_results['hit_rate_pct'].mean():.1f}%")
+    logger.info(f"Dates simulated:       {len(df_results)}")
+    logger.info(f"Top-8 Total Hits:      {total_top8_hits}/{total_top8_num}")
+    logger.info(f"Top-8 Overall Accuracy:{top8_overall_accuracy:.1f}%")
+    logger.info(f"Top-8 Avg Hit Rate/day:{df_results['top8_hit_rate_pct'].mean():.1f}%")
+    logger.info(f"All-Candidates Hits:   {total_hits}/{total_candidates}")
+    logger.info(f"All-Candidates Acc:    {overall_accuracy:.1f}%")
     logger.info("=" * 60)
 
     # Save CSV
@@ -271,17 +294,23 @@ def main():
     logger.info(f"Results saved to: {out_path}")
 
     # Print table
-    print("\n{:<12} {:>10} {:>8} {:>12} {:>10}".format(
-        "Date", "Candidates", "Hits", "Hit Rate %", "Train N"
+    print("\n{:<12} {:>12} {:>12} {:>15} {:>10}".format(
+        "Date", "Top-8 Hits", "Top-8 Rate", "All Candidates", "Train N"
     ))
-    print("-" * 58)
+    print("-" * 65)
     for _, r in df_results.iterrows():
-        print("{:<12} {:>10} {:>8} {:>11.0f}% {:>9}".format(
-            r['date'], r['total_candidates'], r['actual_hits'],
-            r['hit_rate_pct'], r['training_samples']
+        top8_str = f"{r['top8_hits']}/{r['top8_total']}"
+        all_str = f"{r['actual_hits']}/{r['total_candidates']}"
+        print("{:<12} {:>12} {:>11.0f}% {:>15} {:>10}".format(
+            r['date'], top8_str, r['top8_hit_rate_pct'],
+            all_str, r['training_samples']
         ))
-    print("-" * 58)
-    print(f"{'OVERALL':<12} {total_candidates:>10} {total_hits:>8} {overall_accuracy:>11.1f}%")
+    print("-" * 65)
+    top8_tot_str = f"{total_top8_hits}/{total_top8_num}"
+    all_tot_str = f"{total_hits}/{total_candidates}"
+    print("{:<12} {:>12} {:>11.1f}% {:>15}".format(
+        "OVERALL", top8_tot_str, top8_overall_accuracy, all_tot_str
+    ))
 
 
 if __name__ == "__main__":

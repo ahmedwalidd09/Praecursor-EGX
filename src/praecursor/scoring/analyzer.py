@@ -16,4 +16,63 @@ class Analyzer:
         for indicator in self.indicators:
             results.append(indicator.calculate(stock))
 
+        closes = [b.close for b in stock.history] if stock.history else []
+
+        # Momentum1: 1-bar return = (close[-1] - close[-2]) / close[-2] * 100 if len >= 2 else 0
+        if len(closes) >= 2 and closes[-2] != 0:
+            mom1 = (closes[-1] - closes[-2]) / closes[-2] * 100.0
+        else:
+            mom1 = 0.0
+        results.append(IndicatorResult("Momentum1", mom1))
+
+        # RSISlope3: RSI14 current minus RSI14 from 3 bars ago. If RSI history unavailable, 0.
+        rsi_curr = float("nan")
+        for r in results:
+            if r.name == "RSI14":
+                rsi_curr = r.value
+                break
+        rsi_3_ago = self._calc_rsi(closes[:-3], 14) if len(closes) > 3 else float("nan")
+
+        if not (rsi_curr != rsi_curr) and not (rsi_3_ago != rsi_3_ago):
+            rsi_slope3 = rsi_curr - rsi_3_ago
+        else:
+            rsi_slope3 = 0.0
+        results.append(IndicatorResult("RSISlope3", rsi_slope3))
+
+        # ConsecutiveGreen: Count backward from latest bar while close > previous close. Start at 0.
+        consec = 0
+        for i in range(len(closes) - 1, 0, -1):
+            if closes[i] > closes[i - 1]:
+                consec += 1
+            else:
+                break
+        results.append(IndicatorResult("ConsecutiveGreen", float(consec)))
+
+        # DayOfWeek: Latest bar's weekday as int (0=Mon, 6=Sun)
+        if stock.history and hasattr(stock.history[-1], "date") and stock.history[-1].date is not None:
+            dow = float(stock.history[-1].date.weekday())
+        else:
+            dow = 0.0
+        results.append(IndicatorResult("DayOfWeek", dow))
+
         return results
+
+    @staticmethod
+    def _calc_rsi(closes: list[float], period: int = 14) -> float:
+        if len(closes) <= period:
+            return float("nan")
+        gains = []
+        losses = []
+        for i in range(1, len(closes)):
+            change = closes[i] - closes[i - 1]
+            gains.append(max(change, 0.0))
+            losses.append(max(-change, 0.0))
+        avg_gain = sum(gains[:period]) / period
+        avg_loss = sum(losses[:period]) / period
+        for i in range(period, len(gains)):
+            avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
+            avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return 100.0 - (100.0 / (1.0 + rs))

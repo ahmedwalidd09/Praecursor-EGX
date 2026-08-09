@@ -10,9 +10,11 @@ from datetime import datetime
 from pathlib import Path
 import logging
 
+import json
 import xgboost as xgb
+import lightgbm as lgb
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_curve
 
 from praecursor.core.price_bar import PriceBar
 from praecursor.core.stock import Stock
@@ -49,6 +51,10 @@ INDICATOR_TO_FEATURE = {
     "AvgTurnover20": "avg_turnover_20",
     "ClosedAtLimitUp": "closed_at_limit_up",
     "ATRPercent14": "atr_pct14",   # v0.4.0: volatile stocks natively rewarded
+    "Momentum1": "momentum1",
+    "RSISlope3": "rsi_slope3",
+    "ConsecutiveGreen": "consecutive_green",
+    "DayOfWeek": "day_of_week",
 }
 
 FEATURES = list(INDICATOR_TO_FEATURE.values())
@@ -263,11 +269,60 @@ def main():
     for name, imp in feat_imp[:10]:
         logger.info(f"  {name}: {imp:.4f}")
 
-    # Save model
+    # Probability Calibration (Problem 2)
+    precisions, recalls, thresholds = precision_recall_curve(y_test, probs)
+    if len(thresholds) > 0:
+        f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1] + 1e-9)
+        best_idx = np.argmax(f1_scores)
+        optimal_threshold = round(float(thresholds[best_idx]), 4)
+    else:
+        optimal_threshold = 0.5
+
+    logger.info(f"Optimal F1 Threshold: {optimal_threshold:.4f}")
+
+    meta_data = {
+        "threshold": optimal_threshold,
+        "features": FEATURES,
+    }
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    meta_path = MODELS_DIR / "xgboost_next_day_meta.json"
+    with open(meta_path, "w") as f:
+        json.dump(meta_data, f, indent=2)
+    logger.info(f"Saved model metadata to {meta_path}")
+
+    # Save XGBoost model
     model_path = MODELS_DIR / "xgboost_next_day.json"
     model.save_model(str(model_path))
     logger.info(f"Saved retrained model to {model_path}")
+
+    # Train LightGBM Model (Problem 4)
+    logger.info(f"Training LightGBM on {len(X_train)} samples...")
+    lgb_model = lgb.LGBMClassifier(
+        n_estimators=100,
+        learning_rate=0.05,
+        max_depth=4,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        scale_pos_weight=n_neg / n_pos,
+        verbosity=-1,
+    )
+    lgb_model.fit(X_train, y_train)
+
+    lgb_preds = lgb_model.predict(X_test)
+    lgb_probs = lgb_model.predict_proba(X_test)[:, 1]
+
+    lgb_acc = accuracy_score(y_test, lgb_preds)
+    try:
+        lgb_auc = roc_auc_score(y_test, lgb_probs)
+    except ValueError:
+        lgb_auc = 0.0
+
+    logger.info(f"LightGBM Retraining Complete! Test Accuracy: {lgb_acc:.2f} | AUC: {lgb_auc:.2f}")
+
+    lgb_path = MODELS_DIR / "lightgbm_next_day.txt"
+    lgb_model.booster_.save_model(str(lgb_path))
+    logger.info(f"Saved LightGBM model to {lgb_path}")
 
 
 if __name__ == "__main__":

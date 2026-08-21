@@ -15,11 +15,14 @@ from praecursor.scoring.elder_ray import ElderRayIndicator
 from praecursor.scoring.fisher import FisherTransformIndicator
 from praecursor.scoring.force_index import ForceIndexIndicator
 from praecursor.scoring.ichimoku import IchimokuIndicator
+from praecursor.scoring.kalman import KalmanFilterIndicator
 from praecursor.scoring.keltner import KeltnerChannelsIndicator, KeltnerSqueezeIndicator
 from praecursor.scoring.limit_up import LimitUpIndicator
+from praecursor.scoring.liquidity_vacuum import LiquidityVacuumIndicator
 from praecursor.scoring.macd import MACDHistogramIndicator, MACDLineIndicator, MACDSignalIndicator
 from praecursor.scoring.mfi import MFIIndicator
 from praecursor.scoring.mtf import MultiTimeframeIndicator
+from praecursor.scoring.near_high_momentum import NearHighMomentumIndicator
 from praecursor.scoring.price_momentum import PriceMomentumIndicator
 from praecursor.scoring.relative_strength import RelativeStrengthIndicator
 from praecursor.scoring.relative_volume import RelativeVolumeIndicator
@@ -33,13 +36,25 @@ from praecursor.scoring.reversal import (
 )
 from praecursor.scoring.rsi import RSIIndicator
 from praecursor.scoring.roc import ROCIndicator
+from praecursor.scoring.squeeze import SqueezeIndicator
 from praecursor.scoring.stoch_rsi import StochasticRSIIndicator
 from praecursor.scoring.supertrend import SuperTrendIndicator
 from praecursor.scoring.trend_strength import TrendStrengthIndicator
 from praecursor.scoring.turnover import AverageTurnoverIndicator
+from praecursor.scoring.volatility_expansion import VolatilityExpansionIndicator
 from praecursor.scoring.vpoc import VPOCIndicator
 from praecursor.scoring.vwap_momentum import VWAPMomentumIndicator
+from praecursor.scoring.vwap_proximity import VWAPProximityIndicator
 from praecursor.scoring.williams_r import WilliamsRIndicator
+from praecursor.scoring.zscore import RollingZScoreIndicator
+from praecursor.scoring.all_time_high import AllTimeHighIndicator
+from praecursor.scoring.block_trade import BlockTradeIndicator
+from praecursor.scoring.distribution_exhaustion import DistributionExhaustionIndicator
+from praecursor.scoring.order_flow_imbalance import OrderFlowImbalanceIndicator
+from praecursor.scoring.v_macd import VMACDSignalIndicator
+from praecursor.scoring.vsa import VSANoDemandIndicator
+from praecursor.scoring.evm import EVMIndicator
+from praecursor.scoring.tsi import TSIIndicator
 
 
 @dataclass(frozen=True)
@@ -63,13 +78,14 @@ class OpportunityScore:
     max_score: float
     indicator_values: dict[str, float]
     components: list[ScoreComponent] = field(default_factory=list)
+    stock: Stock | None = None
 
     @property
     def score_percent(self) -> float:
         if self.max_score == 0:
             return 0.0
 
-        return (self.total_score / self.max_score) * 100
+        return min((self.total_score / self.max_score) * 100, 100.0)
 
 
 class OpportunityScorer:
@@ -89,7 +105,7 @@ class OpportunityScorer:
     Total: 125 points (normalized to 100%)
     """
 
-    MAX_SCORE = 130.0
+    MAX_SCORE = 150.0
 
     def __init__(self):
         self.analyzer = Analyzer()
@@ -147,6 +163,24 @@ class OpportunityScorer:
         self.analyzer.add_indicator(MultiTimeframeIndicator())
         self.analyzer.add_indicator(VPOCIndicator(100))
         self.analyzer.add_indicator(VWAPMomentumIndicator(10))
+        self.analyzer.add_indicator(VWAPProximityIndicator(20))  # Upgrade #4
+        # Advanced Features
+        self.analyzer.add_indicator(KalmanFilterIndicator())
+        self.analyzer.add_indicator(LiquidityVacuumIndicator())
+        self.analyzer.add_indicator(RollingZScoreIndicator())
+        self.analyzer.add_indicator(AllTimeHighIndicator())
+        self.analyzer.add_indicator(BlockTradeIndicator()) # Batch 2 Upgrade #2
+        self.analyzer.add_indicator(DistributionExhaustionIndicator()) # Batch 2 Upgrade #5
+        self.analyzer.add_indicator(OrderFlowImbalanceIndicator()) # Batch 2 Upgrade #9
+        # Explosive Setup Hunters
+        self.analyzer.add_indicator(VolatilityExpansionIndicator())
+        self.analyzer.add_indicator(SqueezeIndicator())
+        self.analyzer.add_indicator(NearHighMomentumIndicator())
+        # Batch 3 Upgrades
+        self.analyzer.add_indicator(VMACDSignalIndicator())
+        self.analyzer.add_indicator(VSANoDemandIndicator())
+        self.analyzer.add_indicator(EVMIndicator())
+        self.analyzer.add_indicator(TSIIndicator())
 
     def score(self, stock: Stock) -> OpportunityScore:
         latest_close = stock.latest().close
@@ -159,9 +193,10 @@ class OpportunityScorer:
             company=stock.company,
             latest_close=latest_close,
             total_score=total_score,
-            max_score=self.MAX_SCORE,
+            max_score=sum(c.max_score for c in components),
             indicator_values=indicator_values,
             components=components,
+            stock=stock,
         )
 
     def _calculate_indicators(self, stock: Stock) -> dict[str, float]:
@@ -191,6 +226,12 @@ class OpportunityScorer:
         momentum20 = indicator_values.get("Momentum20", float("nan"))
         roc10 = indicator_values.get("ROC10", float("nan"))
         momentum5 = indicator_values.get("Momentum5", float("nan"))
+        new_ath_today = indicator_values.get("New_ATH_Made_Today", float("nan"))
+        
+        # Batch 2: Block Trade & Distribution
+        recent_block_trade = indicator_values.get("RecentBlockTrade", float("nan"))
+        distribution_exhaustion = indicator_values.get("DistributionExhaustion", float("nan"))
+        order_flow_imbalance = indicator_values.get("OrderFlowImbalance", float("nan"))
         vwap_mom10 = indicator_values.get("VWAPMom10", float("nan"))
         trend_strength = indicator_values.get("TrendStrength", float("nan"))
         adx14 = indicator_values.get("ADX14", float("nan"))
@@ -216,17 +257,53 @@ class OpportunityScorer:
         volume_spike = indicator_values.get("VolumeSpikeFromWeakness", float("nan"))
         limit_up = indicator_values.get("ClosedAtLimitUp", float("nan"))
         mtf_trend = indicator_values.get("MTF_Trend", float("nan"))
-        vpoc_distance = indicator_values.get("VPOC_Distance", float("nan"))
+        # Upgrade #5: VPOC is now a dict with distance, price, and overhead flag
+        vpoc_raw = indicator_values.get("VPOC_Distance", float("nan"))
+        if isinstance(vpoc_raw, dict):
+            vpoc_distance = vpoc_raw.get("VPOC_Distance", float("nan"))
+            vpoc_above = vpoc_raw.get("VPOC_Above", 0.0)
+        else:
+            vpoc_distance = vpoc_raw
+            vpoc_above = 0.0
+        # Upgrade #4: VWAP proximity
+        vwap_proximity = indicator_values.get("VWAP_Proximity20", float("nan"))
+        liquidity_vacuum_score = indicator_values.get("LiquidityVacuumScore", float("nan"))
+        zscore_dict = indicator_values.get("RollingZScore", {})
+        rsi_zscore = zscore_dict.get("RSI14_ZScore", float("nan")) if isinstance(zscore_dict, dict) else float("nan")
+        mom_zscore = zscore_dict.get("Momentum20_ZScore", float("nan")) if isinstance(zscore_dict, dict) else float("nan")
+        kalman_dict = indicator_values.get("KalmanFilter", {})
+        kalman_trend = kalman_dict.get("KalmanTrend", 0.0) if isinstance(kalman_dict, dict) else 0.0
+        ath_dict = indicator_values.get("AllTimeHigh", {})
+        distance_to_ath = ath_dict.get("Distance_To_ATH", float("nan")) if isinstance(ath_dict, dict) else float("nan")
+        new_ath_today = ath_dict.get("New_ATH_Made_Today", 0.0) if isinstance(ath_dict, dict) else 0.0
+        vol_exp_dict = indicator_values.get("VolatilityExpansion", {})
+        atr_expansion_ratio = vol_exp_dict.get("ATR_Expansion_Ratio", float("nan")) if isinstance(vol_exp_dict, dict) else float("nan")
+        atr_exploding = vol_exp_dict.get("ATR_Exploding", 0.0) if isinstance(vol_exp_dict, dict) else 0.0
+        squeeze_dict = indicator_values.get("Squeeze", {})
+        squeeze_fired = squeeze_dict.get("Squeeze_Fired", 0.0) if isinstance(squeeze_dict, dict) else 0.0
+        squeeze_building = squeeze_dict.get("Squeeze_Building", 0.0) if isinstance(squeeze_dict, dict) else 0.0
+        nhm_dict = indicator_values.get("NearHighMomentum", {})
+        nhm_full = nhm_dict.get("Full_Confirmation", 0.0) if isinstance(nhm_dict, dict) else 0.0
+        nhm_partial = nhm_dict.get("Partial_Confirmation", 0.0) if isinstance(nhm_dict, dict) else 0.0
+        nhm_very_near = nhm_dict.get("Very_Near", 0.0) if isinstance(nhm_dict, dict) else 0.0
+        nhm_near_high = nhm_dict.get("Near_High", 0.0) if isinstance(nhm_dict, dict) else 0.0
+        
+        # Batch 3
+        v_macd_signal = indicator_values.get("VMACD_Signal", float("nan"))
+        vsa_no_demand = indicator_values.get("VSA_NoDemand", float("nan"))
+        evm = indicator_values.get("EVM", float("nan"))
+        tsi = indicator_values.get("TSI", float("nan"))
 
         return [
             # Trend Structure (30 pts)
             self._score_ema_alignment(ema20, ema50, ema200, latest_close),
+            self._score_kalman_trend(kalman_trend),
             self._score_adx(adx14),
             self._score_supertrend(supertrend10, latest_close),
             self._score_ichimoku(ichimoku),
             self._score_elder_ray(elder_ray),
-            # Momentum Oscillators (25 pts)
-            self._score_rsi14(rsi14),
+            # Momentum Oscillators (10 pts)
+            self._score_rsi14_zscore(rsi_zscore),
             self._score_mfi14(mfi14),
             self._score_williams_r(williams_r14),
             self._score_stoch_rsi(stoch_rsi),
@@ -234,7 +311,7 @@ class OpportunityScorer:
             # MACD (10 pts)
             self._score_macd(macd, macd_histogram),
             # Price Momentum (15 pts)
-            self._score_momentum20(momentum20),
+            self._score_momentum20_zscore(mom_zscore),
             self._score_momentum5(momentum5),
             self._score_roc10(roc10),
             self._score_vwap_momentum(vwap_mom10),
@@ -242,6 +319,9 @@ class OpportunityScorer:
             self._score_relative_volume20(relative_volume20),
             self._score_cmf(cmf20),
             self._score_force_index(force_index13),
+            self._score_block_trade(recent_block_trade), # Batch 2 Upgrade #2
+            self._score_distribution_exhaustion(distribution_exhaustion), # Batch 2 Upgrade #5
+            self._score_order_flow_imbalance(order_flow_imbalance), # Batch 2 Upgrade #9
             self._score_turnover(avg_turnover20),
             # Breakout & Channel Setup (20 pts)
             self._score_donchian(dc_position, dc_breakout),
@@ -257,12 +337,24 @@ class OpportunityScorer:
             self._score_ema20_reclaim(ema20_reclaim),
             self._score_macd_improvement(macd_hist_improvement),
             self._score_volume_spike(volume_spike),
-            # Market Structure (10 pts)
+            # Market Structure (15 pts)
             self._score_mtf_trend(mtf_trend),
-            self._score_vpoc(vpoc_distance),
+            self._score_vpoc(vpoc_distance, vpoc_above),   # Upgrade #5
+            self._score_vwap_proximity(vwap_proximity),    # Upgrade #4
+            self._score_liquidity_vacuum(liquidity_vacuum_score),
             self._score_relative_strength(rs_egx30_50),
+            self._score_ath(distance_to_ath, new_ath_today),
+            # Explosive Setup Hunters (26 pts)
+            self._score_volatility_expansion(atr_expansion_ratio, atr_exploding),
+            self._score_squeeze(squeeze_fired, squeeze_building),
+            self._score_near_high_momentum(nhm_full, nhm_partial, nhm_very_near, nhm_near_high),
             # Limit Up (5 pts)
             self._score_limit_up(limit_up),
+            # Batch 3 (20 pts)
+            self._score_v_macd(v_macd_signal),
+            self._score_vsa_no_demand(vsa_no_demand),
+            self._score_evm(evm),
+            self._score_tsi(tsi),
         ]
 
 
@@ -467,10 +559,19 @@ class OpportunityScorer:
         return ScoreComponent("Elder Ray", min(max(elder_ray, 0.0), max_score), max_score, f"Elder Ray score {elder_ray}.")
 
     def _score_mfi14(self, mfi14: float) -> ScoreComponent:
-        max_score = 2.0
+        """Upgrade #2: Enhanced volume-weighted MFI scoring with gradient scoring and overbought penalty."""
+        max_score = 3.0  # Increased weight to reward volume-backed momentum
         if self._missing(mfi14): return ScoreComponent("MFI", 0.0, max_score, "MFI unavailable.")
-        if 50 <= mfi14 <= 80: return ScoreComponent("MFI", max_score, max_score, "Bullish MFI.")
-        return ScoreComponent("MFI", 0.0, max_score, "Neutral/Bearish MFI.")
+        if 55 <= mfi14 <= 80:
+            return ScoreComponent("MFI", max_score, max_score, f"Bullish volume-backed MFI ({mfi14:.0f}).")
+        if 50 <= mfi14 < 55:
+            return ScoreComponent("MFI", 1.5, max_score, f"Mildly bullish MFI ({mfi14:.0f}).")
+        if mfi14 > 80:
+            return ScoreComponent("MFI", 1.0, max_score, f"MFI overbought ({mfi14:.0f}): Risk of reversal.")
+        if 40 <= mfi14 < 50:
+            return ScoreComponent("MFI", 0.0, max_score, f"MFI neutral ({mfi14:.0f}).")
+        # < 40: bearish money flow
+        return ScoreComponent("MFI", 0.0, max_score, f"Bearish MFI ({mfi14:.0f}): Distribution detected.")
 
     def _score_williams_r(self, williams_r14: float) -> ScoreComponent:
         max_score = 1.0
@@ -544,11 +645,14 @@ class OpportunityScorer:
         return ScoreComponent("BBW", max_score/2, max_score, "Normal BBW.")
 
     def _score_volatility(self, atr_pct14: float) -> ScoreComponent:
+        """Upgrade #1: Tiered volatility scoring. Low-vol stocks that might be mega-caps penalised."""
         max_score = 5.0
         if self._missing(atr_pct14): return ScoreComponent("Volatility", 0.0, max_score, "ATR% unavailable.")
-        if atr_pct14 >= 5.0: return ScoreComponent("Volatility", max_score, max_score, f"Explosive volatility ({atr_pct14:.1f}%).")
+        if atr_pct14 >= 7.0: return ScoreComponent("Volatility", max_score, max_score, f"Explosive volatility ({atr_pct14:.1f}%): High-energy setup.")
+        if atr_pct14 >= 5.0: return ScoreComponent("Volatility", 4.0, max_score, f"Strong volatility ({atr_pct14:.1f}%).")
         if atr_pct14 >= 3.0: return ScoreComponent("Volatility", 3.0, max_score, f"Healthy volatility ({atr_pct14:.1f}%).")
-        return ScoreComponent("Volatility", 0.0, max_score, f"Low volatility ({atr_pct14:.1f}%).")
+        if atr_pct14 >= 2.0: return ScoreComponent("Volatility", 1.0, max_score, f"Low-ish volatility ({atr_pct14:.1f}%): Limited upside range.")
+        return ScoreComponent("Volatility", 0.0, max_score, f"Very low volatility ({atr_pct14:.1f}%): Avoid for momentum trades.")
 
     def _score_rsi_rebound(self, rsi_rebound: float) -> ScoreComponent:
         max_score = 2.0
@@ -574,17 +678,64 @@ class OpportunityScorer:
         if volume_spike > 0: return ScoreComponent("Vol Spike", max_score, max_score, "Volume Spike detected.")
         return ScoreComponent("Vol Spike", 0.0, max_score, "No Volume Spike.")
 
+    def _score_block_trade(self, block_trade: float) -> ScoreComponent:
+        """Batch 2 Upgrade #2: Institutional absorption reward."""
+        max_score = 5.0
+        if self._missing(block_trade): return ScoreComponent("Block Trade", 0.0, max_score, "Unavailable.")
+        if block_trade == 1.0:
+            return ScoreComponent("Block Trade", max_score, max_score, "Institutional Block Trade (Absorption) detected recently! Strong accumulation sign.")
+        return ScoreComponent("Block Trade", 0.0, max_score, "No recent absorption block trades.")
+
+    def _score_distribution_exhaustion(self, distribution: float) -> ScoreComponent:
+        """Batch 2 Upgrade #5: Distribution Exhaustion penalty."""
+        max_score = 0.0 # This is a penalty component, doesn't add to max
+        if self._missing(distribution): return ScoreComponent("Distribution", 0.0, max_score, "Unavailable.")
+        if distribution == 1.0:
+            return ScoreComponent("Distribution", -15.0, max_score, "Distribution Exhaustion detected: Massive volume turnover without price progress. High risk of dump.")
+        return ScoreComponent("Distribution", 0.0, max_score, "No distribution exhaustion.")
+
+    def _score_order_flow_imbalance(self, order_flow: float) -> ScoreComponent:
+        """Batch 2 Upgrade #9: Order Flow Imbalance."""
+        max_score = 3.0
+        if self._missing(order_flow): return ScoreComponent("Order Flow", 0.0, max_score, "Unavailable.")
+        if order_flow > 1.5:
+            return ScoreComponent("Order Flow", max_score, max_score, f"Strong buying pressure into the close ({order_flow:.1f}x average volume).")
+        if order_flow < -1.5:
+            return ScoreComponent("Order Flow", -2.0, max_score, f"Heavy distribution into the close ({order_flow:.1f}x average volume).")
+        return ScoreComponent("Order Flow", 0.0, max_score, f"Neutral order flow ({order_flow:.1f}x).")
+
     def _score_mtf_trend(self, mtf_trend: float) -> ScoreComponent:
         max_score = 3.0
         if self._missing(mtf_trend): return ScoreComponent("MTF Trend", 0.0, max_score, "Unavailable.")
         if mtf_trend > 0: return ScoreComponent("MTF Trend", max_score, max_score, "MTF Trend is bullish.")
         return ScoreComponent("MTF Trend", 0.0, max_score, "MTF Trend is not bullish.")
 
-    def _score_vpoc(self, vpoc_distance: float) -> ScoreComponent:
-        max_score = 2.0
+    def _score_vpoc(self, vpoc_distance: float, vpoc_above: float = 0.0) -> ScoreComponent:
+        """Upgrade #5: VPOC scoring with overhead resistance flag."""
+        max_score = 3.0  # Increased weight; VPOC is strong structural evidence
         if self._missing(vpoc_distance): return ScoreComponent("VPOC", 0.0, max_score, "Unavailable.")
-        if vpoc_distance > 0: return ScoreComponent("VPOC", max_score, max_score, "Price above VPOC.")
-        return ScoreComponent("VPOC", 0.0, max_score, "Price below VPOC.")
+        if vpoc_above == 1.0:
+            # VPOC is above price = overhead resistance; this is a bearish structural signal
+            return ScoreComponent("VPOC", 0.0, max_score, "VPOC is ABOVE price: Overhead resistance present. Caution.")
+        if vpoc_distance > 0.05:  # price >5% above VPOC
+            return ScoreComponent("VPOC", max_score, max_score, f"Price well above VPOC (+{vpoc_distance*100:.1f}%): VPOC is deep support.")
+        if vpoc_distance > 0:
+            return ScoreComponent("VPOC", 2.0, max_score, f"Price above VPOC (+{vpoc_distance*100:.1f}%): VPOC support intact.")
+        return ScoreComponent("VPOC", 0.0, max_score, f"Price below VPOC ({vpoc_distance*100:.1f}%).")
+
+    def _score_vwap_proximity(self, vwap_proximity: float) -> ScoreComponent:
+        """Upgrade #4: Score VWAP proximity. Breakouts from VWAP get a bonus; overextended moves above VWAP are penalised."""
+        max_score = 3.0
+        if self._missing(vwap_proximity): return ScoreComponent("VWAP Proximity", 0.0, max_score, "Unavailable.")
+        if 0.0 <= vwap_proximity <= 3.0:
+            return ScoreComponent("VWAP Proximity", max_score, max_score, f"Price just above VWAP (+{vwap_proximity:.1f}%): Ideal launch zone.")
+        if 3.0 < vwap_proximity <= 7.0:
+            return ScoreComponent("VWAP Proximity", 1.5, max_score, f"Price extended above VWAP (+{vwap_proximity:.1f}%): Some fade risk.")
+        if vwap_proximity > 7.0:
+            return ScoreComponent("VWAP Proximity", 0.0, max_score, f"Price very overextended above VWAP (+{vwap_proximity:.1f}%): High fade risk.")
+        if -2.0 <= vwap_proximity < 0:
+            return ScoreComponent("VWAP Proximity", 1.0, max_score, f"Price just below VWAP ({vwap_proximity:.1f}%): Watch for reclaim.")
+        return ScoreComponent("VWAP Proximity", 0.0, max_score, f"Price below VWAP ({vwap_proximity:.1f}%).")
 
     def _score_relative_strength(self, rs_egx30_50: float) -> ScoreComponent:
         max_score = 5.0
@@ -597,3 +748,90 @@ class OpportunityScorer:
         if self._missing(limit_up): return ScoreComponent("Limit Up", 0.0, max_score, "Unavailable.")
         if limit_up > 0: return ScoreComponent("Limit Up", max_score, max_score, "Closed at limit up.")
         return ScoreComponent("Limit Up", 0.0, max_score, "Did not close at limit up.")
+
+    # === Advanced Indicators ===
+
+    def _score_kalman_trend(self, kalman_trend: float) -> ScoreComponent:
+        max_score = 10.0
+        if kalman_trend > 0: return ScoreComponent("Kalman Trend", max_score, max_score, "Kalman Filter detects underlying uptrend.")
+        if kalman_trend < 0: return ScoreComponent("Kalman Trend", 0.0, max_score, "Kalman Filter detects underlying downtrend.")
+        return ScoreComponent("Kalman Trend", 0.0, max_score, "Kalman trend flat or unavailable.")
+
+    def _score_rsi14_zscore(self, rsi_zscore: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(rsi_zscore): return ScoreComponent("RSI Z-Score", 0.0, max_score, "Z-Score unavailable.")
+        if rsi_zscore > 1.5: return ScoreComponent("RSI Z-Score", max_score, max_score, "RSI is historically elevated (strong momentum).")
+        if rsi_zscore > 0.5: return ScoreComponent("RSI Z-Score", 3.0, max_score, "RSI moderately above its historical norm.")
+        if rsi_zscore > -0.5: return ScoreComponent("RSI Z-Score", 1.0, max_score, "RSI near its historical average.")
+        return ScoreComponent("RSI Z-Score", 0.0, max_score, "RSI below historical norm.")
+
+    def _score_momentum20_zscore(self, mom_zscore: float) -> ScoreComponent:
+        max_score = 10.0
+        if self._missing(mom_zscore): return ScoreComponent("Mom20 Z-Score", 0.0, max_score, "Momentum Z-Score unavailable.")
+        if mom_zscore > 2.0: return ScoreComponent("Mom20 Z-Score", max_score, max_score, "Exceptional momentum surge.")
+        if mom_zscore > 1.0: return ScoreComponent("Mom20 Z-Score", 7.0, max_score, "Strong momentum above historical norm.")
+        if mom_zscore > 0.0: return ScoreComponent("Mom20 Z-Score", 3.0, max_score, "Positive momentum.")
+        return ScoreComponent("Mom20 Z-Score", 0.0, max_score, "Negative momentum.")
+
+    def _score_liquidity_vacuum(self, lv_score: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(lv_score): return ScoreComponent("Liq Vacuum", 0.0, max_score, "Unavailable.")
+        if lv_score >= 0.8: return ScoreComponent("Liq Vacuum", max_score, max_score, "Massive liquidity vacuum above price.")
+        if lv_score >= 0.5: return ScoreComponent("Liq Vacuum", 3.0, max_score, "Moderate liquidity vacuum above.")
+        return ScoreComponent("Liq Vacuum", 0.0, max_score, "No significant liquidity vacuum.")
+
+    def _score_ath(self, distance_to_ath: float, new_ath: float) -> ScoreComponent:
+        max_score = 10.0
+        if self._missing(distance_to_ath): return ScoreComponent("ATH Magnetic", 0.0, max_score, "Unavailable.")
+        if new_ath == 1.0: return ScoreComponent("ATH Magnetic", 10.0, max_score, "Made a NEW All-Time High today! (Explosive Momentum).")
+        if -1.0 <= distance_to_ath <= 0.0: return ScoreComponent("ATH Magnetic", 8.0, max_score, "Closed directly at the All-Time High (Coiled Spring).")
+        if -5.0 <= distance_to_ath < -1.0: return ScoreComponent("ATH Magnetic", 5.0, max_score, "Closing in on the All-Time High (Magnetic Effect).")
+        return ScoreComponent("ATH Magnetic", 0.0, max_score, "Price is far below the All-Time High.")
+
+    # === Explosive Setup Hunters ===
+
+    def _score_volatility_expansion(self, ratio: float, exploding: float) -> ScoreComponent:
+        max_score = 8.0
+        if self._missing(ratio): return ScoreComponent("Vol Expansion", 0.0, max_score, "Unavailable.")
+        if exploding == 1.0: return ScoreComponent("Vol Expansion", 8.0, max_score, "ATR EXPLODING (>1.5x avg) — Volatility Explosion!")
+        if ratio > 1.2: return ScoreComponent("Vol Expansion", 5.0, max_score, "ATR expanding (>1.2x avg) — Building energy.")
+        return ScoreComponent("Vol Expansion", 0.0, max_score, "ATR flat or contracting.")
+
+    def _score_squeeze(self, fired: float, building: float) -> ScoreComponent:
+        max_score = 8.0
+        if fired == 1.0: return ScoreComponent("BB Squeeze", 8.0, max_score, "Squeeze FIRED — Explosive breakout imminent!")
+        if building == 1.0: return ScoreComponent("BB Squeeze", 4.0, max_score, "Squeeze building — Price compression detected.")
+        return ScoreComponent("BB Squeeze", 0.0, max_score, "No squeeze detected.")
+
+    def _score_near_high_momentum(self, full: float, partial: float, very_near: float, near_high: float) -> ScoreComponent:
+        max_score = 10.0
+        if full == 1.0 and very_near == 1.0: return ScoreComponent("NearHigh Mom", 10.0, max_score, "Within 2% of 250d high + MACD & Mom5 confirmed — Explosive Breakout Imminent!")
+        if partial == 1.0 and near_high == 1.0: return ScoreComponent("NearHigh Mom", 4.0, max_score, "Within 5% of 250d high + positive momentum building.")
+        if near_high == 1.0: return ScoreComponent("NearHigh Mom", 2.0, max_score, "Price is near 250d high but lacks momentum confirmation.")
+        return ScoreComponent("NearHigh Mom", 0.0, max_score, "Price is far from 250d high or lacks momentum.")
+
+    # === Batch 3 ===
+    def _score_v_macd(self, v_macd: float):
+        max_score = 10.0
+        if self._missing(v_macd): return ScoreComponent('V-MACD', 0.0, max_score, 'Unavailable.')
+        if v_macd > 0: return ScoreComponent('V-MACD', max_score, max_score, 'V-MACD positive.')
+        return ScoreComponent('V-MACD', 0.0, max_score, 'V-MACD negative.')
+
+    def _score_vsa_no_demand(self, vsa_no_demand: float):
+        max_score = 0.0
+        if self._missing(vsa_no_demand): return ScoreComponent('VSA No Demand', 0.0, max_score, 'Unavailable.')
+        if vsa_no_demand == 1.0: return ScoreComponent('VSA No Demand', -5.0, max_score, 'VSA No Demand Bar.')
+        return ScoreComponent('VSA No Demand', 0.0, max_score, 'No VSA No Demand Bar.')
+
+    def _score_evm(self, evm: float):
+        max_score = 0.0
+        if self._missing(evm): return ScoreComponent('EVM', 0.0, max_score, 'Unavailable.')
+        if evm > 5.0: return ScoreComponent('EVM', -5.0, max_score, 'High EVM.')
+        return ScoreComponent('EVM', 0.0, max_score, 'EVM is normal.')
+
+    def _score_tsi(self, tsi: float):
+        max_score = 0.0
+        if self._missing(tsi): return ScoreComponent('TSI', 0.0, max_score, 'Unavailable.')
+        if tsi > 25: return ScoreComponent('TSI', max_score, max_score, 'TSI is strongly bullish.')
+        if tsi > 0: return ScoreComponent('TSI', 5.0, max_score, 'TSI is positive.')
+        return ScoreComponent('TSI', 0.0, max_score, 'TSI is negative.')

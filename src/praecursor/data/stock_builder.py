@@ -40,11 +40,27 @@ class CachedStockBuilder:
             )
 
         company_name = self.symbol_mapper.get_company_name(normalized_symbol)
+        try:
+            sector_name = self.symbol_mapper.get_sector(normalized_symbol)
+        except AttributeError:
+            sector_name = "General"
+
+        try:
+            intraday_bars = self.price_cache.load_intraday(
+                normalized_symbol,
+                self.source_name,
+                start_date,
+                end_date,
+            )
+        except Exception:
+            intraday_bars = []
 
         return Stock(
             symbol=normalized_symbol,
             company=company_name,
+            sector=sector_name,
             history=price_bars,
+            intraday_history=intraday_bars,
         )
 
     def build_many(

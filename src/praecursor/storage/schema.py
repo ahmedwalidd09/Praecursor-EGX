@@ -78,6 +78,25 @@ CREATE TABLE IF NOT EXISTS scores (
 );
 """
 
+INTRADAY_PRICE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS intraday_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    trade_time TEXT NOT NULL,
+    source TEXT NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume INTEGER NOT NULL,
+    collected_at TEXT NOT NULL,
+    UNIQUE(ticker, trade_time, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_intraday_prices_lookup
+ON intraday_prices (ticker, source, trade_time);
+"""
+
 SCHEMA = "\n".join(
     [
         COMPANY_SCHEMA,
@@ -86,5 +105,6 @@ SCHEMA = "\n".join(
         DISCLOSURE_SCHEMA,
         OWNERSHIP_SCHEMA,
         SCORE_SCHEMA,
+        INTRADAY_PRICE_SCHEMA,
     ]
 )

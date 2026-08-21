@@ -35,6 +35,7 @@ class TradingViewSource(MarketDataSource):
         symbol: str,
         start_date: date,
         end_date: date,
+        interval: Interval = Interval.in_daily,
     ) -> CollectionResult:
         if start_date > end_date:
             raise ValueError("start_date must be before or equal to end_date.")
@@ -58,15 +59,18 @@ class TradingViewSource(MarketDataSource):
         days_diff = (end_date - start_date).days
         # Fetch a bit more to ensure we get enough trading days
         n_bars = int(days_diff * 1.5) + 10
-        if n_bars < 50:
-            n_bars = 50
+        if interval == Interval.in_15_minute:
+            n_bars = max(n_bars * 20, 500) # Roughly 20 15m bars per day
+        else:
+            if n_bars < 50:
+                n_bars = 50
 
         try:
             # exchange is typically 'EGX'
             df = self.tv.get_hist(
                 symbol=tv_symbol,
                 exchange='EGX',
-                interval=Interval.in_daily,
+                interval=interval,
                 n_bars=n_bars
             )
             
@@ -75,7 +79,8 @@ class TradingViewSource(MarketDataSource):
             else:
                 # df index is datetime
                 for index, row in df.iterrows():
-                    bar_date = index.date()
+                    bar_dt = index.to_pydatetime()
+                    bar_date = bar_dt.date()
                     if start_date <= bar_date <= end_date:
                         try:
                             # Normalize high/low
@@ -90,12 +95,14 @@ class TradingViewSource(MarketDataSource):
                             
                             if norm_high != high_p or norm_low != low_p:
                                 warnings.append(
-                                    f"{symbol} {bar_date}: adjusted high/low range to include open/close values."
+                                    f"{symbol} {bar_dt}: adjusted high/low range to include open/close values."
                                 )
                                 
+                            final_date = bar_dt if interval == Interval.in_15_minute else datetime.combine(bar_date, time.min)
+                            
                             price_bars.append(
                                 PriceBar(
-                                    date=datetime.combine(bar_date, time.min),
+                                    date=final_date,
                                     open=open_p,
                                     high=norm_high,
                                     low=norm_low,
@@ -104,7 +111,7 @@ class TradingViewSource(MarketDataSource):
                                 )
                             )
                         except (ValueError, TypeError, KeyError) as e:
-                            warnings.append(f"{symbol} {bar_date}: invalid row data: {e}")
+                            warnings.append(f"{symbol} {bar_dt}: invalid row data: {e}")
                             
         except Exception as e:
             warnings.append(f"{symbol}: Error fetching from TradingView: {e}")

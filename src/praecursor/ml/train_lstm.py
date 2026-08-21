@@ -111,7 +111,7 @@ def train_lstm():
         
     df = pd.read_csv(csv_path)
     db_path = base_dir / "database" / "praecursor.db"
-    cache = PriceCache(db_path=str(db_path))
+    cache = PriceCache(database_path=str(db_path))
     
     X, y = prepare_sequence_data(df, cache, seq_length=20)
     

@@ -12,24 +12,34 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+import time
+
 _EGX30_CACHE = None
+_EGX30_CACHE_TIME = 0
+
 _REGIME_CACHE = None
+_REGIME_CACHE_TIME = 0
+_REGIME_CACHE_TTL = 14400  # 4 hours in seconds
 
 def get_egx30_data(lookback_days=1000) -> pd.DataFrame:
-    global _EGX30_CACHE
-    if _EGX30_CACHE is None:
-        try:
-            ticker = yf.Ticker("COMI.CA")
-            df = ticker.history(period=f"{lookback_days}d")
-            if df.empty:
-                logger.warning("Could not fetch EGX30 data from Yahoo.")
-                _EGX30_CACHE = df
-                return df
-            _EGX30_CACHE = df.dropna()
-        except Exception as e:
-            logger.error(f"Error fetching EGX30: {e}")
-            _EGX30_CACHE = pd.DataFrame()
-            return _EGX30_CACHE
+    global _EGX30_CACHE, _EGX30_CACHE_TIME
+    if _EGX30_CACHE is not None and (time.time() - _EGX30_CACHE_TIME) < _REGIME_CACHE_TTL:
+        return _EGX30_CACHE
+    try:
+        ticker = yf.Ticker("COMI.CA")
+        df = ticker.history(period=f"{lookback_days}d")
+        if df.empty:
+            logger.warning("Could not fetch EGX30 data from Yahoo.")
+            _EGX30_CACHE = df
+            _EGX30_CACHE_TIME = time.time()
+            return df
+        _EGX30_CACHE = df.dropna()
+        _EGX30_CACHE_TIME = time.time()
+    except Exception as e:
+        logger.error(f"Error fetching EGX30: {e}")
+        _EGX30_CACHE = pd.DataFrame()
+        _EGX30_CACHE_TIME = time.time()
+    return _EGX30_CACHE
     return _EGX30_CACHE
 
 class MarketRegimeModel:
@@ -110,9 +120,18 @@ class MarketRegimeModel:
             return "Unknown"
 
     def get_latest_regime(self) -> dict:
-        global _REGIME_CACHE
-        if _REGIME_CACHE is not None:
+        global _REGIME_CACHE, _REGIME_CACHE_TIME
+        if _REGIME_CACHE is not None and (time.time() - _REGIME_CACHE_TIME) < _REGIME_CACHE_TTL:
             return _REGIME_CACHE
+            
+        self.train_and_detect()
+            
+        _REGIME_CACHE = {
+            "regime": self.latest_regime,
+            "confidence": self.latest_regime_prob
+        }
+        _REGIME_CACHE_TIME = time.time()
+        return _REGIME_CACHE
             
         if self.model is None:
             self.train_and_detect()
@@ -122,3 +141,34 @@ class MarketRegimeModel:
             "confidence": self.latest_regime_prob
         }
         return _REGIME_CACHE
+
+    def get_historical_regime(self, date_str: str) -> dict:
+        """Label a historical date as Bull or Bear based on EGX30 close vs MA200."""
+        df = self.fetch_data()
+        if len(df) == 0:
+            return {"regime": "Unknown", "score": 0.5}
+            
+        df["MA200"] = df["Close"].rolling(200).mean()
+        try:
+            dt = pd.to_datetime(date_str)
+            # Ensure index is tz-naive or normalize if necessary.
+            # yfinance index is usually tz-aware.
+            if df.index.tz is not None and dt.tzinfo is None:
+                dt = dt.tz_localize(df.index.tz)
+                
+            sub_df = df[df.index <= dt]
+            if len(sub_df) == 0:
+                return {"regime": "Unknown", "score": 0.5}
+                
+            row = sub_df.iloc[-1]
+            if pd.isna(row["MA200"]):
+                return {"regime": "Unknown", "score": 0.5}
+                
+            is_bull = row["Close"] > row["MA200"]
+            return {
+                "regime": "Bull" if is_bull else "Bear",
+                "score": 1.0 if is_bull else 0.0
+            }
+        except Exception as e:
+            logger.error(f"Error getting historical regime: {e}")
+            return {"regime": "Unknown", "score": 0.5}

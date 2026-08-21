@@ -14,6 +14,7 @@ class SymbolMapping:
     company: str
     yahoo_symbol: str
     stockanalysis_symbol: str
+    sector: str = ""
     enabled: bool = True
 
 
@@ -51,6 +52,7 @@ class SymbolMapper:
                     company=row["company"].strip(),
                     yahoo_symbol=row["yahoo_symbol"].strip(),
                     stockanalysis_symbol=row.get("stockanalysis_symbol", egx_symbol).strip(),
+                    sector=row.get("sector", "General").strip(),
                     enabled=cls._parse_enabled(row.get("enabled", "true")),
                 )
 
@@ -66,7 +68,7 @@ class SymbolMapper:
 
     def save(self) -> None:
         """Save the current symbol mappings back to the CSV file."""
-        fieldnames = ["egx_symbol", "company", "yahoo_symbol", "stockanalysis_symbol", "enabled"]
+        fieldnames = ["egx_symbol", "company", "yahoo_symbol", "stockanalysis_symbol", "sector", "enabled"]
         with open(self.filename, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.DictWriter(file, fieldnames=fieldnames)
             writer.writeheader()
@@ -76,6 +78,7 @@ class SymbolMapper:
                     "company": mapping.company,
                     "yahoo_symbol": mapping.yahoo_symbol,
                     "stockanalysis_symbol": mapping.stockanalysis_symbol,
+                    "sector": mapping.sector,
                     "enabled": str(mapping.enabled).lower(),
                 })
 
@@ -136,6 +139,10 @@ class SymbolMapper:
     def get_company_name(self, egx_symbol: str) -> str:
         symbol = self._normalize_symbol(egx_symbol)
         return self._get_mapping(symbol).company
+
+    def get_sector(self, egx_symbol: str) -> str:
+        symbol = self._normalize_symbol(egx_symbol)
+        return self._get_mapping(symbol).sector
 
     def _get_mapping(self, symbol: str) -> SymbolMapping:
         if symbol not in self._mappings:

@@ -5,51 +5,44 @@ import logging
 
 try:
     import pandas as pd
+    import numpy as np
     import xgboost as xgb
     HAS_ML = True
 except ImportError:
     HAS_ML = False
+    np = None
 
 from praecursor.scoring.opportunity_score import OpportunityScore
 from praecursor.scoring.position_sizing import calculate_position_size
 
 _MAE_MODEL = None
-_LSTM_MODEL = None
+_TFT_MODEL = None
 _TORCH_AVAILABLE = False
 
 try:
     import torch
     import torch.nn as nn
     _TORCH_AVAILABLE = True
-    
-    class LSTMSequencePredictor(nn.Module):
-        def __init__(self, input_size=5, hidden_size=64, num_layers=2):
-            super().__init__()
-            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.2)
-            self.fc = nn.Linear(hidden_size, 1)
-            
-        def forward(self, x):
-            out, _ = self.lstm(x)
-            last_out = out[:, -1, :]
-            return self.fc(last_out)
+    from praecursor.ml.train_tft import TemporalTransformerPredictor
 except ImportError:
     pass
 
-def _get_lstm_model():
-    global _LSTM_MODEL
-    if _LSTM_MODEL is None and _TORCH_AVAILABLE:
+
+def _get_tft_model():
+    global _TFT_MODEL
+    if _TFT_MODEL is None and _TORCH_AVAILABLE:
         try:
-            model_path = Path(__file__).resolve().parents[3] / "models" / "lstm_swing.pt"
+            model_path = Path(__file__).resolve().parents[3] / "models" / "tft_swing.pt"
             if model_path.exists():
-                _LSTM_MODEL = LSTMSequencePredictor(input_size=5, hidden_size=64, num_layers=2)
-                _LSTM_MODEL.load_state_dict(torch.load(str(model_path)))
-                _LSTM_MODEL.eval()
+                _TFT_MODEL = TemporalTransformerPredictor(input_size=5, d_model=64, nhead=4, num_layers=2)
+                _TFT_MODEL.load_state_dict(torch.load(str(model_path)))
+                _TFT_MODEL.eval()
             else:
-                _LSTM_MODEL = False
+                _TFT_MODEL = False
         except Exception as e:
-            logger.warning(f"Failed to load LSTM model: {e}")
-            _LSTM_MODEL = False
-    return _LSTM_MODEL if _LSTM_MODEL is not False else None
+            logger.warning(f"Failed to load TFT model: {e}")
+            _TFT_MODEL = False
+    return _TFT_MODEL if _TFT_MODEL is not False else None
 
 def _get_mae_model():
     global _MAE_MODEL
@@ -171,11 +164,12 @@ def calculate_swing_prediction(
             except Exception:
                 pass
                 
-        # Ensemble with PyTorch LSTM if available
-        lstm_model = _get_lstm_model()
-        if lstm_model is not None:
+        # Ensemble with PyTorch TFT if available
+        tft_model = _get_tft_model()
+        stock_obj = getattr(opportunity_score, "stock", None)
+        if tft_model is not None and stock_obj is not None and np is not None:
             try:
-                history = opportunity_score.stock.history
+                history = stock_obj.history
                 if len(history) >= 20:
                     seq_bars = history[-20:]
                     closes = np.array([b.close for b in seq_bars])
@@ -197,12 +191,12 @@ def calculate_swing_prediction(
                     
                     x_tensor = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
                     with torch.no_grad():
-                        out = lstm_model(x_tensor)
-                        lstm_prob = torch.sigmoid(out).item()
+                        out = tft_model(x_tensor)
+                        tft_prob = torch.sigmoid(out).item()
                         
-                    # Final ensemble: 50% Tree based, 50% Deep Learning LSTM
-                    prob = (prob * 0.5) + (lstm_prob * 0.5)
-                    reasons.append(f"Deep Learning (LSTM) consensus applied")
+                    # Final ensemble: 50% Tree based, 50% Deep Learning TFT
+                    prob = (prob * 0.5) + (tft_prob * 0.5)
+                    reasons.append(f"Deep Learning (TFT) consensus applied")
             except Exception as e:
                 logger.warning(f"Failed PyTorch inference: {e}")
         

@@ -13,7 +13,6 @@ import logging
 import json
 import xgboost as xgb
 import lightgbm as lgb
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_curve
 
 from praecursor.core.price_bar import PriceBar
@@ -27,8 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "database" / "praecursor.db"
 MODELS_DIR = ROOT / "models"
 
-# The exact 21 features the ML model uses in production (next_day.py lines 95-107)
-# v0.4.0: Added ATRPercent14 so model natively learns volatile stocks are better candidates
+# The exact 39 features the ML model uses in production (next_day.py)
 INDICATOR_TO_FEATURE = {
     "RSI14": "rsi14",
     "RelVolume20": "rel_volume20",
@@ -50,7 +48,21 @@ INDICATOR_TO_FEATURE = {
     "VWAPMom10": "vwap_mom10",
     "AvgTurnover20": "avg_turnover_20",
     "ClosedAtLimitUp": "closed_at_limit_up",
-    "ATRPercent14": "atr_pct14",   # v0.4.0: volatile stocks natively rewarded
+    "ATRPercent14": "atr_pct14",
+    "KalmanTrend": "kalman_trend",
+    "RSI14_ZScore": "rsi_zscore",
+    "Momentum20_ZScore": "mom_zscore",
+    "LiquidityVacuumScore": "liquidity_vacuum_score",
+    "Distance_To_ATH": "distance_to_ath",
+    "New_ATH_Made_Today": "new_ath_made_today",
+    "ATR_Expansion_Ratio": "atr_expansion_ratio",
+    "ATR_Exploding": "atr_exploding",
+    "Squeeze_Fired": "squeeze_fired",
+    "Squeeze_Building": "squeeze_building",
+    "Full_Confirmation": "nhm_full",
+    "Partial_Confirmation": "nhm_partial",
+    "Very_Near": "nhm_very_near",
+    "Near_High": "nhm_near_high",
     "Momentum1": "momentum1",
     "RSISlope3": "rsi_slope3",
     "ConsecutiveGreen": "consecutive_green",
@@ -62,7 +74,7 @@ FEATURES = list(INDICATOR_TO_FEATURE.values())
 
 def load_outcomes():
     """Load all signals that have a hit/miss outcome."""
-    # Try with indicator_values_json first (added by Task 8), fall back without
+    # Try with indicator_values_json first, fall back without
     for include_cache in [True, False]:
         cache_col = ",\n        s.indicator_values_json" if include_cache else ""
         query = f"""
@@ -83,7 +95,7 @@ def load_outcomes():
             return df
         except Exception as e:
             if "no such column" in str(e) and include_cache:
-                continue  # Try without the cache column
+                continue
             logger.warning(f"Database error: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
@@ -121,24 +133,26 @@ def build_stock_from_prices(symbol: str, run_date: str, conn) -> Stock | None:
     if len(history) < 20:
         return None
 
-    # Look up company name from symbols config or use symbol as fallback
-    company_row = conn.execute("""
-        SELECT DISTINCT ticker FROM source_prices WHERE ticker = ? LIMIT 1
-    """, (symbol,)).fetchone()
     company = symbol  # fallback
-
     return Stock(symbol=symbol, company=company, history=history)
 
 
 def extract_features_from_stock(stock: Stock, scorer: OpportunityScorer) -> dict | None:
-    """Run the full scoring pipeline and extract the 20 ML features."""
+    """Run the full scoring pipeline and extract the ML features."""
     try:
         opp_score = scorer.score(stock)
-        indicator_values = opp_score.indicator_values
+        
+        flat_values = {}
+        for k, v in opp_score.indicator_values.items():
+            if isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    flat_values[sub_k] = sub_v
+            else:
+                flat_values[k] = v
 
         row = {}
         for indicator_name, feature_name in INDICATOR_TO_FEATURE.items():
-            val = indicator_values.get(indicator_name, 0.0)
+            val = flat_values.get(indicator_name, 0.0)
             if val != val:  # NaN check
                 val = 0.0
             row[feature_name] = val
@@ -149,13 +163,14 @@ def extract_features_from_stock(stock: Stock, scorer: OpportunityScorer) -> dict
         return None
 
 
-def extract_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
+def extract_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, list]:
     """Extract real indicator features for all outcome records."""
     logger.info(f"Extracting real features for {len(df)} outcome records...")
 
     scorer = OpportunityScorer()
     X = []
     y = []
+    run_dates = []
     skipped = 0
 
     with sqlite3.connect(DB_PATH) as conn:
@@ -166,25 +181,6 @@ def extract_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
             run_date = row["run_date"]
             target = int(row["target"])
 
-            # Try cached indicator values first (Task 8 column, if it exists)
-            cached_json = row.get("indicator_values_json")
-            if cached_json and str(cached_json) != "None" and str(cached_json).strip():
-                try:
-                    import json
-                    cached_vals = json.loads(cached_json)
-                    feat_row = {}
-                    for indicator_name, feature_name in INDICATOR_TO_FEATURE.items():
-                        val = cached_vals.get(indicator_name, 0.0)
-                        if val != val:  # NaN
-                            val = 0.0
-                        feat_row[feature_name] = val
-                    X.append([feat_row[f] for f in FEATURES])
-                    y.append(target)
-                    continue
-                except Exception:
-                    pass  # Fall through to recalculate
-
-            # Recalculate from source_prices
             stock = build_stock_from_prices(symbol, run_date, conn)
             if stock is None:
                 skipped += 1
@@ -197,9 +193,10 @@ def extract_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
 
             X.append([feat_row[f] for f in FEATURES])
             y.append(target)
+            run_dates.append(run_date)
 
     logger.info(f"Extracted {len(X)} feature vectors, skipped {skipped} records (insufficient price data).")
-    return pd.DataFrame(X, columns=FEATURES), np.array(y)
+    return pd.DataFrame(X, columns=FEATURES), np.array(y), run_dates
 
 
 def main():
@@ -213,7 +210,7 @@ def main():
         logger.warning(f"Only {len(df)} labelled examples available. Need at least 30 for meaningful training. Aborting.")
         return
 
-    X, y = extract_features(df)
+    X, y, run_dates = extract_features(df)
 
     if len(X) < 30:
         logger.warning(f"Only {len(X)} usable feature vectors. Need at least 30. Aborting.")
@@ -229,47 +226,35 @@ def main():
         return
 
     # Time-based split: train on first 80%, test on last 20% chronologically.
-    # This eliminates look-ahead bias from random shuffling (v0.4.0 fix).
     split_idx = int(len(X) * 0.8)
     X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
 
-    logger.info(f"Training XGBoost on {len(X_train)} samples ({len(FEATURES)} real EGX features)...")
-
-    model = xgb.XGBClassifier(
-        n_estimators=100,
-        learning_rate=0.05,
-        max_depth=4,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        use_label_encoder=False,
-        eval_metric='logloss',
-        random_state=42,
-        scale_pos_weight=n_neg / n_pos,
+    logger.info(f"Training XGBoost on {len(X_train)} samples...")
+    xgb_model = xgb.XGBClassifier(
+        n_estimators=100, learning_rate=0.05, max_depth=4,
+        subsample=0.8, colsample_bytree=0.8, use_label_encoder=False,
+        eval_metric='logloss', random_state=42
     )
+    xgb_model.fit(X_train, y_train)
 
-    model.fit(X_train, y_train)
-
-    preds = model.predict(X_test)
-    probs = model.predict_proba(X_test)[:, 1]
-
+    probs = xgb_model.predict_proba(X_test)[:, 1]
+    preds = (probs > 0.5).astype(int)
     acc = accuracy_score(y_test, preds)
     try:
         auc = roc_auc_score(y_test, probs)
     except ValueError:
-        auc = 0.0  # Only one class in test set
+        auc = 0.0
 
-    logger.info(f"Retraining Complete! Test Accuracy: {acc:.2f} | AUC: {auc:.2f}")
-    logger.info(f"  Train: {len(X_train)} | Test: {len(X_test)}")
+    logger.info(f"XGBoost Retraining Complete! Test Accuracy: {acc:.2f} | AUC: {auc:.2f}")
 
     # Feature importance
-    importances = model.feature_importances_
+    importances = xgb_model.feature_importances_
     feat_imp = sorted(zip(FEATURES, importances), key=lambda x: x[1], reverse=True)
-    logger.info("Top 10 feature importances:")
+    logger.info("Top 10 feature importances (XGBoost):")
     for name, imp in feat_imp[:10]:
         logger.info(f"  {name}: {imp:.4f}")
 
-    # Probability Calibration (Problem 2)
     precisions, recalls, thresholds = precision_recall_curve(y_test, probs)
     if len(thresholds) > 0:
         f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1] + 1e-9)
@@ -280,22 +265,37 @@ def main():
 
     logger.info(f"Optimal F1 Threshold: {optimal_threshold:.4f}")
 
+    logger.info("Computing Conformal Prediction Bounds...")
+    cal_scores = []
+    for i in range(len(y_test)):
+        if y_test[i] == 1:
+            cal_scores.append(1.0 - probs[i])
+        else:
+            cal_scores.append(probs[i])
+            
+    cal_scores = np.array(cal_scores)
+    alpha = 0.1
+    n_cal = len(cal_scores)
+    q_level = np.ceil((n_cal + 1) * (1 - alpha)) / n_cal if n_cal > 0 else 0.5
+    if q_level > 1.0:
+        q_level = 1.0
+    q_hat = float(np.quantile(cal_scores, q_level)) if n_cal > 0 else 0.5
+    logger.info(f"Conformal Calibration q_hat (90%): {q_hat:.4f}")
+
     meta_data = {
         "threshold": optimal_threshold,
         "features": FEATURES,
+        "conformal_q_hat": q_hat,
     }
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     meta_path = MODELS_DIR / "xgboost_next_day_meta.json"
     with open(meta_path, "w") as f:
         json.dump(meta_data, f, indent=2)
-    logger.info(f"Saved model metadata to {meta_path}")
 
-    # Save XGBoost model
-    model_path = MODELS_DIR / "xgboost_next_day.json"
-    model.save_model(str(model_path))
-    logger.info(f"Saved retrained model to {model_path}")
+    xgb_path = MODELS_DIR / "xgboost_next_day.json"
+    xgb_model.save_model(str(xgb_path))
+    logger.info(f"Saved XGBoost model to {xgb_path}")
 
-    # Train LightGBM Model (Problem 4)
     logger.info(f"Training LightGBM on {len(X_train)} samples...")
     lgb_model = lgb.LGBMClassifier(
         n_estimators=100,
@@ -304,7 +304,7 @@ def main():
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        scale_pos_weight=n_neg / n_pos,
+        scale_pos_weight=n_neg / n_pos if n_pos > 0 else 1.0,
         verbosity=-1,
     )
     lgb_model.fit(X_train, y_train)

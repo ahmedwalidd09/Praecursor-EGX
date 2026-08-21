@@ -4,6 +4,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 import json
 from praecursor.analysis.accuracy_tracker import AccuracyTracker
+from praecursor.reporting.outcome_tracker import OutcomeTracker
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DASHBOARD_REPORT = ROOT / "reports" / "dashboard.html"
@@ -23,8 +24,12 @@ class ScannerDashboardWriter:
         try:
             tracker = AccuracyTracker(result.database_path)
             stats = tracker.get_accuracy_stats()
+            outcome_tracker = OutcomeTracker(result.database_path)
+            outcomes_14d = outcome_tracker.get_14_day_stats()
         except Exception as e:
+            print(f"Error in dashboard stats generation: {e}")
             stats = {"next_day": {"accuracy": 0}, "swing": {"accuracy": 0}, "history": []}
+            outcomes_14d = {}
             
         model_path = ROOT / "models" / "xgboost_next_day.json"
         try:
@@ -68,6 +73,7 @@ class ScannerDashboardWriter:
 
   <main>
     <div id="live-pulse" class="tab-content">
+      {self._tracker_panel(outcomes_14d)}
       {self._market_cards(result)}
 
     
@@ -177,6 +183,50 @@ class ScannerDashboardWriter:
 </body>
 </html>"""
 
+    def _tracker_panel(self, outcomes: dict) -> str:
+        win_rate = outcomes.get('win_rate', 0) * 100
+        if win_rate >= 75:
+            wr_color = "#00E676"
+        elif win_rate >= 50:
+            wr_color = "#FFEB3B" # Yellow
+        else:
+            wr_color = "#FF5252"
+            
+        fraction = f"{outcomes.get('total_hits', 0)}/{outcomes.get('total_tracked', 0)}"
+        avg_ret = outcomes.get('avg_peak_return', 0)
+        
+        last_trades = outcomes.get('last_10_trades', [])
+        trade_rows = ""
+        for t in last_trades[:10]:
+            hit = t.get('hit')
+            hit_str = "🟢 Hit" if hit == 1 else "🔴 Miss"
+            ret = t.get('return') or 0
+            ret_str = f"+{ret:.1f}%" if ret > 0 else f"{ret:.1f}%"
+            trade_rows += f"<tr><td>{t.get('date')}</td><td><strong>{t.get('symbol')}</strong></td><td>{hit_str}</td><td style='color: {'#22c55e' if ret >= 0 else '#ef4444'}'>{ret_str}</td></tr>"
+            
+        return f"""
+        <section class="panel tracker-panel">
+          <div class="panel-title">14-Day Accuracy Tracker</div>
+          <div class="tracker-stats" style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px;">
+            <div style="flex: 1; text-align: center; border-right: 1px solid var(--line);">
+              <div style="font-size: 10px; color: var(--muted); text-transform: uppercase;">14-Day Win Rate</div>
+              <div style="font-size: 32px; font-weight: bold; color: {wr_color}; margin: 5px 0;">{win_rate:.0f}%</div>
+              <div style="font-size: 12px; color: var(--muted);">{fraction} Hits</div>
+            </div>
+            <div style="flex: 1; text-align: center;">
+              <div style="font-size: 10px; color: var(--muted); text-transform: uppercase;">Avg Peak Return</div>
+              <div style="font-size: 24px; font-weight: bold; color: #fff; margin: 5px 0;">{f"+{avg_ret:.2f}%" if avg_ret > 0 else f"{avg_ret:.2f}%"}</div>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead><tr><th>Date</th><th>Symbol</th><th>Outcome</th><th>Peak Return</th></tr></thead>
+              <tbody>{trade_rows}</tbody>
+            </table>
+          </div>
+        </section>
+        """
+
     def _hit_badge(self, hit: int | None) -> str:
         if hit is None:
             return "<span class='badge neutral'>PENDING</span>"
@@ -249,6 +299,10 @@ class ScannerDashboardWriter:
                     <div class='cand-metric'>
                         <div class='cand-metric-label'>Stop Loss</div>
                         <div class='cand-metric-value neon-red'>{stop_loss:.2f} <span class='pct-tag down'>-{stop_pct:.1f}%</span></div>
+                    </div>
+                    <div class='cand-metric'>
+                        <div class='cand-metric-label'>Kelly</div>
+                        <div class='cand-metric-value neon-blue'>{prediction.kelly_fraction * 100:.1f}%</div>
                     </div>
                 </div>
                 <div class='cand-reasons'>
@@ -526,7 +580,7 @@ main { padding: 20px 28px; max-width: 1440px; margin: 0 auto; }
 .cand-company { color: var(--muted); font-size: 10px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cand-badge-wrap { flex-shrink: 0; }
 
-.cand-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.03); }
+.cand-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.03); }
 .cand-metric { text-align: center; }
 .cand-metric-label { font-size: 8px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.1em; font-weight: 700; margin-bottom: 3px; }
 .cand-metric-value { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }

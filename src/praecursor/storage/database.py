@@ -12,4 +12,8 @@ def connect(database_path: Path | str | None = None) -> sqlite3.Connection:
     selected_path = database_path or DATABASE
     selected_path.parent.mkdir(parents=True, exist_ok=True)
 
-    return sqlite3.connect(selected_path, timeout=30.0)
+    conn = sqlite3.connect(selected_path, timeout=60.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=60000;")
+    return conn

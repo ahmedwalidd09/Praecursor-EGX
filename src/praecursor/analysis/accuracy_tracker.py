@@ -52,9 +52,9 @@ class AccuracyTracker:
                     # ---- Step 2: get top 8 by rank for that run ----
                     top8 = conn.execute("""
                         SELECT symbol, rank, latest_close, next_day_label,
-                               next_day_target, next_day_score
+                               next_day_target, next_day_score, swing_stop_loss
                         FROM scanner_signals
-                        WHERE run_id = ?
+                        WHERE run_id = ? AND next_day_score >= 50
                         ORDER BY rank ASC
                         LIMIT 8
                     """, (run_id,)).fetchall()
@@ -77,7 +77,7 @@ class AccuracyTracker:
                         # Fetch the first trading day AFTER run_date
                         next_bar = conn.execute("""
                             SELECT trade_date, MAX(high) as high, MIN(low) as low,
-                                   close
+                                   close, open
                             FROM source_prices
                             WHERE ticker = ? AND trade_date > ?
                             GROUP BY trade_date
@@ -90,13 +90,32 @@ class AccuracyTracker:
                             continue
 
                         high = next_bar["high"]
+                        low = next_bar["low"]
                         close_next = next_bar["close"] or 0.0
+                        open_next = next_bar["open"] if "open" in next_bar.keys() else latest_close
 
-                        # Intraday target verification logic (R2):
-                        # Candidate target hit: next_day_hit = 1 if high >= target_price else 0
-                        # Strict target verification: intraday high reaching target is recorded as a HIT
-                        # even if closing price close < target. Removed 2.5% solid gain fallback.
-                        next_day_hit = 1 if high >= target else 0
+                        # Fetch stop loss
+                        stop_loss = sig["swing_stop_loss"] or 0.0
+
+                        # A hit means it reached the target before it hit the stop loss.
+                        # Since we only have daily data:
+                        # 1. If high >= target and low > stop_loss, it's a clear HIT.
+                        # 2. If high < target, it's a MISS.
+                        # 3. If high >= target AND low <= stop_loss, it's ambiguous.
+                        #    To be conservative and accurately reflect our 6/8 goal, we assume if it hit the stop loss
+                        #    intraday (or opened below it), it's a MISS, UNLESS the open was >= target (gap up hit).
+                        
+                        if high >= target:
+                            if low > stop_loss:
+                                next_day_hit = 1
+                            else:
+                                # It hit both target and stop loss intraday
+                                if open_next >= target:
+                                    next_day_hit = 1 # Gapped up to target
+                                else:
+                                    next_day_hit = 0 # Assume stop loss was hit first (conservative)
+                        else:
+                            next_day_hit = 0
 
                         next_day_return = ((close_next - latest_close) / latest_close * 100.0) if latest_close > 0 else 0.0
                         next_day_max_return = ((high - latest_close) / latest_close * 100.0) if latest_close > 0 else 0.0
@@ -149,6 +168,7 @@ class AccuracyTracker:
                        ROW_NUMBER() OVER(PARTITION BY s.run_id ORDER BY s.rank ASC) as rn
                 FROM scanner_signals s
                 JOIN day_runs dr ON s.run_id = dr.run_id
+                WHERE s.next_day_score >= 50
             )
             SELECT o.signal_date, o.run_id, o.symbol,
                    COALESCE(t.latest_close, 0.0) as latest_close,
@@ -227,6 +247,7 @@ class AccuracyTracker:
                        ROW_NUMBER() OVER(PARTITION BY s.run_id ORDER BY s.rank ASC) as rn
                 FROM scanner_signals s
                 JOIN day_runs dr ON s.run_id = dr.run_id
+                WHERE s.next_day_score >= 50
             )
             SELECT COALESCE(SUM(o.next_day_hit), 0) as hits,
                    COUNT(*) as total
@@ -247,6 +268,7 @@ class AccuracyTracker:
                        ROW_NUMBER() OVER(PARTITION BY s.run_id ORDER BY s.rank ASC) as rn
                 FROM scanner_signals s
                 JOIN day_runs dr ON s.run_id = dr.run_id
+                WHERE s.next_day_score >= 50
             )
             SELECT o.signal_date, o.symbol, o.next_day_label, o.next_day_hit,
                    o.next_day_return
@@ -254,7 +276,6 @@ class AccuracyTracker:
             JOIN top8 t ON t.run_id = o.run_id AND t.symbol = o.symbol
             WHERE t.rn <= 8 AND o.next_day_hit IS NOT NULL
             ORDER BY o.signal_date DESC, t.rn ASC
-            LIMIT 100
             """
 
             nd = conn.execute(next_day_query).fetchone()
@@ -263,7 +284,32 @@ class AccuracyTracker:
             next_total = nd["total"] if nd else 0
             next_hits  = nd["hits"]  if nd else 0
 
+            history_list = [dict(r) for r in history]
+            
+            current_streak = 0
+            for r in history_list:
+                if r["next_day_hit"] == 1:
+                    current_streak += 1
+                else:
+                    break
+                    
+            ev = sum(r["next_day_return"] for r in history_list) / len(history_list) if history_list else 0.0
+            
+            thirty_days_ago = (datetime.now(timezone.utc).date() - timedelta(days=30)).strftime("%Y-%m-%d")
+            seven_days_ago = (datetime.now(timezone.utc).date() - timedelta(days=7)).strftime("%Y-%m-%d")
+            
+            hits_7d = sum(1 for r in history_list if r["signal_date"] >= seven_days_ago and r["next_day_hit"] == 1)
+            total_7d = sum(1 for r in history_list if r["signal_date"] >= seven_days_ago)
+            hits_30d = sum(1 for r in history_list if r["signal_date"] >= thirty_days_ago and r["next_day_hit"] == 1)
+            total_30d = sum(1 for r in history_list if r["signal_date"] >= thirty_days_ago)
+
             return {
+                "rolling": {
+                    "7d_accuracy": (hits_7d / total_7d * 100.0) if total_7d > 0 else 0.0,
+                    "30d_accuracy": (hits_30d / total_30d * 100.0) if total_30d > 0 else 0.0
+                },
+                "streak": current_streak,
+                "ev": ev,
                 "next_day": {
                     "total":    next_total,
                     "hits":     next_hits,
@@ -274,6 +320,6 @@ class AccuracyTracker:
                     "hits":     0,
                     "accuracy": 0.0,
                 },
-                "history": [dict(r) for r in history],
+                "history": history_list[:100],
             }
 

@@ -81,6 +81,32 @@ class DataManager:
 
         return collection_result
 
+    def fetch_intraday_history(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        source_name: str | None = None,
+    ) -> CollectionResult:
+        source = self._select_source(source_name)
+        
+        # Check cache if available (not doing 12h check for simplicity, just fetching or using load_intraday)
+        from tvDatafeed import Interval
+        # Try fetching with 15 minute interval
+        # This will fail if source doesn't support interval, but for now we expect TradingViewSource
+        if hasattr(source, 'fetch_history') and source.name == "tradingview":
+            collection_result = source.fetch_history(symbol, start_date, end_date, interval=Interval.in_15_minute)
+        else:
+            collection_result = source.fetch_history(symbol, start_date, end_date) # Fallback
+
+        if self.price_cache is not None:
+            saved_rows = self.price_cache.save_intraday(collection_result)
+            collection_result.warnings.append(
+                f"Saved {saved_rows} intraday rows to SQLite cache."
+            )
+
+        return collection_result
+
     def _select_source(self, source_name: str | None) -> MarketDataSource:
         if source_name is None:
             return next(iter(self.sources.values()))

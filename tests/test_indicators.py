@@ -15,6 +15,7 @@ from praecursor.scoring.reversal import (
     VolumeSpikeFromWeaknessIndicator,
 )
 from praecursor.scoring.rsi import RSIIndicator
+from praecursor.scoring.squeeze import SqueezeIndicator
 from praecursor.scoring.trend_strength import TrendStrengthIndicator
 from helpers import build_stock
 
@@ -87,6 +88,16 @@ class IndicatorTests(unittest.TestCase):
             self.assertTrue(result.name)
             self.assertFalse(result.value != result.value)
 
+    def test_squeeze_indicator(self):
+        squeeze = SqueezeIndicator()
+        result = squeeze.calculate(self.stock)
+        self.assertEqual(result.name, "Squeeze")
+        self.assertIn("BBW_Current", result.value)
+        self.assertIn("BBW_Min_120", result.value)
+        self.assertIn("Squeeze_Building", result.value)
+        self.assertIn("Squeeze_Fired", result.value)
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -182,7 +182,7 @@ class SymbolScanResult:
     def next_day_prediction(self) -> NextDayPrediction:
         return calculate_next_day_prediction(
             opportunity_score=self.opportunity_score,
-            consensus_accepted=bool(self.consensus_result and self.consensus_result.accepted),
+            consensus_accepted=self.consensus_result.accepted if self.consensus_result is not None else True,
             consensus_confidence=self.consensus_score,
             data_quality_score=self.data_quality_score,
         )
@@ -193,6 +193,9 @@ class SymbolScanResult:
 
     @property
     def next_day_label(self) -> str:
+        override = getattr(self, "override_next_day_label", None)
+        if override:
+            return override
         return self.next_day_prediction.label
 
     @property
@@ -203,7 +206,7 @@ class SymbolScanResult:
     def swing_prediction(self) -> SwingPrediction:
         return calculate_swing_prediction(
             opportunity_score=self.opportunity_score,
-            consensus_accepted=bool(self.consensus_result and self.consensus_result.accepted),
+            consensus_accepted=self.consensus_result.accepted if self.consensus_result is not None else True,
             consensus_confidence=self.consensus_score,
             data_quality_score=self.data_quality_score,
         )
@@ -316,7 +319,7 @@ class ScannerWorkflow:
 
     def __init__(
         self,
-        lookback_days: int = 1000,
+        lookback_days: int = 1250,
         consensus_lookback_days: int = 180,
         minimum_bars: int = 10,
         source_name: str = "tradingview",
@@ -388,32 +391,45 @@ class ScannerWorkflow:
         consensus_start_date = selected_end_date - timedelta(days=self.consensus_lookback_days)
         selected_symbols = symbols or self.symbol_mapper.get_yahoo_symbols()
 
-        primary_manager = DataManager(
-            sources=[self.market_data_source],
-            minimum_bars=self.minimum_bars,
-            price_cache=self.price_cache,
-        )
-        stock_builder = CachedStockBuilder(
-            price_cache=self.price_cache,
-            symbol_mapper=self.symbol_mapper,
-            source_name=self.source_name,
-        )
+        import joblib
+        from praecursor.storage.price_cache import PriceCache
+        from praecursor.data.data_manager import DataManager
+        from praecursor.data.stock_builder import CachedStockBuilder
 
         symbol_results: list[SymbolScanResult] = []
         errors: dict[str, str] = {}
-
         total_symbols = len(selected_symbols)
-        for i, symbol in enumerate(selected_symbols):
-            if progress_callback:
-                progress_callback(i, total_symbols)
-                
+
+        def process_symbol(symbol: str):
             try:
-                primary_result = primary_manager.fetch_history(symbol, start_date, selected_end_date)
-                consensus_results, consensus_source_errors = self._fetch_consensus_results(
-                    symbol,
-                    consensus_start_date,
-                    selected_end_date,
+                local_cache = PriceCache(database_path=self.price_cache.database_path)
+                local_primary_manager = DataManager(
+                    sources=[self.market_data_source],
+                    minimum_bars=self.minimum_bars,
+                    price_cache=local_cache,
                 )
+                local_stock_builder = CachedStockBuilder(
+                    price_cache=local_cache,
+                    symbol_mapper=self.symbol_mapper,
+                    source_name=self.source_name,
+                )
+
+                primary_result = local_primary_manager.fetch_history(symbol, start_date, selected_end_date)
+                
+                consensus_results = []
+                consensus_source_errors = {}
+                if self.enable_consensus and self.consensus_data_sources:
+                    for source in self.consensus_data_sources:
+                        try:
+                            mgr = DataManager(sources=[source], minimum_bars=1, price_cache=local_cache)
+                            res = mgr.fetch_history(symbol, consensus_start_date, selected_end_date)
+                            if res.price_bars:
+                                consensus_results.append(res)
+                            else:
+                                consensus_source_errors[source.name] = "no bars"
+                        except Exception as e:
+                            consensus_source_errors[source.name] = str(e)
+
                 consensus_result, consensus_error = self._calculate_consensus(
                     symbol,
                     primary_result,
@@ -422,7 +438,7 @@ class ScannerWorkflow:
 
                 # Fix missed data: if primary source is wrong but consensus agrees, override it in cache
                 if consensus_result and not consensus_result.accepted and consensus_result.confidence_percent >= 40.0:
-                    self.price_cache.override_consensus_prices(
+                    local_cache.override_consensus_prices(
                         symbol,
                         self.source_name,
                         consensus_result.trade_date,
@@ -430,15 +446,15 @@ class ScannerWorkflow:
                         consensus_result.consensus_close,
                     )
 
-                stock = stock_builder.build(symbol, start_date, selected_end_date)
+                stock = local_stock_builder.build(symbol, start_date, selected_end_date)
                 opportunity_score = self.scorer.score(stock)
-                cached_bars = self.price_cache.load(
+                cached_bars = local_cache.load(
                     symbol,
                     self.source_name,
                     start_date,
                     selected_end_date,
                 )
-                total_cached_rows = self.price_cache.count(symbol, self.source_name)
+                total_cached_rows = local_cache.count(symbol, self.source_name)
 
                 warnings = list(primary_result.warnings)
                 consensus_downloaded_bars = 0
@@ -453,24 +469,36 @@ class ScannerWorkflow:
                 if consensus_result is not None:
                     warnings.extend(consensus_result.warnings)
 
-                symbol_results.append(
-                    SymbolScanResult(
-                        symbol=symbol,
-                        downloaded_bars=len(primary_result.price_bars),
-                        cached_bars=len(cached_bars),
-                        total_cached_rows=total_cached_rows,
-                        warnings=warnings,
-                        opportunity_score=opportunity_score,
-                        consensus_downloaded_bars=consensus_downloaded_bars,
-                        consensus_source_names=[result.source_name for result in consensus_results],
-                        consensus_source_errors=consensus_source_errors,
-                        consensus_result=consensus_result,
-                        consensus_error=consensus_error,
-                    )
+                return SymbolScanResult(
+                    symbol=symbol,
+                    downloaded_bars=len(primary_result.price_bars),
+                    cached_bars=len(cached_bars),
+                    total_cached_rows=total_cached_rows,
+                    warnings=warnings,
+                    opportunity_score=opportunity_score,
+                    consensus_downloaded_bars=consensus_downloaded_bars,
+                    consensus_source_names=[result.source_name for result in consensus_results],
+                    consensus_source_errors=consensus_source_errors,
+                    consensus_result=consensus_result,
+                    consensus_error=consensus_error,
                 )
             except Exception as error:
-                errors[symbol] = str(error)
+                return (symbol, str(error))
 
+        import joblib
+        results = joblib.Parallel(n_jobs=4, backend="threading")(
+            joblib.delayed(process_symbol)(sym) for sym in selected_symbols
+        )
+
+        for res in results:
+            if isinstance(res, SymbolScanResult):
+                symbol_results.append(res)
+            else:
+                errors[res[0]] = res[1]
+            
+            if progress_callback:
+                progress_callback(len(symbol_results) + len(errors), total_symbols)
+                
         if progress_callback:
             progress_callback(total_symbols, total_symbols)
 
@@ -490,6 +518,20 @@ class ScannerWorkflow:
 
         if ranked_results:
             next_day_results = sorted(ranked_results, key=lambda result: result.next_day_score, reverse=True)
+            
+            # Upgrade #9: Top-N Ranking
+            for i, res in enumerate(next_day_results):
+                nd_pred = res.next_day_prediction
+                label = nd_pred.label
+                new_label = label
+                if i < 8 and nd_pred.score >= 60.0:
+                    new_label = f"⭐ Top Pick #{i+1} ({label})"
+                elif i >= 20:
+                    if "Candidate" in label or "High-Priority" in label:
+                        new_label = "Watchlist Tomorrow"
+                if new_label != label:
+                    object.__setattr__(res, 'override_next_day_label', new_label)
+                    
             saved_report_path = self.report_writer.write(ranked_results, report_path)
             saved_next_day_report_path = self.report_writer.write(next_day_results, next_day_report_path)
             saved_markdown_report_path = self.markdown_report_writer.write(

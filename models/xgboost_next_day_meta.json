@@ -1,9 +1,9 @@
 {
-  "training_date": "2026-08-30T20:19:39.325929",
-  "n_samples_train": 11354,
-  "n_samples_test": 2839,
-  "test_accuracy": 0.9267,
-  "threshold": 0.7439,
+  "training_date": "2026-09-01T00:19:00.031941",
+  "n_samples_train": 11892,
+  "n_samples_test": 2974,
+  "test_accuracy": 0.9052,
+  "threshold": 0.6132,
   "features": [
     "rsi14",
     "rel_volume20",
@@ -41,5 +41,5 @@
     "vsa_absorption",
     "sector_spillover"
   ],
-  "conformal_q_hat": 0.38142192363739014
+  "conformal_q_hat": 0.4838293790817261
 }

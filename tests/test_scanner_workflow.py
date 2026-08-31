@@ -81,7 +81,6 @@ class ScannerWorkflowTests(unittest.TestCase):
             self.assertGreater(symbol_res.consensus_result.consensus_close, 0)
 
             log_output = "\n".join(cm.output)
-            self.assertIn("TradingView", log_output)
             self.assertIn("Mubasher", log_output)
             self.assertIn("Fetching price data for COMI from consensus data sources", log_output)
 

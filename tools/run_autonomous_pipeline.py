@@ -50,49 +50,55 @@ def setup_logging(logs_dir: Path | None = None, run_date: date | None = None) ->
 
 def run_stage(
     logger: logging.Logger,
-    stage_num: int,
+    stage_num: int | float,
     stage_name: str,
     cmd: list[str],
     cwd: Path,
     max_attempts: int = 3,
     initial_backoff: float = 10.0,
 ) -> bool:
-    """Execute a single pipeline stage via subprocess with retry logic and exponential backoff."""
-    logger.info(f"=== [Stage {stage_num}/4] Starting: {stage_name} ===")
+    """Execute a single pipeline stage via subprocess with real-time output streaming and retry logic."""
+    logger.info(f"=== [Stage {stage_num}] Starting: {stage_name} ===")
     logger.info(f"Command: {' '.join(cmd)}")
     
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
-            logger.info(f"=== [Stage {stage_num}/4] Retry attempt {attempt}/{max_attempts}: {stage_name} ===")
+            logger.info(f"=== [Stage {stage_num}] Retry attempt {attempt}/{max_attempts}: {stage_name} ===")
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
                 cwd=str(cwd),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                check=False,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
             )
-            if result.stdout and result.stdout.strip():
-                logger.info(f"[{stage_name} Output]\n{result.stdout.strip()}")
-            
-            if result.returncode == 0:
-                logger.info(f"=== [Stage {stage_num}/4] Completed Successfully: {stage_name} ===")
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    clean_line = line.rstrip()
+                    if clean_line:
+                        logger.info(clean_line)
+                process.stdout.close()
+            return_code = process.wait()
+
+            if return_code == 0:
+                logger.info(f"=== [Stage {stage_num}] Completed Successfully: {stage_name} ===")
                 return True
             else:
                 logger.error(
-                    f"=== [Stage {stage_num}/4] Attempt {attempt}/{max_attempts} Failed: {stage_name} (Exit Code: {result.returncode}) ==="
+                    f"=== [Stage {stage_num}] Attempt {attempt}/{max_attempts} Failed: {stage_name} (Exit Code: {return_code}) ==="
                 )
-                if result.stderr and result.stderr.strip():
-                    logger.error(f"[{stage_name} Error Output]\n{result.stderr.strip()}")
         except Exception as e:
-            logger.error(f"=== [Stage {stage_num}/4] Unexpected exception in {stage_name} (Attempt {attempt}/{max_attempts}): {e} ===")
+            logger.error(f"=== [Stage {stage_num}] Unexpected exception in {stage_name} (Attempt {attempt}/{max_attempts}): {e} ===")
         
         if attempt < max_attempts:
             wait_time = initial_backoff * (2 ** (attempt - 1))
             logger.info(f"Waiting {wait_time:.1f} seconds before retrying {stage_name}...")
             time.sleep(wait_time)
             
-    logger.error(f"=== [Stage {stage_num}/4] All {max_attempts} attempts failed for: {stage_name} ===")
+    logger.error(f"=== [Stage {stage_num}] All {max_attempts} attempts failed for: {stage_name} ===")
     return False
 
 
@@ -110,7 +116,7 @@ def run_pipeline(
     run_date: date | None = None,
     force: bool = False,
 ) -> int:
-    """Execute the 4-stage autonomous daily pipeline."""
+    """Execute the 5-stage autonomous daily pipeline."""
     root = project_root or PROJECT_ROOT
     effective_date = run_date or datetime.now().date()
     date_str = effective_date.strftime("%Y-%m-%d")
@@ -133,6 +139,7 @@ def run_pipeline(
         logger, log_file = setup_logging(logs_dir, run_date=effective_date)
         
 
+        os.environ["PRAECURSOR_PIPELINE_RUNNING"] = "1"
         logger.info("==================================================")
         logger.info("Praecursor-EGX Autonomous Daily Pipeline Started")
         logger.info(f"Project Root: {root}")
@@ -153,9 +160,9 @@ def run_pipeline(
 
         python_exe = sys.executable
         stages_passed = 0
-        total_stages = 4
+        total_stages = 5
 
-        # Stage 1: Daily Scanner & Outcome Tracking
+        # Stage 1: Daily Scanner
         s1_cmd = [python_exe, "tools/run_scanner.py"]
         if run_date:
             s1_cmd.extend(["--date", date_str])
@@ -163,7 +170,7 @@ def run_pipeline(
         s1_ok = run_stage(
             logger,
             1,
-            "Daily Scanner & Outcome Tracking",
+            "Daily Scanner",
             s1_cmd,
             root,
         )
@@ -171,6 +178,14 @@ def run_pipeline(
             logger.error("Stage 1 (Scanner) failed. Aborting downstream pipeline execution.")
             return 1
         stages_passed += 1
+            
+        # Stage 1.5: Backfill Outcomes (uses freshly downloaded prices from Stage 1)
+        outcome_cmd = [python_exe, "tools/track_outcomes.py"]
+        s1_5_ok = run_stage(logger, 1.5, "Outcome Backfill", outcome_cmd, root)
+        if s1_5_ok:
+            stages_passed += 1
+        else:
+            logger.warning("Stage 1.5 (Outcome Backfill) completed with errors.")
 
         # Stage 2: Model Retraining
         s2_ok = run_stage(
@@ -198,15 +213,15 @@ def run_pipeline(
         else:
             logger.warning("Stage 3 (Dashboard Regeneration) completed with errors.")
 
-        # Stage 4: Telegram Summary Broadcast
-        has_telegram_credentials = bool(
-            os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
-        )
+        # Stage 4: Notifications Broadcast (Telegram)
+        from praecursor.notifications.telegram import TelegramSettings
+        tg_settings = TelegramSettings.load()
+        has_telegram_credentials = tg_settings.is_configured
         
         telegram_cmd = [python_exe, "tools/send_telegram_report.py", "--use-latest"]
         if dry_run_telegram or not has_telegram_credentials:
             if not has_telegram_credentials:
-                logger.info("Telegram credentials not found in environment. Operating in --dry-run mode.")
+                logger.info("Telegram credentials not configured in config/telegram.json. Operating in --dry-run mode.")
             telegram_cmd.append("--dry-run")
 
         s4_ok = run_stage(
@@ -216,12 +231,13 @@ def run_pipeline(
             telegram_cmd,
             root,
         )
+
         if s4_ok:
             stages_passed += 1
         else:
             logger.warning("Stage 4 (Telegram Broadcast) completed with errors.")
 
-        overall_success = s1_ok and s2_ok and s3_ok and s4_ok
+        overall_success = s1_ok and s2_ok and s3_ok
         if overall_success:
             logger.info(f"Pipeline completed successfully. ({stages_passed}/{total_stages} stages passed)")
             return 0

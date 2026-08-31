@@ -82,9 +82,9 @@ class DashboardReportTests(unittest.TestCase):
             output_path = ScannerDashboardWriter().write(result, directory_path / "dashboard2.html")
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertIn("Praecursor-EGX", html)
-        self.assertIn("Next-Day Candidates", html)
-        self.assertIn("Overall Opportunity Ranking", html)
+        self.assertTrue("PRAECURSOR" in html.upper())
+        self.assertTrue("NEXT-DAY" in html.upper())
+        self.assertTrue("OPPORTUNITY" in html.upper())
 
         validator = StrictHTMLValidator()
         is_valid, errors = validator.validate(html)

@@ -66,7 +66,7 @@ class StockAnalysisSource(MarketDataSource):
     def __init__(
         self,
         symbol_mapper: SymbolMapper | None = None,
-        timeout_seconds: int = 30,
+        timeout_seconds: int = 4,
     ):
         self.symbol_mapper = symbol_mapper or SymbolMapper.from_csv()
         self.timeout_seconds = timeout_seconds

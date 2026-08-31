@@ -1,8 +1,17 @@
 import argparse
+import os
 from datetime import datetime
 from math import isnan
 from pathlib import Path
 import sys
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 from praecursor.core.settings import DEFAULT_SCANNER_SETTINGS, ScannerSettings
 from praecursor.scoring.opportunity_score import OpportunityScore
@@ -52,6 +61,15 @@ def main() -> int:
     print("\n---------------------------------------------------------")
     print(f"Total symbols processed: {result.success_count}")
     print(f"Errors encountered: {result.error_count}")
+
+    # Automatically send Telegram notification whenever a standalone scan finishes
+    should_send_tg = getattr(args, "telegram", False) or (not getattr(args, "no_telegram", False) and not os.getenv("PRAECURSOR_PIPELINE_RUNNING"))
+    if result.success_count > 0 and should_send_tg:
+        try:
+            from praecursor.notifications.telegram import dispatch_telegram_scan_briefing
+            dispatch_telegram_scan_briefing(result=result, top_n=5, verbose=True)
+        except Exception as tg_exc:
+            print(f"[Telegram] Notification failed: {tg_exc}")
 
     if result.success_count == 0:
         return 1
@@ -118,6 +136,18 @@ def parse_args() -> tuple[argparse.Namespace, ScannerSettings]:
         action="store_true",
         default=not settings.enable_archive_reports,
         help="Only write latest reports, not timestamped archive copies.",
+    )
+    parser.add_argument(
+        "--no-telegram",
+        action="store_true",
+        default=False,
+        help="Disable automatic Telegram notification upon scan completion.",
+    )
+    parser.add_argument(
+        "--telegram",
+        action="store_true",
+        default=False,
+        help="Force automatic Telegram notification even if pipeline environment is active.",
     )
 
     return parser.parse_args(remaining_args), settings
@@ -208,7 +238,7 @@ def print_candidate_list(title: str, results: list[SymbolScanResult], mode: str)
         print("=" * 40)
         print(f"#{rank} {score.symbol} - {score.company}")
         print(f"{title[:-1]} Score: {candidate_score:.0f}/100")
-        print(f"Label: {candidate_label}")
+        print(f"Label: {candidate_label.replace(chr(11088), chr(42))}")
         print(f"Reasons: {candidate_reasons}")
         print(f"Latest Close: {score.latest_close:.2f}")
         print_consensus_summary(symbol_result)
@@ -228,10 +258,10 @@ def print_ranking(results: list[SymbolScanResult]) -> None:
         print(f"Rank Change: {symbol_result.rank_change_text}")
         print(f"Score: {score.total_score:.0f}/{score.max_score:.0f} ({score.score_percent:.0f}%)")
         print(f"Final Predictor Score: {symbol_result.final_predictor_score:.0f}/100")
-        print(f"Predictor Label: {symbol_result.predictor_label}")
+        print(f"Predictor Label: {symbol_result.predictor_label.replace(chr(11088), chr(42))}")
         print(f"Predictor Reasons: {symbol_result.predictor_reasons_text}")
         print(f"Next-Day Score: {symbol_result.next_day_score:.0f}/100")
-        print(f"Next-Day Label: {symbol_result.next_day_label}")
+        print(f"Next-Day Label: {symbol_result.next_day_label.replace(chr(11088), chr(42))}")
         print(f"Next-Day Reasons: {symbol_result.next_day_reasons_text}")
         print(f"Latest Close: {score.latest_close:.2f}")
         print_consensus_summary(symbol_result)

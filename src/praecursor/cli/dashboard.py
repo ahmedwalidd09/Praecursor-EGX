@@ -59,11 +59,6 @@ def run_scanner_sync() -> None:
             
         workflow.run(symbols=symbols, progress_callback=progress_callback)
         
-        # Update accuracy tracker after scan completes
-        from praecursor.analysis.accuracy_tracker import AccuracyTracker
-        tracker = AccuracyTracker()
-        tracker.update_historical_outcomes()
-        
         scan_status["last_completed"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     except Exception as error:
         scan_status["error"] = str(error)

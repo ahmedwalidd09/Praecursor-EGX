@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
+import joblib
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,6 @@ from praecursor.scoring.swing import SwingPrediction, calculate_swing_prediction
 from praecursor.scoring.opportunity_score import OpportunityScore, OpportunityScorer
 from praecursor.storage.price_cache import PriceCache
 from praecursor.storage.signal_history import SignalHistoryStore
-from praecursor.analysis.accuracy_tracker import AccuracyTracker
 
 REPORTS_ROOT = Path(__file__).resolve().parents[3] / "reports"
 REPORT_ARCHIVE_DIR = REPORTS_ROOT / "archive"
@@ -51,6 +51,7 @@ class SymbolScanResult:
     consensus_error: str | None = None
     previous_rank: int | None = None
     rank_change: int | None = None
+    override_next_day_label: str | None = None
 
     @property
     def warning_count(self) -> int:
@@ -356,11 +357,18 @@ class ScannerWorkflow:
             else None
         )
 
-        if self.enable_consensus and self.consensus_data_sources is None:
+        if self.enable_consensus:
+            if self.consensus_data_sources is None:
+                self.consensus_data_sources = [
+                    StockAnalysisSource(symbol_mapper=self.symbol_mapper),
+                    MubasherSource(),
+                    TradingViewSource(symbol_mapper=self.symbol_mapper),
+                ]
+            
+            primary_name = getattr(self.market_data_source, "name", getattr(self.market_data_source, "source_name", self.source_name))
             self.consensus_data_sources = [
-                StockAnalysisSource(symbol_mapper=self.symbol_mapper),
-                MubasherSource(),
-                TradingViewSource(symbol_mapper=self.symbol_mapper),
+                src for src in self.consensus_data_sources
+                if getattr(src, "name", getattr(src, "source_name", "")) != primary_name
             ]
 
         self.consensus_engine = consensus_engine or PriceConsensusEngine(
@@ -386,15 +394,21 @@ class ScannerWorkflow:
         **kwargs,
     ) -> ScannerRunResult:
         generated_at = datetime.now(timezone.utc)
+
+        # Auto-backfill outcomes for all prior predictions using freshly available price data
+        try:
+            from praecursor.analysis.accuracy_tracker import track_outcomes_from_db
+            db_target = getattr(self, "price_cache", None) and getattr(self.price_cache, "database_path", None)
+            backfilled = track_outcomes_from_db(db_path=db_target)
+            if backfilled:
+                logger.info(f"[AUTO-OUTCOME] Backfilled {backfilled} prediction outcomes from prior scans.")
+        except Exception as e:
+            logger.warning(f"[AUTO-OUTCOME] Could not backfill outcomes: {e}")
+
         selected_end_date = end_date or date.today()
         start_date = selected_end_date - timedelta(days=self.lookback_days)
         consensus_start_date = selected_end_date - timedelta(days=self.consensus_lookback_days)
         selected_symbols = symbols or self.symbol_mapper.get_yahoo_symbols()
-
-        import joblib
-        from praecursor.storage.price_cache import PriceCache
-        from praecursor.data.data_manager import DataManager
-        from praecursor.data.stock_builder import CachedStockBuilder
 
         symbol_results: list[SymbolScanResult] = []
         errors: dict[str, str] = {}
@@ -419,6 +433,7 @@ class ScannerWorkflow:
                 consensus_results = []
                 consensus_source_errors = {}
                 if self.enable_consensus and self.consensus_data_sources:
+                    logger.info("Fetching price data for %s from consensus data sources (%s)", symbol, ", ".join(getattr(s, "name", str(s)) for s in self.consensus_data_sources))
                     for source in self.consensus_data_sources:
                         try:
                             mgr = DataManager(sources=[source], minimum_bars=1, price_cache=local_cache)
@@ -485,7 +500,6 @@ class ScannerWorkflow:
             except Exception as error:
                 return (symbol, str(error))
 
-        import joblib
         results = joblib.Parallel(n_jobs=4, backend="threading")(
             joblib.delayed(process_symbol)(sym) for sym in selected_symbols
         )
@@ -519,18 +533,23 @@ class ScannerWorkflow:
         if ranked_results:
             next_day_results = sorted(ranked_results, key=lambda result: result.next_day_score, reverse=True)
             
-            # Upgrade #9: Top-N Ranking
+            # Dynamic Top-N Ranking: badge genuine elite breakout candidates (max 5) as Top Picks
+            top_pick_num = 0
             for i, res in enumerate(next_day_results):
                 nd_pred = res.next_day_prediction
                 label = nd_pred.label
                 new_label = label
-                if i < 8 and nd_pred.score >= 60.0:
-                    new_label = f"⭐ Top Pick #{i+1} ({label})"
-                elif i >= 20:
-                    if "Candidate" in label or "High-Priority" in label:
-                        new_label = "Watchlist Tomorrow"
+                is_consensus_ok = res.consensus_result is None or res.consensus_result.accepted
+                is_eligible = is_consensus_ok and ("Low Confidence" not in label) and ("Avoid" not in label)
+                if nd_pred.score >= 68.0 and is_eligible and ("Candidate" in label) and top_pick_num < 5:
+                    top_pick_num += 1
+                    new_label = f"⭐ Top Pick #{top_pick_num} ({label})"
                 if new_label != label:
-                    object.__setattr__(res, 'override_next_day_label', new_label)
+                    next_day_results[i] = replace(res, override_next_day_label=new_label)
+                    
+            # Re-sync ranked_results so the database and dashboard get the updated objects
+            modified_map = {res.symbol: res for res in next_day_results}
+            ranked_results = [modified_map[res.symbol] for res in ranked_results]
                     
             saved_report_path = self.report_writer.write(ranked_results, report_path)
             saved_next_day_report_path = self.report_writer.write(next_day_results, next_day_report_path)
@@ -576,13 +595,6 @@ class ScannerWorkflow:
             history_run_id = self.history_store.save_run(result)
             result = replace(result, history_run_id=history_run_id)
             logger.info(f"Saved scanner run {history_run_id} to history database.")
-            
-            # Automatically track historical accuracy of past runs
-            try:
-                tracker = AccuracyTracker(database_path=self.price_cache.database_path)
-                tracker.update_historical_outcomes()
-            except Exception as e:
-                logger.error(f"Failed to update historical outcomes: {e}")
         
         return result
 

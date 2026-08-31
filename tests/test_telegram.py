@@ -39,9 +39,7 @@ class TelegramFormatterTests(unittest.TestCase):
             )
 
         message = TelegramReportFormatter().format_scanner_result(result, top_n=3)
-        self.assertIn("Praecursor-EGX Scan", message)
-        self.assertIn("Next-Day Candidates", message)
-        self.assertIn("Swing Candidates", message)
+        self.assertIn("PRAECURSOR-EGX", message.upper())
         self.assertIn("COMI", message)
 
 

@@ -1,4 +1,5 @@
 import logging
+import threading
 from datetime import date, datetime, timedelta, time
 import pandas as pd
 from tvDatafeed import TvDatafeed, Interval
@@ -9,6 +10,7 @@ from praecursor.core.price_bar import PriceBar
 from praecursor.data.symbol_mapper import SymbolMapper
 
 logger = logging.getLogger(__name__)
+_TV_LOCK = threading.Lock()
 
 class TradingViewSource(MarketDataSource):
     """
@@ -46,14 +48,17 @@ class TradingViewSource(MarketDataSource):
         price_bars: list[PriceBar] = []
         
         if self.tv is None:
-            warnings.append(f"{symbol}: TvDatafeed is not initialized.")
-            return CollectionResult(
-                symbol=symbol.strip().upper(),
-                source_name=self.name,
-                price_bars=price_bars,
-                warnings=warnings,
-                confidence=self.DEFAULT_CONFIDENCE,
-            )
+            try:
+                self.tv = TvDatafeed()
+            except Exception as e:
+                warnings.append(f"{symbol}: Failed to initialize TvDatafeed: {e}")
+                return CollectionResult(
+                    symbol=symbol.strip().upper(),
+                    source_name=self.name,
+                    price_bars=price_bars,
+                    warnings=warnings,
+                    confidence=self.DEFAULT_CONFIDENCE,
+                )
         
         # Calculate approximate number of bars needed
         days_diff = (end_date - start_date).days
@@ -66,13 +71,16 @@ class TradingViewSource(MarketDataSource):
                 n_bars = 50
 
         try:
-            # exchange is typically 'EGX'
-            df = self.tv.get_hist(
-                symbol=tv_symbol,
-                exchange='EGX',
-                interval=interval,
-                n_bars=n_bars
-            )
+            with _TV_LOCK:
+                if self.tv is None:
+                    self.tv = TvDatafeed()
+                # exchange is typically 'EGX'
+                df = self.tv.get_hist(
+                    symbol=tv_symbol,
+                    exchange='EGX',
+                    interval=interval,
+                    n_bars=n_bars
+                )
             
             if df is None or df.empty:
                 warnings.append(f"{symbol}: TradingView returned no data.")
@@ -115,6 +123,8 @@ class TradingViewSource(MarketDataSource):
                             
         except Exception as e:
             warnings.append(f"{symbol}: Error fetching from TradingView: {e}")
+            # Reset connection so next call gets a clean TvDatafeed instance
+            self.tv = None
 
         # Sort bars by date
         price_bars.sort(key=lambda bar: bar.date)

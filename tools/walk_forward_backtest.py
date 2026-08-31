@@ -36,8 +36,9 @@ logger = logging.getLogger(__name__)
 DB_PATH = ROOT / "database" / "praecursor.db"
 REPORTS_DIR = ROOT / "reports"
 
-# Must match retrain_models.py exactly (21 features as of v0.4.0)
+# Must match retrain_models.py exactly (31 features)
 INDICATOR_TO_FEATURE = {
+    # --- Core indicators (all verified in cache 100/100) ---
     "RSI14": "rsi14",
     "RelVolume20": "rel_volume20",
     "MACDHistogram": "macd_histogram",
@@ -59,10 +60,22 @@ INDICATOR_TO_FEATURE = {
     "AvgTurnover20": "avg_turnover_20",
     "ClosedAtLimitUp": "closed_at_limit_up",
     "ATRPercent14": "atr_pct14",
-    "Momentum1": "momentum1",
-    "RSISlope3": "rsi_slope3",
-    "ConsecutiveGreen": "consecutive_green",
-    "DayOfWeek": "day_of_week",
+    # --- v2: Features verified in cache ---
+    "OpportunityScorePct": "opp_score_pct",
+    "NearCloseHigh250Percent": "near_high250_pct",
+    "CMF20": "cmf20",
+    "MFI14": "mfi14",
+    "RS_vs_EGX30_50": "rs_vs_index",
+    "VolumeConfirmedBreakout": "vol_confirmed_breakout",
+    "WilliamsR14": "williams_r14",
+    "KCSqueeze20": "kc_squeeze20",
+    "Ichimoku_Score": "ichimoku_score",
+    "ElderRay_Score": "elder_ray_score",
+    # --- v6.1 Next-Day Alpha Features ---
+    "ClosingAggression": "closing_aggression",
+    "NR7_Compression": "nr7_compression",
+    "VSA_Absorption": "vsa_absorption",
+    "SectorSpillover": "sector_spillover",
 }
 FEATURES = list(INDICATOR_TO_FEATURE.values())
 MIN_TRAIN_SAMPLES = 30
@@ -74,10 +87,10 @@ def load_all_outcomes(conn) -> pd.DataFrame:
     SELECT 
         s.run_id, s.symbol, date(s.generated_at) as run_date,
         o.next_day_hit as target, o.next_day_return,
-        s.latest_close
+        s.latest_close, s.indicator_values_json, s.opportunity_score as opp_score_pct
     FROM scanner_signals s
     JOIN scanner_signal_outcomes o ON s.run_id = o.run_id AND s.symbol = o.symbol
-    WHERE o.next_day_hit IS NOT NULL
+    WHERE o.next_day_hit IS NOT NULL AND s.indicator_values_json IS NOT NULL
     ORDER BY run_date ASC
     """
     return pd.read_sql(query, conn)
@@ -85,13 +98,16 @@ def load_all_outcomes(conn) -> pd.DataFrame:
 
 def build_stock_from_prices(symbol: str, run_date: str, conn) -> Stock | None:
     """Build a Stock object from source_prices for a given symbol up to run_date."""
+    # Ensure run_date is extended to end of day to include time-stamped rows
+    run_date_end = run_date + " 23:59:59" if len(run_date) <= 10 else run_date
+    
     rows = conn.execute("""
         SELECT trade_date, open, high, low, close, volume
         FROM source_prices
-        WHERE ticker = ? AND date(trade_date) <= date(?)
+        WHERE ticker = ? AND trade_date <= ?
         ORDER BY trade_date ASC
         LIMIT 300
-    """, (symbol, run_date)).fetchall()
+    """, (symbol, run_date_end)).fetchall()
 
     if len(rows) < 20:
         return None
@@ -118,21 +134,75 @@ def build_stock_from_prices(symbol: str, run_date: str, conn) -> Stock | None:
     return Stock(symbol=symbol, company=symbol, history=history)
 
 
-def extract_features_for_row(symbol: str, run_date: str, conn, scorer: OpportunityScorer) -> list | None:
-    """Extract 21 ML features for a single symbol on a given date."""
+import json
+def extract_features_for_row(row, conn, scorer: OpportunityScorer) -> list | None:
+    """Extract ML features for a single symbol on a given date (fast cache or slow recompute)."""
+    symbol = row['symbol']
+    run_date = row['run_date']
+    cached_json = row.get("indicator_values_json", None)
+    opp_score = float(row.get("opp_score_pct", 0.0) or 0.0)
+
+    if cached_json and str(cached_json) != "nan" and str(cached_json) != "None":
+        try:
+            cached_data = json.loads(cached_json)
+        except (json.JSONDecodeError, TypeError):
+            cached_data = {}
+
+        cached_data["OpportunityScorePct"] = opp_score
+
+        feat_vec = []
+        for indicator_name in INDICATOR_TO_FEATURE:
+            val = cached_data.get(indicator_name, 0.0)
+            if val is None or (isinstance(val, float) and val != val):
+                val = 0.0
+            if isinstance(val, dict):
+                val = val.get("VPOC_Distance_Pct", 0.0) if "VPOC_Distance_Pct" in val else 0.0
+            feat_vec.append(float(val))
+        return feat_vec
+
+    # Slow fallback
     stock = build_stock_from_prices(symbol, run_date, conn)
     if stock is None:
         return None
     try:
-        opp_score = scorer.score(stock)
-        indicator_values = opp_score.indicator_values
-        row = []
+        opp_score_obj = scorer.score(stock)
+        indicator_values = opp_score_obj.indicator_values
+        indicator_values["OpportunityScorePct"] = opp_score
+        
+        # Ghost Features
+        momentum1 = 0.0
+        consecutive_green = 0
+        day_of_week = 0.0
+        
+        if stock is not None and hasattr(stock, "history") and len(stock.history) >= 4:
+            history = stock.history
+            close = history[-1].close
+            prev_close = history[-2].close
+            if prev_close > 0:
+                momentum1 = (close - prev_close) / prev_close * 100.0
+                
+            count = 0
+            for bar in reversed(history):
+                if bar.close > bar.open:
+                    count += 1
+                else:
+                    break
+            consecutive_green = count
+            day_of_week = float(history[-1].date.weekday())
+            
+        indicator_values["Momentum1"] = momentum1
+        indicator_values["ConsecutiveGreen"] = float(consecutive_green)
+        indicator_values["DayOfWeek"] = day_of_week
+
+        feat_vec = []
         for indicator_name in INDICATOR_TO_FEATURE:
             val = indicator_values.get(indicator_name, 0.0)
-            if val != val:  # NaN
+            if val != val or val is None:  # NaN
                 val = 0.0
-            row.append(val)
-        return row
+            if isinstance(val, dict):
+                val = val.get("VPOC_Distance_Pct", 0.0) if "VPOC_Distance_Pct" in val else 0.0
+            feat_vec.append(float(val))
+        return feat_vec
     except Exception as e:
         logger.debug(f"Failed to score {symbol} on {run_date}: {e}")
         return None
@@ -191,6 +261,8 @@ def main():
     logger.info(f"Running walk-forward simulation over {len(unique_dates)} dates...")
     logger.info(f"Minimum training window: {MIN_TRAIN_SAMPLES} samples before first prediction.")
 
+    excluded_signals_count = 0
+
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
 
@@ -202,7 +274,10 @@ def main():
                 prev_date = unique_dates[i - 1]
                 prev_data = df_all[df_all['run_date'] == prev_date]
                 for _, row in prev_data.iterrows():
-                    feat = extract_features_for_row(row['symbol'], row['run_date'], conn, scorer)
+                    next_ret = row.get('next_day_return')
+                    if next_ret is not None and not np.isnan(next_ret) and abs(float(next_ret)) > 0.40:
+                        continue
+                    feat = extract_features_for_row(row, conn, scorer)
                     if feat is not None:
                         X_accumulated.append(feat)
                         y_accumulated.append(int(row['target']))
@@ -224,7 +299,13 @@ def main():
             day_candidates = []
 
             for _, row in day_data.iterrows():
-                feat = extract_features_for_row(row['symbol'], row['run_date'], conn, scorer)
+                next_ret = row.get('next_day_return')
+                if next_ret is not None and not np.isnan(next_ret) and abs(float(next_ret)) > 0.40:
+                    excluded_signals_count += 1
+                    logger.warning(f"Excluded {row['symbol']} on {date_str} due to suspected corporate action (gap {float(next_ret):.1%})")
+                    continue
+
+                feat = extract_features_for_row(row, conn, scorer)
                 if feat is None:
                     continue
                 prob = float(model.predict_proba([feat])[0][1])
@@ -281,6 +362,8 @@ def main():
     logger.info("WALK-FORWARD BACKTEST SUMMARY")
     logger.info("=" * 60)
     logger.info(f"Dates simulated:       {len(df_results)}")
+    if excluded_signals_count > 0:
+        logger.info(f"Excluded {excluded_signals_count} signals due to suspected corporate actions (splits/dividends)")
     logger.info(f"Top-8 Total Hits:      {total_top8_hits}/{total_top8_num}")
     logger.info(f"Top-8 Overall Accuracy:{top8_overall_accuracy:.1f}%")
     logger.info(f"Top-8 Avg Hit Rate/day:{df_results['top8_hit_rate_pct'].mean():.1f}%")
@@ -311,6 +394,78 @@ def main():
     print("{:<12} {:>12} {:>11.1f}% {:>15}".format(
         "OVERALL", top8_tot_str, top8_overall_accuracy, all_tot_str
     ))
+
+    # --- STATISTICAL SIGNIFICANCE ---
+    import math
+    scanner_k = total_top8_hits
+    scanner_n = total_top8_num
+    p_scanner = scanner_k / scanner_n if scanner_n > 0 else 0.0
+
+    baseline_k = total_hits
+    baseline_n = total_candidates
+    p_baseline = baseline_k / baseline_n if baseline_n > 0 else 0.0
+
+    if scanner_n > 0 and baseline_n > 0:
+        p0 = p_baseline
+        if p0 > 0 and p0 < 1:
+            var = p0 * (1 - p0) / scanner_n
+            z = (p_scanner - p0) / math.sqrt(var) if var > 0 else 0
+            try:
+                from scipy.stats import norm
+                p_val = norm.sf(z) if z > 0 else norm.sf(-z)
+            except ImportError:
+                p_val = 0.5 * math.erfc(abs(z) / math.sqrt(2))
+        else:
+            p_val = 1.0
+            z = 0.0
+
+        z_ci = 1.96
+        denominator = 1 + z_ci**2 / scanner_n
+        center_prob = p_scanner + z_ci**2 / (2 * scanner_n)
+        ci_term = z_ci * math.sqrt((p_scanner * (1 - p_scanner) + z_ci**2 / (4 * scanner_n)) / scanner_n)
+        ci_lower = (center_prob - ci_term) / denominator
+        ci_upper = (center_prob + ci_term) / denominator
+
+        if p_scanner > 0 and p0 > 0:
+            h = 2 * (math.asin(math.sqrt(p_scanner)) - math.asin(math.sqrt(p0)))
+        else:
+            h = 0.0
+
+        expected_hit = scanner_n * p0
+        expected_miss = scanner_n * (1 - p0)
+        actual_miss = scanner_n - scanner_k
+        if expected_hit > 0 and expected_miss > 0:
+            chi2 = ((scanner_k - expected_hit)**2 / expected_hit) + ((actual_miss - expected_miss)**2 / expected_miss)
+        else:
+            chi2 = 0.0
+
+        stars = ""
+        if p_val < 0.001: stars = "***"
+        elif p_val < 0.01: stars = "**"
+        elif p_val < 0.05: stars = "*"
+
+        print("\n=== STATISTICAL SIGNIFICANCE ===")
+        print(f"Scanner Hit Rate: {p_scanner*100:.1f}% (N={scanner_n})")
+        print(f"Baseline Hit Rate: {p_baseline*100:.1f}% (N={baseline_n})")
+        print(f"p-value (binomial): {p_val:.5g} {stars}".strip())
+        print(f"95% CI: [{ci_lower*100:.1f}%, {ci_upper*100:.1f}%]")
+        
+        abs_h = abs(h)
+        if abs_h >= 0.8: effect_desc = "large"
+        elif abs_h >= 0.5: effect_desc = "medium"
+        elif abs_h >= 0.2: effect_desc = "small-medium"
+        elif abs_h >= 0.1: effect_desc = "small"
+        else: effect_desc = "trivial"
+        
+        print(f"Effect Size (Cohen's h): {h:.2f} ({effect_desc})")
+        print(f"Chi-Squared: {chi2:.2f}")
+
+        if p_val < 0.01:
+            print("Verdict: STATISTICALLY SIGNIFICANT at p < 0.01")
+        elif p_val < 0.05:
+            print("Verdict: STATISTICALLY SIGNIFICANT at p < 0.05")
+        else:
+            print("Verdict: NOT STATISTICALLY SIGNIFICANT")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,6 @@ def get_egx30_data(lookback_days=1000) -> pd.DataFrame:
         _EGX30_CACHE = pd.DataFrame()
         _EGX30_CACHE_TIME = time.time()
     return _EGX30_CACHE
-    return _EGX30_CACHE
 
 class MarketRegimeModel:
     def __init__(self, n_components=3, lookback_days=1000):
@@ -94,16 +93,22 @@ class MarketRegimeModel:
                     "volatility": means[i][1]
                 })
                 
-            # Sort states by return
-            state_profiles.sort(key=lambda x: x["return"])
+            volatilities = [p["volatility"] for p in state_profiles]
+            median_vol = np.median(volatilities)
             
-            # Lowest return = Bear
-            # Middle return = Sideways
-            # Highest return = Bull
-            if self.n_components == 3:
-                self.regime_labels[state_profiles[0]["state"]] = "Bear Volatile"
-                self.regime_labels[state_profiles[1]["state"]] = "Sideways Chop"
-                self.regime_labels[state_profiles[2]["state"]] = "Bull Trend"
+            for p in state_profiles:
+                ret = p["return"]
+                vol = p["volatility"]
+                high_vol = vol > median_vol
+                
+                if abs(ret) < 0.0002:
+                    label = "Sideways Chop"
+                elif ret < 0:
+                    label = "Bear Volatile" if high_vol else "Bear Trend"
+                else:
+                    label = "Bull Volatile" if high_vol else "Bull Trend"
+                    
+                self.regime_labels[p["state"]] = label
             
             latest_state = hidden_states[-1]
             self.latest_regime = self.regime_labels.get(latest_state, "Unknown")
@@ -131,15 +136,6 @@ class MarketRegimeModel:
             "confidence": self.latest_regime_prob
         }
         _REGIME_CACHE_TIME = time.time()
-        return _REGIME_CACHE
-            
-        if self.model is None:
-            self.train_and_detect()
-            
-        _REGIME_CACHE = {
-            "regime": self.latest_regime,
-            "confidence": self.latest_regime_prob
-        }
         return _REGIME_CACHE
 
     def get_historical_regime(self, date_str: str) -> dict:

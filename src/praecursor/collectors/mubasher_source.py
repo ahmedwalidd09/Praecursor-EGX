@@ -53,7 +53,7 @@ class MubasherSource(MarketDataSource):
     def name(self) -> str:
         return "mubasher"
 
-    def __init__(self, timeout_seconds: int = 30):
+    def __init__(self, timeout_seconds: int = 4):
         self.timeout_seconds = timeout_seconds
 
     def fetch_history(self, symbol: str, start_date: date, end_date: date) -> CollectionResult:

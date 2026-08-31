@@ -14,17 +14,19 @@ venv/
 logs/
 *.log
 
+# Secrets & Credentials
+config/telegram.json
+
 # Database
 database/*.db
+database/*.db-shm
+database/*.db-wal
 database/*.sqlite
 database/*.sqlite3
 
-# Data cache
-data/cache/
+# Temporary & Patches
+patch.py
 
-# OS
-.DS_Store
-Thumbs.db
 # Generated reports
 reports/*
 !reports/.gitkeep

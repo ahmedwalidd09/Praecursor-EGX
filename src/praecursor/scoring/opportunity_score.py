@@ -55,7 +55,42 @@ from praecursor.scoring.v_macd import VMACDSignalIndicator
 from praecursor.scoring.vsa import VSANoDemandIndicator
 from praecursor.scoring.evm import EVMIndicator
 from praecursor.scoring.tsi import TSIIndicator
+from praecursor.scoring.avwap import AVWAPIndicator
+from praecursor.scoring.closing_aggression import ClosingAggressionIndicator
+from praecursor.scoring.compression_nr7 import NR7CompressionIndicator
+from praecursor.scoring.vsa_absorption import VSAAbsorptionIndicator
+from praecursor.scoring.sector_spillover import SectorSpilloverIndicator
+import csv
+from pathlib import Path
 
+_SECTOR_MAP = {}
+_SECTOR_BREAKOUT_CACHE = {}
+
+def _load_sectors():
+    if _SECTOR_MAP:
+        return
+    try:
+        csv_path = Path(__file__).resolve().parents[3] / "config" / "symbols.csv"
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                _SECTOR_MAP[row["egx_symbol"]] = row["sector"]
+    except Exception:
+        pass
+    _EGX_SECTORS = {
+        'Banks': ['COMI', 'QNBA', 'ADIB', 'HDBK', 'FAIS', 'CIEB', 'EGBE', 'SAIB', 'ASGC'],
+        'Real Estate': ['TMGH', 'PHDC', 'EGSA', 'MNHD', 'EMFD', 'ORHD', 'EGREF'],
+        'Construction': ['OCDI', 'ELEC', 'MBEG', 'HELI'],
+        'Chemicals': ['EFIC', 'KABO', 'SKPC', 'EPCO'],
+        'Food': ['JUFO', 'ISMA', 'EAST', 'DSCW', 'CANA'],
+        'Textiles': ['GTWL', 'ORAS', 'SPIN'],
+        'Pharma': ['AXPH', 'EPHA', 'PHAR'],
+        'Telecom': ['ETEL', 'OTMT'],
+    }
+    for sector, syms in _EGX_SECTORS.items():
+        for sym in syms:
+            if sym not in _SECTOR_MAP:
+                _SECTOR_MAP[sym] = sector
 
 @dataclass(frozen=True)
 class ScoreComponent:
@@ -85,7 +120,7 @@ class OpportunityScore:
         if self.max_score == 0:
             return 0.0
 
-        return min((self.total_score / self.max_score) * 100, 100.0)
+        return max(0.0, min((self.total_score / self.max_score) * 100, 100.0))
 
 
 class OpportunityScorer:
@@ -105,7 +140,7 @@ class OpportunityScorer:
     Total: 125 points (normalized to 100%)
     """
 
-    MAX_SCORE = 150.0
+    MAX_SCORE = 170.0
 
     def __init__(self):
         self.analyzer = Analyzer()
@@ -181,11 +216,17 @@ class OpportunityScorer:
         self.analyzer.add_indicator(VSANoDemandIndicator())
         self.analyzer.add_indicator(EVMIndicator())
         self.analyzer.add_indicator(TSIIndicator())
+        self.analyzer.add_indicator(AVWAPIndicator())
+        # v6.1 Next-Day Alpha Hunters
+        self.analyzer.add_indicator(ClosingAggressionIndicator())
+        self.analyzer.add_indicator(NR7CompressionIndicator())
+        self.analyzer.add_indicator(VSAAbsorptionIndicator())
+        self.analyzer.add_indicator(SectorSpilloverIndicator())
 
     def score(self, stock: Stock) -> OpportunityScore:
         latest_close = stock.latest().close
         indicator_values = self._calculate_indicators(stock)
-        components = self._build_components(latest_close, indicator_values)
+        components = self._build_components(stock.symbol, latest_close, indicator_values)
         total_score = sum(component.score for component in components)
 
         return OpportunityScore(
@@ -205,6 +246,7 @@ class OpportunityScorer:
 
     def _build_components(
         self,
+        symbol: str,
         latest_close: float,
         indicator_values: dict[str, float],
     ) -> list[ScoreComponent]:
@@ -293,16 +335,24 @@ class OpportunityScorer:
         vsa_no_demand = indicator_values.get("VSA_NoDemand", float("nan"))
         evm = indicator_values.get("EVM", float("nan"))
         tsi = indicator_values.get("TSI", float("nan"))
+        avwap_dist = indicator_values.get("AVWAP_Distance_Pct", float("nan"))
+        # v6.1 Next-Day Alpha Hunters
+        closing_aggression = indicator_values.get("ClosingAggression", float("nan"))
+        nr7_compression = indicator_values.get("NR7_Compression", float("nan"))
+        vsa_absorption = indicator_values.get("VSA_Absorption", float("nan"))
+        sector_spillover = indicator_values.get("SectorSpillover", float("nan"))
 
         return [
             # Trend Structure (30 pts)
             self._score_ema_alignment(ema20, ema50, ema200, latest_close),
             self._score_kalman_trend(kalman_trend),
+            self._score_trend_strength(trend_strength),
             self._score_adx(adx14),
             self._score_supertrend(supertrend10, latest_close),
             self._score_ichimoku(ichimoku),
             self._score_elder_ray(elder_ray),
             # Momentum Oscillators (10 pts)
+            self._score_rsi14(rsi14),
             self._score_rsi14_zscore(rsi_zscore),
             self._score_mfi14(mfi14),
             self._score_williams_r(williams_r14),
@@ -311,6 +361,7 @@ class OpportunityScorer:
             # MACD (10 pts)
             self._score_macd(macd, macd_histogram),
             # Price Momentum (15 pts)
+            self._score_momentum20(momentum20),
             self._score_momentum20_zscore(mom_zscore),
             self._score_momentum5(momentum5),
             self._score_roc10(roc10),
@@ -355,8 +406,80 @@ class OpportunityScorer:
             self._score_vsa_no_demand(vsa_no_demand),
             self._score_evm(evm),
             self._score_tsi(tsi),
+            self._score_sector_sympathy(symbol, breakout20),
+            self._score_avwap(avwap_dist),
+            # v6.1 Next-Day Alpha Hunters (20 pts)
+            self._score_closing_aggression(closing_aggression),
+            self._score_nr7_compression(nr7_compression),
+            self._score_vsa_absorption(vsa_absorption),
+            self._score_sector_spillover(sector_spillover),
         ]
 
+
+    def _score_closing_aggression(self, closing_aggression: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(closing_aggression) or closing_aggression <= 0:
+            return ScoreComponent("Closing Aggression (MOC)", 0.0, max_score, "No closing bar aggression.")
+        pts = round(min(max_score, (closing_aggression / 100.0) * max_score), 2)
+        return ScoreComponent("Closing Aggression (MOC)", pts, max_score, f"Institutional closing aggression: {closing_aggression:.1f}%.")
+
+    def _score_nr7_compression(self, nr7_compression: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(nr7_compression) or nr7_compression <= 0:
+            return ScoreComponent("NR7 Compression", 0.0, max_score, "No volatility coiling detected.")
+        pts = round(min(max_score, (nr7_compression / 100.0) * max_score), 2)
+        return ScoreComponent("NR7 Compression", pts, max_score, f"Spring-loaded volatility compression: {nr7_compression:.1f}%.")
+
+    def _score_vsa_absorption(self, vsa_absorption: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(vsa_absorption) or vsa_absorption <= 0:
+            return ScoreComponent("VSA Absorption", 0.0, max_score, "No supply absorption detected.")
+        pts = round(min(max_score, (vsa_absorption / 100.0) * max_score), 2)
+        return ScoreComponent("VSA Absorption", pts, max_score, f"Institutional supply absorption: {vsa_absorption:.1f}%.")
+
+    def _score_sector_spillover(self, sector_spillover: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(sector_spillover) or sector_spillover <= 0:
+            return ScoreComponent("Sector Spillover", 0.0, max_score, "No sector momentum spillover.")
+        pts = round(min(max_score, (sector_spillover / 100.0) * max_score), 2)
+        return ScoreComponent("Sector Spillover", pts, max_score, f"Sector lead-lag momentum: {sector_spillover:.1f}%.")
+
+    def _score_sector_sympathy(self, symbol: str, breakout20: float) -> ScoreComponent:
+        max_score = 5.0
+        _load_sectors()
+        
+        # update cache
+        if not self._missing(breakout20) and breakout20 == 1.0:
+            _SECTOR_BREAKOUT_CACHE[symbol] = 1.0
+            
+        sector = _SECTOR_MAP.get(symbol)
+        if not sector:
+            return ScoreComponent("Sector Sympathy", 0.0, max_score, "Sector unknown.")
+            
+        peers_breaking_out = 0
+        for peer, peer_sector in _SECTOR_MAP.items():
+            if peer != symbol and peer_sector == sector:
+                if _SECTOR_BREAKOUT_CACHE.get(peer) == 1.0:
+                    peers_breaking_out += 1
+                    
+        if peers_breaking_out >= 2:
+            return ScoreComponent("Sector Sympathy", 5.0, max_score, "Sector Cluster Breakout: 2+ peers breaking out.")
+        elif peers_breaking_out == 1:
+            return ScoreComponent("Sector Sympathy", 2.0, max_score, "Sector Peer Confirmation: 1 peer breaking out.")
+            
+        return ScoreComponent("Sector Sympathy", 0.0, max_score, "No sector peers breaking out.")
+
+    def _score_avwap(self, avwap_dist: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(avwap_dist):
+            return ScoreComponent("Anchored VWAP", 0.0, max_score, "AVWAP unavailable.")
+            
+        if 0.0 <= avwap_dist <= 3.0:
+            return ScoreComponent("Anchored VWAP", 5.0, max_score, "institutional accumulation zone.")
+        elif 3.0 < avwap_dist <= 8.0:
+            return ScoreComponent("Anchored VWAP", 3.0, max_score, "healthy trend.")
+        else:
+            return ScoreComponent("Anchored VWAP", 0.0, max_score, "overextended or weak.")
 
     def _score_rsi14(self, rsi14: float) -> ScoreComponent:
         max_score = 5.0
@@ -515,7 +638,12 @@ class OpportunityScorer:
         return ScoreComponent("Breakout setup", min(score, max_score), max_score, "; ".join(reasons) + ".")
 
     def _missing(self, value: float) -> bool:
-        return isnan(value)
+        if value is None:
+            return True
+        try:
+            return isnan(float(value))
+        except (ValueError, TypeError):
+            return True
 
     def _score_ema_alignment(self, ema20: float, ema50: float, ema200: float, latest_close: float) -> ScoreComponent:
         max_score = 15.0
@@ -533,6 +661,13 @@ class OpportunityScorer:
             score += 5.0
             reasons.append("EMA50 > EMA200")
         return ScoreComponent("EMA Alignment", score, max_score, ", ".join(reasons) if reasons else "Poor alignment.")
+
+    def _score_trend_strength(self, trend_strength: float) -> ScoreComponent:
+        max_score = 5.0
+        if self._missing(trend_strength): return ScoreComponent("Trend Strength", 0.0, max_score, "Unavailable.")
+        if trend_strength > 20: return ScoreComponent("Trend Strength", max_score, max_score, "Strong trend.")
+        if trend_strength > 10: return ScoreComponent("Trend Strength", 3.0, max_score, "Moderate trend.")
+        return ScoreComponent("Trend Strength", 0.0, max_score, "Weak trend.")
 
     def _score_adx(self, adx14: float) -> ScoreComponent:
         max_score = 5.0
@@ -830,8 +965,8 @@ class OpportunityScorer:
         return ScoreComponent('EVM', 0.0, max_score, 'EVM is normal.')
 
     def _score_tsi(self, tsi: float):
-        max_score = 0.0
+        max_score = 5.0
         if self._missing(tsi): return ScoreComponent('TSI', 0.0, max_score, 'Unavailable.')
         if tsi > 25: return ScoreComponent('TSI', max_score, max_score, 'TSI is strongly bullish.')
-        if tsi > 0: return ScoreComponent('TSI', 5.0, max_score, 'TSI is positive.')
+        if tsi > 0: return ScoreComponent('TSI', 2.5, max_score, 'TSI is positive.')
         return ScoreComponent('TSI', 0.0, max_score, 'TSI is negative.')

@@ -30,6 +30,15 @@ class DataManager:
         self.minimum_bars = minimum_bars
         self.price_cache = price_cache
 
+    def _latest_egx_trading_day(self, dt) -> date:
+        from datetime import timedelta
+        d = dt.date()
+        if dt.weekday() == 4:  # Friday
+            d -= timedelta(days=1)
+        elif dt.weekday() == 5:  # Saturday
+            d -= timedelta(days=2)
+        return d
+
     def fetch_history(
         self,
         symbol: str,
@@ -49,12 +58,16 @@ class DataManager:
                 if now - last_collected <= timedelta(hours=12):
                     bars = self.price_cache.load(symbol, source.name, start_date, end_date)
                     if bars:
-                        return CollectionResult(
-                            symbol=symbol,
-                            source_name=source.name,
-                            price_bars=bars,
-                            warnings=["Loaded from cache (fetched < 12h ago)"],
-                        )
+                        latest_egx_day = self._latest_egx_trading_day(now)
+                        most_recent_bar_date = max(b.date.date() if hasattr(b.date, 'date') else b.date for b in bars)
+                        
+                        if most_recent_bar_date >= latest_egx_day:
+                            return CollectionResult(
+                                symbol=symbol,
+                                source_name=source.name,
+                                price_bars=bars,
+                                warnings=["Loaded from cache (fetched < 12h ago and has latest trading day)"],
+                            )
                         
         collection_result = source.fetch_history(symbol, start_date, end_date)
 

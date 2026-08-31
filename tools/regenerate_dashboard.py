@@ -1,3 +1,4 @@
+import os
 import sys
 import logging
 from praecursor.core.settings import ScannerSettings
@@ -5,6 +6,7 @@ from praecursor.storage.signal_history import SignalHistoryStore
 from praecursor.storage.price_cache import PriceCache
 from praecursor.reporting.dashboard import ScannerDashboardWriter
 from praecursor.workflows.scanner import ScannerRunResult
+from praecursor.scoring.next_day import NextDayPrediction
 from dataclasses import dataclass
 @dataclass
 class MockSymbolScanResult:
@@ -48,8 +50,9 @@ def main():
         
         latest_run = None
         rows = []
+        import contextlib
         try:
-            with store._connect() as conn:
+            with contextlib.closing(store._connect()) as conn:
                 conn.row_factory = __import__('sqlite3').Row
                 latest_run = conn.execute(
                     "SELECT * FROM scanner_runs WHERE id IN (SELECT run_id FROM scanner_signals) ORDER BY id DESC LIMIT 1"
@@ -106,12 +109,20 @@ def main():
             latest_c = row.get("latest_close", 0.0) or 0.0
             opp_s = row.get("opportunity_score", 0.0) or 0.0
             
+            ind_json = row.get("indicator_values_json")
+            ind_values = {}
+            if ind_json:
+                try:
+                    ind_values = json.loads(ind_json)
+                except Exception:
+                    ind_values = {}
+
             opp_score = OpportunityScore(
                 symbol=sym,
                 company=comp,
                 total_score=opp_s,
                 max_score=100,
-                indicator_values={},
+                indicator_values=ind_values,
                 latest_close=latest_c
             )
             
@@ -132,15 +143,40 @@ def main():
                     warnings=[]
                 )
                 
-            from praecursor.scoring.next_day import NextDayPrediction
-            next_day_pred = NextDayPrediction(
-                score=row.get("next_day_score", 0.0) or 0.0,
-                label=row.get("next_day_label", "") or "",
-                reasons=[],
-                latest_close=latest_c,
-                target_price=latest_c * 1.05,
-                stop_loss_price=latest_c * 0.95
-            )
+            target_p = row.get("next_day_target", 0.0) or (latest_c * 1.05)
+            stop_p = row.get("swing_stop_loss", 0.0) or (latest_c * 0.95)
+            if target_p <= 0: target_p = latest_c * 1.05
+            if stop_p <= 0: stop_p = latest_c * 0.95
+
+            k_fraction = 0.0
+            nd_s = row.get("next_day_score", 0.0) or 0.0
+            w_p = max(0.40, min(0.50 + max(0.0, nd_s - 50.0) * 0.005, 0.62))
+            t_pct = (target_p - latest_c) / latest_c if latest_c > 0 else 0.0
+            s_pct = (latest_c - stop_p) / latest_c if latest_c > 0 else 0.0
+            if t_pct > 0 and s_pct > 0:
+                b = t_pct / s_pct
+                k_fraction = max(0.0, min((w_p - ((1.0 - w_p) / b)) * 0.5, 0.25))
+
+            try:
+                from praecursor.scoring.next_day import calculate_next_day_prediction
+                next_day_pred = calculate_next_day_prediction(
+                    opportunity_score=opp_score,
+                    consensus_accepted=consensus.accepted if consensus else False,
+                    data_quality_score=row.get("data_quality_score", 100.0) or 100.0,
+                )
+            except Exception as e:
+                import traceback
+                print(f"FAILED calculate_next_day_prediction for {sym}: {e}")
+                traceback.print_exc()
+                next_day_pred = NextDayPrediction(
+                    score=nd_s,
+                    label=row.get("next_day_label", "") or "",
+                    reasons=[f"Score: {nd_s:.1f}% based on technical indicators"],
+                    latest_close=latest_c,
+                    target_price=target_p,
+                    stop_loss_price=stop_p,
+                    kelly_fraction=k_fraction,
+                )
             
             result = MockSymbolScanResult(
                 symbol=sym,
@@ -181,6 +217,14 @@ def main():
         writer = ScannerDashboardWriter()
         writer.write(run_result)
         logger.info("Dashboard instantly regenerated from history!")
+
+        if not os.getenv("PRAECURSOR_PIPELINE_RUNNING"):
+            try:
+                from praecursor.notifications.telegram import dispatch_telegram_scan_briefing
+                dispatch_telegram_scan_briefing(run_result, top_n=5, verbose=True)
+            except Exception as tg_err:
+                logger.debug(f"Telegram dispatch skipped in regenerate_dashboard: {tg_err}")
+
         return 0
     except Exception as e:
         logger.error(f"Error regenerating dashboard: {e}. Generating fallback dashboard HTML.", exc_info=True)

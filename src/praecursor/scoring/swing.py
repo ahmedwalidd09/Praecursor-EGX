@@ -15,53 +15,7 @@ except ImportError:
 from praecursor.scoring.opportunity_score import OpportunityScore
 from praecursor.scoring.position_sizing import calculate_position_size
 
-_MAE_MODEL = None
-_TFT_MODEL = None
-_TORCH_AVAILABLE = False
-
-try:
-    import torch
-    import torch.nn as nn
-    _TORCH_AVAILABLE = True
-    from praecursor.ml.train_tft import TemporalTransformerPredictor
-except ImportError:
-    pass
-
-
-def _get_tft_model():
-    global _TFT_MODEL
-    if _TFT_MODEL is None and _TORCH_AVAILABLE:
-        try:
-            model_path = Path(__file__).resolve().parents[3] / "models" / "tft_swing.pt"
-            if model_path.exists():
-                _TFT_MODEL = TemporalTransformerPredictor(input_size=5, d_model=64, nhead=4, num_layers=2)
-                _TFT_MODEL.load_state_dict(torch.load(str(model_path)))
-                _TFT_MODEL.eval()
-            else:
-                _TFT_MODEL = False
-        except Exception as e:
-            logger.warning(f"Failed to load TFT model: {e}")
-            _TFT_MODEL = False
-    return _TFT_MODEL if _TFT_MODEL is not False else None
-
-def _get_mae_model():
-    global _MAE_MODEL
-    if _MAE_MODEL is None:
-        try:
-            import lightgbm as lgb
-            model_path = Path(__file__).resolve().parents[3] / "models" / "lightgbm_mae.txt"
-            if model_path.exists():
-                _MAE_MODEL = lgb.Booster(model_file=str(model_path))
-            else:
-                _MAE_MODEL = False
-        except Exception:
-            _MAE_MODEL = False
-    return _MAE_MODEL if _MAE_MODEL is not False else None
-
-logger = logging.getLogger(__name__)
-
 _SWING_MODEL = None
-_SWING_LGB_MODEL = None
 
 def _get_swing_model():
     global _SWING_MODEL
@@ -81,20 +35,6 @@ def _get_swing_model():
             _SWING_MODEL = False
             
     return _SWING_MODEL if _SWING_MODEL is not False else None
-
-def _get_swing_lgb_model():
-    global _SWING_LGB_MODEL
-    if _SWING_LGB_MODEL is None:
-        try:
-            import lightgbm as lgb
-            model_path = Path(__file__).resolve().parents[3] / "models" / "lightgbm_swing.txt"
-            if model_path.exists():
-                _SWING_LGB_MODEL = lgb.Booster(model_file=str(model_path))
-            else:
-                _SWING_LGB_MODEL = False
-        except Exception:
-            _SWING_LGB_MODEL = False
-    return _SWING_LGB_MODEL if _SWING_LGB_MODEL is not False else None
 
 
 @dataclass(frozen=True)
@@ -139,7 +79,15 @@ def calculate_swing_prediction(
             "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
             "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10"
         ]
-        row_data = {csv_name: values.get(orig_name, 0.0) for csv_name, orig_name in zip(csv_features, features)}
+        flat_values = {}
+        for k, v in values.items():
+            if isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    flat_values[sub_k] = sub_v
+            else:
+                flat_values[k] = v
+
+        row_data = {csv_name: flat_values.get(orig_name, 0.0) for csv_name, orig_name in zip(csv_features, features)}
         for k, v in row_data.items():
             if v != v:
                 row_data[k] = 0.0
@@ -154,51 +102,6 @@ def calculate_swing_prediction(
             prob = model.predict_proba(df[old_features])[0][1]
         except Exception:
             prob = 0.0
-        
-        # Ensemble with LightGBM if available
-        lgb_model = _get_swing_lgb_model()
-        if lgb_model is not None:
-            try:
-                lgb_prob = lgb_model.predict(df)[0]
-                prob = 0.6 * prob + 0.4 * lgb_prob
-            except Exception:
-                pass
-                
-        # Ensemble with PyTorch TFT if available
-        tft_model = _get_tft_model()
-        stock_obj = getattr(opportunity_score, "stock", None)
-        if tft_model is not None and stock_obj is not None and np is not None:
-            try:
-                history = stock_obj.history
-                if len(history) >= 20:
-                    seq_bars = history[-20:]
-                    closes = np.array([b.close for b in seq_bars])
-                    opens = np.array([b.open for b in seq_bars])
-                    highs = np.array([b.high for b in seq_bars])
-                    lows = np.array([b.low for b in seq_bars])
-                    volumes = np.array([b.volume for b in seq_bars])
-                    
-                    max_p = max(highs.max(), 1e-5)
-                    max_v = max(volumes.max(), 1e-5)
-                    
-                    features = np.column_stack([
-                        opens / max_p,
-                        highs / max_p,
-                        lows / max_p,
-                        closes / max_p,
-                        volumes / max_v
-                    ])
-                    
-                    x_tensor = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
-                    with torch.no_grad():
-                        out = tft_model(x_tensor)
-                        tft_prob = torch.sigmoid(out).item()
-                        
-                    # Final ensemble: 50% Tree based, 50% Deep Learning TFT
-                    prob = (prob * 0.5) + (tft_prob * 0.5)
-                    reasons.append(f"Deep Learning (TFT) consensus applied")
-            except Exception as e:
-                logger.warning(f"Failed PyTorch inference: {e}")
         
         score = prob * 100.0
         
@@ -215,7 +118,7 @@ def calculate_swing_prediction(
             reasons.append("data quality is low")
             
         score = max(0.0, min(score, 100.0))
-        label = _label(score, 0.0, 0.0, consensus_accepted, using_ml=True, opp_score=opportunity_score.total_score)
+        label = _label(score, 0.0, 0.0, consensus_accepted, using_ml=True, opp_score=opportunity_score.score_percent)
             
     else:
         trend_score, trend_reasons = _trend_continuation_score(values)
@@ -228,7 +131,7 @@ def calculate_swing_prediction(
 
         raw_score = max(trend_score, reversal_score) + quality_adjustment
         score = max(0.0, min(raw_score, 100.0))
-        label = _label(score, trend_score, reversal_score, consensus_accepted, using_ml=False, opp_score=opportunity_score.total_score)
+        label = _label(score, trend_score, reversal_score, consensus_accepted, using_ml=False, opp_score=opportunity_score.score_percent)
 
         if label in {"Swing Reversal Watch", "Swing Recovery Watch"}:
             reasons = reversal_reasons + quality_reasons
@@ -244,20 +147,6 @@ def calculate_swing_prediction(
     target_price = latest_close + (3.0 * atr14) if not _missing(atr14) else latest_close
     stop_loss_price = latest_close - (1.0 * atr14) if not _missing(atr14) else latest_close
     dynamic_stop = False
-    
-    mae_model = _get_mae_model()
-    if mae_model is not None and model is not None:
-        try:
-            predicted_mae = mae_model.predict(df)[0]
-            # Safety: Ensure the stop is at least 1.5% away and at most 15% away to avoid extreme predictions
-            predicted_mae = max(1.5, min(15.0, predicted_mae))
-            # Increase stop padding slightly for volatility
-            padded_mae = predicted_mae * 1.1 
-            stop_loss_price = latest_close - (latest_close * (padded_mae / 100.0))
-            dynamic_stop = True
-            reasons.append(f"ML Stop Loss (Dynamic): {padded_mae:.1f}% risk")
-        except Exception as e:
-            logger.warning(f"Failed to calculate dynamic ML stop: {e}")
             
     position_size = 0.0
     max_risk = 0.0
@@ -463,4 +352,9 @@ def _label(score: float, trend_score: float, reversal_score: float, consensus_ac
 
 
 def _missing(value: float) -> bool:
-    return isnan(value)
+    if value is None:
+        return True
+    try:
+        return isnan(float(value))
+    except (ValueError, TypeError):
+        return True

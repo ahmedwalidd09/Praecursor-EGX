@@ -12,7 +12,7 @@ echo.
 echo [2/3] Running autonomous pipeline (scanner + accuracy + retraining + dashboard)...
 echo This takes 2-5 minutes. Do not close this window.
 echo.
-python tools/run_autonomous_pipeline.py --dry-run-telegram --force
+python tools/run_autonomous_pipeline.py --force
 
 echo.
 echo [3/3] Launching Dashboard in your browser...

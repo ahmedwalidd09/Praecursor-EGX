@@ -2,8 +2,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import csv
 import sqlite3
+import sys
 import tempfile
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from praecursor.analysis.accuracy_tracker import AccuracyTracker
 from praecursor.storage.price_cache import PriceCache

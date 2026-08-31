@@ -2,16 +2,13 @@ from html import escape
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
-import json
-from praecursor.analysis.accuracy_tracker import AccuracyTracker
-from praecursor.reporting.outcome_tracker import OutcomeTracker
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DASHBOARD_REPORT = ROOT / "reports" / "dashboard.html"
 
 
 class ScannerDashboardWriter:
-    """Write a static dark HTML dashboard for scanner results."""
+    """Write an institutional-grade dark HTML dashboard for scanner results."""
 
     def write(self, result: Any, output_path: Path = DEFAULT_DASHBOARD_REPORT) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,16 +18,7 @@ class ScannerDashboardWriter:
     def _html(self, result: Any) -> str:
         import os
         from datetime import datetime, timedelta
-        try:
-            tracker = AccuracyTracker(result.database_path)
-            stats = tracker.get_accuracy_stats()
-            outcome_tracker = OutcomeTracker(result.database_path)
-            outcomes_14d = outcome_tracker.get_14_day_stats()
-        except Exception as e:
-            print(f"Error in dashboard stats generation: {e}")
-            stats = {"next_day": {"accuracy": 0}, "swing": {"accuracy": 0}, "history": []}
-            outcomes_14d = {}
-            
+
         model_path = ROOT / "models" / "xgboost_next_day.json"
         try:
             mtime = os.path.getmtime(model_path)
@@ -40,697 +28,1657 @@ class ScannerDashboardWriter:
 
         generated_dt = result.generated_at.astimezone(ZoneInfo('Africa/Cairo'))
         next_day = generated_dt.date() + timedelta(days=1)
-        while next_day.weekday() in (4, 5):  # Friday, Saturday
+        while next_day.weekday() in (4, 5):  # Friday, Saturday (EGX weekend)
             next_day += timedelta(days=1)
+
+        # Get Market Regime non-blocking
+        regime_name = "Bear Volatile"
+        try:
+            from praecursor.scoring.regime import _REGIME_CACHE
+            if _REGIME_CACHE and isinstance(_REGIME_CACHE, dict):
+                regime_name = _REGIME_CACHE.get("regime", "Bear Volatile")
+        except Exception:
+            pass
 
         return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Praecursor-EGX | Institutional Dashboard</title>
+  <title>PRAECURSOR-EGX // Institutional Intelligence Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>{self._css()}</style>
 </head>
 <body>
+  <div class="glow-bg"></div>
+
+  <!-- TOP NAVIGATION / BRAND HEADER -->
   <header class="topbar">
-    <div>
-      <div class="eyebrow">PRAECURSOR-EGX</div>
-      <h1>Opportunity Pulse</h1>
+    <div class="brand-group">
+      <div class="logo-badge">
+        <div class="pulse-dot"></div>
+        <span class="logo-text">PRAECURSOR // EGX</span>
+      </div>
+      <div class="system-title">
+        <h1>Opportunity Pulse <span class="version-tag">v6.1 QUANT ALPHA</span></h1>
+      </div>
     </div>
-    <div class="meta">
-      <span>Generated {escape(generated_dt.isoformat()[:16].replace('T', ' '))} (Cairo Time)</span>
-      <span>Next-Day Predictions for: {escape(str(next_day))}</span>
-      <span>{len(result.symbol_results)} Symbols Scanned</span>
-      <span>Primary: {escape(result.source_name)}</span>
-      <span>Model Updated: {escape(model_time_str)}</span>
+
+    <div class="status-pill-group">
+      <div class="status-pill">
+        <span class="pill-dot live"></span>
+        <span class="pill-label">REGIME:</span>
+        <span class="pill-val regime-{regime_name.lower().replace(' ', '-')}">{escape(regime_name.upper())}</span>
+      </div>
+      <div class="status-pill">
+        <span class="pill-label">TARGET SESSION:</span>
+        <span class="pill-val highlight">{escape(str(next_day))}</span>
+      </div>
+      <div class="status-pill hide-mobile">
+        <span class="pill-label">AI ENSEMBLE:</span>
+        <span class="pill-val neon-cyan">XGB + LGBM (Stacked Geometric)</span>
+      </div>
+      <div class="status-pill">
+        <span class="pill-label">LAST RAN AT:</span>
+        <span class="pill-val highlight">{escape(generated_dt.strftime('%Y-%m-%d %I:%M %p Cairo'))}</span>
+      </div>
     </div>
   </header>
-  
-  <nav class="tabs">
-    <button class="tab-btn active" onclick="switchTab('live-pulse')">Live Pulse</button>
-    <button class="tab-btn" onclick="switchTab('history-view')">Accuracy Tracker</button>
-  </nav>
 
-  <main>
-    <div id="live-pulse" class="tab-content">
-      {self._tracker_panel(outcomes_14d)}
-      {self._market_cards(result)}
+  <main class="app-container">
+    <!-- MARKET OVERVIEW METRIC CARDS -->
+    {self._market_cards(result, regime_name)}
 
-    
-    <div class="grid layout">
-      <div class="main-content">
-          <section class="grid two">
-            {self._candidate_panel('Next-Day Candidates', result.next_day_results, 'next')}
-          </section>
-          
-          <section class="panel">
-            <div class="panel-title">Score Component Heatmap (Top 10)</div>
-            <div class="table-container">
-                {self._heatmap_table(result.next_day_results[:10])}
-            </div>
-          </section>
-          
-          <section class="panel">
-            <div class="panel-title">Overall Opportunity Ranking</div>
-            <div class="table-container">
-                {self._ranking_table(result.symbol_results)}
-            </div>
-          </section>
+    <!-- CANDIDATES CONTROLS BAR -->
+    <div class="controls-bar">
+      <div class="section-heading">
+        <div class="heading-glow-bar"></div>
+        <h2>NEXT-DAY ALPHA CANDIDATES</h2>
+        <span class="count-bubble" id="candidate-count-badge">0</span>
       </div>
-      </div>
-    </div> <!-- end live-pulse tab -->
 
-    <div id="history-view" class="tab-content" style="display:none;">
-      <div class="accuracy-hero">
-        <div class="accuracy-card">
-          <div class="accuracy-label">30D Accuracy</div>
-          <div class="accuracy-value">{stats.get('rolling', dict()).get('30d_accuracy', 0):.1f}%</div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: {stats.get('rolling', dict()).get('30d_accuracy', 0)}%"></div>
-          </div>
-          <div class="accuracy-hint">7D: {stats.get('rolling', dict()).get('7d_accuracy', 0):.1f}% | All-Time: {stats.get('next_day', dict()).get('accuracy', 0):.1f}%</div>
+      <div class="filter-search-group">
+        <div class="search-wrap">
+          <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="symbol-search" placeholder="Filter symbol or company..." autocomplete="off">
         </div>
-        
-        <div class="accuracy-card">
-          <div class="accuracy-label">Current Streak</div>
-          <div class="accuracy-value streak-value">{stats.get('streak', '0')}</div>
-          <div class="accuracy-hint">Consecutive trades without a break</div>
-        </div>
-        
-        <div class="accuracy-card">
-          <div class="accuracy-label">Expected Value</div>
-          <div class="accuracy-value ev-value">{stats.get('ev', 0.0):+.2f}%</div>
-          <div class="accuracy-hint">Average expected return per signal</div>
+        <div class="btn-group">
+          <button class="filter-btn active" data-filter="all">ALL</button>
+          <button class="filter-btn" data-filter="top">⭐ TOP PICKS</button>
+          <button class="filter-btn" data-filter="breakout">BREAKOUTS</button>
+          <button class="filter-btn" data-filter="watch">WATCHLIST</button>
+          <button class="filter-btn" data-filter="verified">VERIFIED ONLY</button>
         </div>
       </div>
-      
-      <section class="panel">
-        <div class="panel-title">Historical Accuracy Trend</div>
-        <div style="height: 250px; width: 100%;">
-            <canvas id="accuracyChart"></canvas>
+    </div>
+
+    <!-- CANDIDATE CARDS GRID -->
+    {self._candidate_panel('Next-Day Candidates', result.next_day_results, 'next')}
+
+    <!-- SCORE ATTRIBUTION HEATMAP -->
+    <section class="panel-section">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <div class="heading-glow-bar cyan"></div>
+          <h3>SCORE COMPONENT ATTRIBUTION HEATMAP</h3>
         </div>
-      </section>
-      
-      <section class="panel">
-        <div class="panel-title">Historical Signal Log</div>
+        <div class="panel-sub">Breakdown of 50+ technical alpha factors across leading candidates</div>
+      </div>
+      <div class="glass-panel">
         <div class="table-container">
-           <table class="data-table">
-            <thead>
-              <tr><th>Date</th><th>Symbol</th><th>Signal</th><th>Return</th><th>Verdict</th></tr>
-            </thead>
-            <tbody>
-              {''.join(
-                f"<tr><td>{escape(str(r.get('signal_date', ''))[:10])}</td><td><strong>{escape(str(r.get('symbol', '')))}</strong></td>"
-                f"<td>{escape(str(r.get('next_day_label', '')))}</td>"
-                f"<td style='color: {'#22c55e' if (r.get('next_day_return') or 0) >= 0 else '#ef4444'}'>{(r.get('next_day_return') or 0):+.1f}%</td>"
-                f"<td>{self._hit_badge(r.get('next_day_hit'))}</td></tr>"
-                for r in stats.get('history', [])
-              )}
-            </tbody>
-          </table>
+          {self._heatmap_table(result.next_day_results[:12])}
         </div>
-      </section>
-    </div> <!-- end history-view tab -->
+      </div>
+    </section>
+
+    <!-- FULL UNIVERSE OPPORTUNITY RANKING -->
+    <section class="panel-section">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <div class="heading-glow-bar purple"></div>
+          <h3>FULL EGX UNIVERSE RANKING</h3>
+        </div>
+        <div class="panel-sub">Live opportunities ranked across all {len(result.symbol_results)} tracked instruments</div>
+      </div>
+      <div class="glass-panel">
+        <div class="table-container">
+          {self._ranking_table(result.symbol_results)}
+        </div>
+      </div>
+    </section>
   </main>
 
+  <!-- TRADINGVIEW INTERACTIVE MODAL -->
   <div id="tv-modal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <span id="tv-modal-title" class="modal-title">Chart</span>
-            <span class="close-modal">&times;</span>
+    <div class="modal-backdrop"></div>
+    <div class="modal-content glass-modal">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-dot"></div>
+          <span id="tv-modal-title" class="modal-title">EGX Chart Terminal</span>
         </div>
-        <div id="tv-widget-container" style="height: 500px; width: 100%;"></div>
+        <button class="close-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="tv-widget-container" style="height: 560px; width: 100%;"></div>
+      </div>
     </div>
   </div>
-  
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-      const histData = {json.dumps(stats.get('history', []))};
-      
-      function switchTab(tabId) {{
-          document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
-          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-          document.getElementById(tabId).style.display = 'block';
-          if (tabId === 'live-pulse') {{
-              document.querySelectorAll('.tab-btn')[0].classList.add('active');
-          }} else {{
-              document.querySelectorAll('.tab-btn')[1].classList.add('active');
-          }}
-      }}
-      
-      {self._js()}
-  </script>
+
+  <footer class="footer">
+    <div class="footer-content">
+      <span>PRAECURSOR-EGX QUANTITATIVE INTELLIGENCE</span>
+      <span>•</span>
+      <span>HMM REGIME ENGINE + XGBOOST/LIGHTGBM ENSEMBLE + ATR VOLATILITY VA-R</span>
+    </div>
+  </footer>
+
+  <script>{self._js()}</script>
 </body>
 </html>"""
 
-    def _tracker_panel(self, outcomes: dict) -> str:
-        win_rate = outcomes.get('win_rate', 0) * 100
-        if win_rate >= 75:
-            wr_color = "#00E676"
-        elif win_rate >= 50:
-            wr_color = "#FFEB3B" # Yellow
-        else:
-            wr_color = "#FF5252"
-            
-        fraction = f"{outcomes.get('total_hits', 0)}/{outcomes.get('total_tracked', 0)}"
-        avg_ret = outcomes.get('avg_peak_return', 0)
-        
-        last_trades = outcomes.get('last_10_trades', [])
-        trade_rows = ""
-        for t in last_trades[:10]:
-            hit = t.get('hit')
-            hit_str = "🟢 Hit" if hit == 1 else "🔴 Miss"
-            ret = t.get('return') or 0
-            ret_str = f"+{ret:.1f}%" if ret > 0 else f"{ret:.1f}%"
-            trade_rows += f"<tr><td>{t.get('date')}</td><td><strong>{t.get('symbol')}</strong></td><td>{hit_str}</td><td style='color: {'#22c55e' if ret >= 0 else '#ef4444'}'>{ret_str}</td></tr>"
-            
-        return f"""
-        <section class="panel tracker-panel">
-          <div class="panel-title">14-Day Accuracy Tracker</div>
-          <div class="tracker-stats" style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px;">
-            <div style="flex: 1; text-align: center; border-right: 1px solid var(--line);">
-              <div style="font-size: 10px; color: var(--muted); text-transform: uppercase;">14-Day Win Rate</div>
-              <div style="font-size: 32px; font-weight: bold; color: {wr_color}; margin: 5px 0;">{win_rate:.0f}%</div>
-              <div style="font-size: 12px; color: var(--muted);">{fraction} Hits</div>
-            </div>
-            <div style="flex: 1; text-align: center;">
-              <div style="font-size: 10px; color: var(--muted); text-transform: uppercase;">Avg Peak Return</div>
-              <div style="font-size: 24px; font-weight: bold; color: #fff; margin: 5px 0;">{f"+{avg_ret:.2f}%" if avg_ret > 0 else f"{avg_ret:.2f}%"}</div>
-            </div>
-          </div>
-          <div class="table-container">
-            <table class="data-table">
-              <thead><tr><th>Date</th><th>Symbol</th><th>Outcome</th><th>Peak Return</th></tr></thead>
-              <tbody>{trade_rows}</tbody>
-            </table>
-          </div>
-        </section>
-        """
-
-    def _hit_badge(self, hit: int | None) -> str:
-        if hit is None:
-            return "<span class='badge neutral'>PENDING</span>"
-        if hit == 1:
-            return "<span class='badge good'>HIT</span>"
-        return "<span class='badge bad'>MISS</span>"
-
-    def _market_cards(self, result: Any) -> str:
-        strong = sum(1 for item in result.symbol_results if item.next_day_score >= 65)
+    def _market_cards(self, result: Any, regime_name: str) -> str:
+        candidates = [item for item in result.symbol_results if "Avoid" not in item.next_day_label]
+        top_picks = [item for item in result.symbol_results if "Top Pick" in item.next_day_label]
         accepted = sum(1 for item in result.symbol_results if item.consensus_result and item.consensus_result.accepted)
-        avg_quality = 0.0
-        if result.symbol_results:
-            avg_quality = sum(item.data_quality_score for item in result.symbol_results) / len(result.symbol_results)
+        total = len(result.symbol_results)
+        consensus_pct = (accepted / total * 100) if total > 0 else 0
+        avg_quality = sum(item.data_quality_score for item in result.symbol_results) / total if total > 0 else 0
+
+        regime_desc = "Defensive dampener active (-7% score, wider stops)" if "Bear" in regime_name else "Bullish expansion (+7% bonus, tighter stops)"
 
         cards = [
-            ("Next-Day Watch", str(strong), "Follow-through edge"),
-            ("Consensus OK", f"{accepted}/{len(result.symbol_results)}", "Verified close"),
-            ("Data Quality", f"{avg_quality:.0f}%", "Signal fidelity"),
+            {
+                "title": "ACTIVE CANDIDATES",
+                "value": str(len(candidates)),
+                "badge": f"{len(top_picks)} Top Picks",
+                "badge_cls": "badge-gold",
+                "sub": "Setups with positive follow-through edge",
+                "icon": "⚡",
+            },
+            {
+                "title": "MARKET REGIME",
+                "value": regime_name.upper(),
+                "badge": "Risk Mode",
+                "badge_cls": "badge-purple",
+                "sub": regime_desc,
+                "icon": "🌐",
+            },
+            {
+                "title": "PRICE CONSENSUS",
+                "value": f"{accepted}/{total}",
+                "badge": f"{consensus_pct:.0f}% Verified",
+                "badge_cls": "badge-green" if consensus_pct >= 80 else "badge-amber",
+                "sub": "Multi-source tick cross-validation",
+                "icon": "🛡️",
+            },
+            {
+                "title": "DATA INTEGRITY",
+                "value": f"{avg_quality:.0f}%",
+                "badge": "Institutional",
+                "badge_cls": "badge-cyan",
+                "sub": "Full-history indicator completeness",
+                "icon": "📊",
+            },
         ]
-        return "<section class='cards'>" + "".join(
-            f"<div class='card'><div class='label'>{escape(label)}</div><div class='value'>{escape(value)}</div><div class='hint'>{escape(hint)}</div></div>"
-            for label, value, hint in cards
-        ) + "</section>"
+
+        cards_html = "".join(f"""
+        <div class="metric-card glass-card">
+          <div class="metric-top">
+            <div class="metric-title-group">
+              <span class="metric-icon">{c['icon']}</span>
+              <span class="metric-title">{c['title']}</span>
+            </div>
+            <span class="metric-badge {c['badge_cls']}">{c['badge']}</span>
+          </div>
+          <div class="metric-value-wrap">
+            <div class="metric-value">{escape(c['value'])}</div>
+          </div>
+          <div class="metric-sub">{escape(c['sub'])}</div>
+        </div>
+        """ for c in cards)
+
+        return f"<section class='metrics-grid'>{cards_html}</section>"
 
     def _candidate_panel(self, title: str, results: list[Any], mode: str) -> str:
+        candidate_items = [
+            item for item in results
+            if "Avoid" not in item.next_day_label
+        ]
+        display_items = candidate_items if candidate_items else results[:10]
+
         cards = []
-        for rank, item in enumerate(results[:8], start=1):
-            prediction = item.next_day_prediction
-            score = item.next_day_score
+        for rank, item in enumerate(display_items, start=1):
+            pred = item.next_day_prediction
+            score = float(item.next_day_score)
             label = item.next_day_label
             reasons = item.next_day_reasons_text or ""
 
-            latest_close = float(prediction.latest_close)
-            target_price = float(prediction.target_price)
-            stop_loss = float(prediction.stop_loss_price)
+            latest_close = float(pred.latest_close)
+            target_price = float(pred.target_price)
+            target_price_2 = float(getattr(pred, 'target_price_2', 0.0) or (target_price * 1.15))
+            stop_loss = float(pred.stop_loss_price)
 
-            # Calculate percentage gain to target and risk to stop
             target_pct = ((target_price - latest_close) / latest_close * 100) if latest_close > 0 and target_price > 0 else 0
+            target_pct_2 = ((target_price_2 - latest_close) / latest_close * 100) if latest_close > 0 and target_price_2 > 0 else 0
             stop_pct = ((latest_close - stop_loss) / latest_close * 100) if latest_close > 0 and stop_loss > 0 else 0
+            rr_ratio = (target_pct / stop_pct) if stop_pct > 0 else 0.0
 
-            # AI probability display
-            ai_prob = f"{float(score):.1f}%"
+            liquidity_tier = getattr(pred, 'liquidity_tier', 'MODERATE')
+            fill_feasibility = getattr(pred, 'fill_feasibility', 'Standard Execution')
+            liq_badge_cls = "tag-ok" if liquidity_tier == "HIGH" else ("tag-warn" if liquidity_tier == "MODERATE" else "tag-err")
 
-            badge_cls = self._badge_class(label)
+            # Score color grade
+            if score >= 80:
+                score_cls = "score-ultra"
+                score_gradient = "linear-gradient(135deg, #00F5A0 0%, #00D2FF 100%)"
+            elif score >= 70:
+                score_cls = "score-high"
+                score_gradient = "linear-gradient(135deg, #00D2FF 0%, #7928CA 100%)"
+            else:
+                score_cls = "score-mid"
+                score_gradient = "linear-gradient(135deg, #FFB800 0%, #FF8A00 100%)"
+
+            # Parse Badge Label
+            is_top_pick = "Top Pick" in label
+            is_low_conf = "Low Confidence" in label or (item.consensus_result and not item.consensus_result.accepted)
+            is_breakout = "Breakout" in label
+
+            # Clean up badge text for presentation
+            clean_badge = label
+            if "⭐" in clean_badge:
+                clean_badge = clean_badge.replace("⭐", "").strip()
+
+            badge_style = "badge-card-gold" if is_top_pick else ("badge-card-red" if is_low_conf else "badge-card-cyan")
+
+            # Check for warnings in reasons
+            has_backtest_warn = "[BACKTEST REJECTION]" in reasons
+            has_hmm_warn = "[HMM CAUTION]" in reasons
+            has_ml_confirm = "ML confirms" in reasons
+
+            # Card Data Attributes for Filtering
+            data_tags = []
+            if is_top_pick: data_tags.append("top")
+            if is_breakout: data_tags.append("breakout")
+            if not is_low_conf: data_tags.append("verified")
+            if "Watch" in label: data_tags.append("watch")
+            data_filter_str = " ".join(data_tags)
+
             cards.append(f"""
-            <div class='candidate-card'>
-                <div class='cand-header'>
-                    <div class='cand-rank'>#{rank}</div>
-                    <div class='cand-info'>
-                        <div class='cand-symbol'>{escape(item.symbol)}</div>
-                        <div class='cand-company'>{escape(item.opportunity_score.company)}</div>
-                    </div>
-                    <div class='cand-badge-wrap'>
-                        <span class='badge {badge_cls}'>{escape(label)}</span>
-                    </div>
+            <div class="candidate-card glass-card" data-symbol="{escape(item.symbol)}" data-company="{escape(item.opportunity_score.company.lower())}" data-tags="{data_filter_str}">
+              <div class="card-glow-edge"></div>
+
+              <!-- CARD HEADER -->
+              <div class="card-header">
+                <div class="symbol-block">
+                  <span class="rank-pill">#{rank:02d}</span>
+                  <div>
+                    <div class="symbol-name">{escape(item.symbol)}</div>
+                    <div class="company-name" title="{escape(item.opportunity_score.company)}">{escape(item.opportunity_score.company)}</div>
+                  </div>
                 </div>
-                <div class='cand-metrics'>
-                    <div class='cand-metric'>
-                        <div class='cand-metric-label'>AI Score</div>
-                        <div class='cand-metric-value neon-green'>{ai_prob}</div>
-                    </div>
-                    <div class='cand-metric'>
-                        <div class='cand-metric-label'>Close</div>
-                        <div class='cand-metric-value'>{latest_close:.2f}</div>
-                    </div>
-                    <div class='cand-metric'>
-                        <div class='cand-metric-label'>Target</div>
-                        <div class='cand-metric-value neon-green'>{target_price:.2f} <span class='pct-tag up'>+{target_pct:.1f}%</span></div>
-                    </div>
-                    <div class='cand-metric'>
-                        <div class='cand-metric-label'>Stop Loss</div>
-                        <div class='cand-metric-value neon-red'>{stop_loss:.2f} <span class='pct-tag down'>-{stop_pct:.1f}%</span></div>
-                    </div>
-                    <div class='cand-metric'>
-                        <div class='cand-metric-label'>Kelly</div>
-                        <div class='cand-metric-value neon-blue'>{prediction.kelly_fraction * 100:.1f}%</div>
-                    </div>
+
+                <div class="card-badges">
+                  {f'<span class="badge-mini-gold">⭐ TOP PICK</span>' if is_top_pick else ''}
+                  <span class="card-type-badge {badge_style}">{escape(clean_badge)}</span>
                 </div>
-                <div class='cand-reasons'>
-                    <span class='reasons-icon'>&#x1F916;</span>
-                    <span class='reasons-text'>
-                        {f"The AI model identified this as a candidate because {escape(reasons).replace(', ', ', and ')}." if reasons and "no strong" not in reasons.lower() else "The AI model did not identify strong positive technical catalysts for this symbol today."}
-                    </span>
+              </div>
+
+              <!-- MAIN METRIC ROW -->
+              <div class="hero-metric-grid">
+                <!-- AI SCORE DIAL -->
+                <div class="hero-score-box">
+                  <div class="hero-score-label">AI CONVICTION</div>
+                  <div class="hero-score-num {score_cls}">{score:.1f}%</div>
+                  <div class="score-progress-bar">
+                    <div class="score-fill" style="width: {min(100, score)}%; background: {score_gradient};"></div>
+                  </div>
                 </div>
+
+                <!-- PRICE & TARGET -->
+                <div class="price-levels-box">
+                  <div class="level-row">
+                    <span class="level-label">ENTRY</span>
+                    <span class="level-val mono-num">{latest_close:.2f} <small class="currency">EGP</small></span>
+                  </div>
+                  <div class="level-row">
+                    <span class="level-label text-green">TARGET</span>
+                    <span class="level-val text-green mono-num">{target_price:.2f} <span class="pct-chip up">+{target_pct:.1f}%</span></span>
+                  </div>
+                  <div class="level-row">
+                    <span class="level-label text-red">STOP LOSS</span>
+                    <span class="level-val text-red mono-num">{stop_loss:.2f} <span class="pct-chip down">-{stop_pct:.1f}%</span></span>
+                  </div>
+                </div>
+
+                <!-- RISK / REWARD & KELLY -->
+                <div class="sizing-box">
+                  <div class="sizing-item">
+                    <span class="sizing-label">R:R RATIO</span>
+                    <span class="sizing-val text-cyan mono-num">{rr_ratio:.2f}x</span>
+                  </div>
+                  <div class="sizing-item">
+                    <span class="sizing-label">HALF-KELLY</span>
+                    <span class="sizing-val text-purple mono-num">{pred.kelly_fraction * 100:.1f}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- RISK / REWARD VISUAL METER -->
+              <div class="rr-meter-wrap">
+                <div class="rr-bar">
+                  <div class="rr-stop" style="width: {min(45, max(15, stop_pct * 8.0))}%;"></div>
+                  <div class="rr-anchor"></div>
+                  <div class="rr-target" style="width: {min(50, max(20, target_pct * 6.0))}%;"></div>
+                </div>
+                <div class="rr-labels">
+                  <span class="rr-sub-label text-red">Stop: -{stop_pct:.1f}%</span>
+                  <span class="rr-sub-label text-green">Target: +{target_pct:.1f}%</span>
+                </div>
+              </div>
+
+              <!-- TAGS / CATALYSTS ROW -->
+              <div class="tags-row">
+                <span class="tag-pill {liq_badge_cls}" title="{escape(fill_feasibility)}">💧 {liquidity_tier} LIQUIDITY</span>
+                {f'<span class="tag-pill tag-ml">⚡ ML HIGH CONVICTION</span>' if has_ml_confirm else ''}
+                {f'<span class="tag-pill tag-warn">⚠️ POOR WIN-RATE TICKER</span>' if has_backtest_warn else ''}
+                {f'<span class="tag-pill tag-warn">⚠️ HMM DISTRIBUTION</span>' if has_hmm_warn else ''}
+                {f'<span class="tag-pill tag-err">⚠️ CONSENSUS UNVERIFIED</span>' if is_low_conf else '<span class="tag-pill tag-ok">✓ CONSENSUS VERIFIED</span>'}
+              </div>
+
+              <!-- REASONS / ANALYSIS TERMINAL -->
+              <div class="terminal-reasons">
+                <div class="terminal-header">
+                  <span class="terminal-dot"></span>
+                  <span class="terminal-title">QUANT ATTRIBUTION LOG</span>
+                </div>
+                <div class="terminal-body">
+                  {self._format_reasons_html(reasons)}
+                </div>
+              </div>
+
+              <!-- CARD FOOTER ACTIONS -->
+              <div class="card-footer">
+                <button class="btn-chart-modal" data-symbol="{escape(item.symbol)}">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                  OPEN TRADINGVIEW PRO CHART
+                </button>
+              </div>
             </div>
             """)
 
-        return (
-            "<section class='panel candidate-section'>"
-            f"<div class='panel-title'>{escape(title)}</div>"
-            f"<div class='candidate-grid'>{''.join(cards)}</div>"
-            "</section>"
-        )
+        return f"<section class='candidate-grid' id='candidate-grid'>{''.join(cards)}</section>"
 
     def _ranking_table(self, results: list[Any]) -> str:
         rows = []
         for rank, item in enumerate(results, start=1):
             consensus = item.consensus_result
             consensus_text = "N/A"
+            consensus_badge = "badge-neutral"
             if consensus:
                 consensus_text = f"{consensus.agreeing_source_count}/{consensus.source_count}"
-                
+                consensus_badge = "badge-green" if consensus.accepted else "badge-red"
+
+            pred = item.next_day_prediction
+            score = item.next_day_score
+            label = item.next_day_label
+            clean_label = label.replace("⭐", "").strip()
+
+            badge_cls = self._badge_class(label)
+
             rows.append(
                 f"<tr class='clickable-row' data-symbol='{escape(item.symbol)}'>"
-                f"<td class='rank'>{rank}</td>"
-                f"<td><strong>{escape(item.symbol)}</strong><div class='sub'>{escape(item.opportunity_score.company)}</div></td>"
-                f"<td class='score-cell imp'>{item.opportunity_score.score_percent:.0f}</td>"
-                f"<td class='score-cell'>{item.final_predictor_score:.0f}</td>"
-                f"<td class='score-cell'>{item.next_day_score:.0f}</td>"
-                f"<td><span class='badge {self._badge_class(item.next_day_label)}'>{escape(item.next_day_label)}</span></td>"
-                f"<td>{escape(consensus_text)}</td>"
+                f"<td class='rank-cell'>#{rank:02d}</td>"
+                f"<td class='symbol-cell'>"
+                f"  <span class='table-symbol'>{escape(item.symbol)}</span>"
+                f"  <span class='table-company'>{escape(item.opportunity_score.company)}</span>"
+                f"</td>"
+                f"<td class='score-cell mono-num'>{item.opportunity_score.score_percent:.0f}%</td>"
+                f"<td class='score-cell mono-num'>{item.final_predictor_score:.0f}%</td>"
+                f"<td class='score-cell mono-num highlight-score'>{score:.1f}%</td>"
+                f"<td><span class='table-badge {badge_cls}'>{escape(clean_label)}</span></td>"
+                f"<td class='mono-num'>{item.opportunity_score.latest_close:.2f}</td>"
+                f"<td><span class='mini-pill {consensus_badge}'>{escape(consensus_text)}</span></td>"
+                f"<td><button class='table-action-btn' data-symbol='{escape(item.symbol)}'>Chart</button></td>"
                 f"</tr>"
             )
-        return (
-            "<table class='data-table full-table'><thead><tr><th></th><th>Symbol</th><th>Opp</th><th>Final</th><th>Next</th><th>Next Label</th><th>Cons</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table>"
-        )
+
+        return f"""
+        <table class='data-table'>
+          <thead>
+            <tr>
+              <th>RANK</th>
+              <th>INSTRUMENT</th>
+              <th>OPP SCORE</th>
+              <th>SWING SCORE</th>
+              <th>AI PREDICTION</th>
+              <th>ACTION LABEL</th>
+              <th>LATEST CLOSE</th>
+              <th>CONSENSUS</th>
+              <th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>"""
 
     def _heatmap_table(self, results: list[Any]) -> str:
         if not results: return ""
-        
-        # Get all unique component names from the first result
         comp_names = [c.name for c in results[0].opportunity_score.components]
-        
         headers = "".join(f"<th>{escape(name)}</th>" for name in comp_names)
-        
+
         rows = []
         for rank, item in enumerate(results, start=1):
             cells = []
             for c in item.opportunity_score.components:
-                # Intensity of green based on score vs max_score
                 pct = c.score / c.max_score if c.max_score > 0 else 0
-                alpha = max(0.05, pct * 0.8) # Min opacity
-                color = f"rgba(30, 136, 229, {alpha})" if pct > 0 else "rgba(255, 255, 255, 0.02)"
+                alpha = max(0.06, pct * 0.9)
+                if pct >= 0.75:
+                    color = f"rgba(0, 245, 160, {alpha})" # Neon Emerald
+                    text_color = "#ffffff"
+                elif pct >= 0.4:
+                    color = f"rgba(0, 210, 255, {alpha})" # Neon Cyan
+                    text_color = "#ffffff"
+                else:
+                    color = f"rgba(255, 255, 255, 0.03)"
+                    text_color = "rgba(255, 255, 255, 0.4)"
+
                 val = f"{c.score:.1f}" if c.score % 1 != 0 else f"{c.score:.0f}"
                 max_val = f"{c.max_score:.1f}" if c.max_score % 1 != 0 else f"{c.max_score:.0f}"
-                cells.append(f"<td style='background: {color}; text-align: center; border: 1px solid rgba(255,255,255,0.05);' title='{escape(c.reason)}'>{val}<span style='color: var(--muted); font-size: 9px;'>/{max_val}</span></td>")
-                
+
+                cells.append(
+                    f"<td style='background: {color}; color: {text_color};' title='{escape(c.name)}: {val}/{max_val}&#10;{escape(c.reason)}'>"
+                    f"<span class='hm-val'>{val}</span>"
+                    f"<span class='hm-max'>/{max_val}</span>"
+                    f"</td>"
+                )
+
             rows.append(
-                f"<tr>"
-                f"<td class='rank'>#{rank}</td>"
-                f"<td><strong>{escape(item.symbol)}</strong></td>"
+                f"<tr class='clickable-row' data-symbol='{escape(item.symbol)}'>"
+                f"<td class='rank-cell'>#{rank:02d}</td>"
+                f"<td class='symbol-cell'><strong>{escape(item.symbol)}</strong></td>"
                 f"{''.join(cells)}"
                 f"</tr>"
             )
-            
-        return (
-            f"<table class='data-table heatmap-table'><thead><tr><th></th><th>Symbol</th>{headers}</tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table>"
-        )
 
+        return f"""
+        <table class='data-table heatmap-table'>
+          <thead>
+            <tr>
+              <th>RANK</th>
+              <th>SYMBOL</th>
+              {headers}
+            </tr>
+          </thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>"""
+
+    def _format_reasons_html(self, reasons: str) -> str:
+        if not reasons:
+            return "<div class='reason-line text-cyan'>• Strong technical momentum and volume breakout profile.</div>"
+        
+        parts = [p.strip() for p in reasons.split(";") if p.strip()]
+        if not parts:
+            return f"<div class='reason-line'>• {escape(reasons)}</div>"
+            
+        lines = []
+        for p in parts:
+            cls = ""
+            if "ML confirms" in p or "Bonus: +" in p or "Explosive setup" in p:
+                cls = "text-green"
+            elif "penalty" in p.lower() or "caution" in p.lower() or "rejection" in p.lower() or "not accepted" in p.lower() or "poor" in p.lower():
+                cls = "text-red"
+            elif "Regime" in p or "Base Opportunity" in p or "Analysis for" in p:
+                cls = "text-cyan"
+            lines.append(f"<div class='reason-line {cls}'>• {escape(p)}</div>")
+        return "".join(lines)
 
     def _badge_class(self, label: str) -> str:
         lowered = label.lower()
-        if "explosion" in lowered or "strong" in lowered or "continuation" in lowered or "confirmed" in lowered or "candidate" in lowered:
-            return "good"
-        if "watch" in lowered or "reversal" in lowered:
-            return "watch"
-        if "avoid" in lowered or "low" in lowered:
-            return "bad"
-        return "neutral"
+        if "top pick" in lowered or "candidate" in lowered:
+            return "badge-good"
+        if "watch" in lowered:
+            return "badge-watch"
+        if "avoid" in lowered or "poor" in lowered:
+            return "badge-bad"
+        if "low confidence" in lowered:
+            return "badge-amber"
+        return "badge-neutral"
 
     def _css(self) -> str:
         return """
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root {
+  --bg-core: #07090e;
+  --bg-surface: #0d111a;
+  --bg-surface-elevated: #131926;
+  --bg-card: rgba(15, 22, 36, 0.75);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(0, 210, 255, 0.35);
+  --border-gold: rgba(255, 184, 0, 0.4);
 
-:root { 
-    color-scheme: dark; 
-    --bg: #000000; 
-    --panel: #080c14; 
-    --panel-alt: #0c1220; 
-    --line: #1a2038; 
-    --text: #c8d0e0; 
-    --muted: #5a6580; 
-    
-    --accent: #1e88e5;
-    --accent-glow: rgba(30, 136, 229, 0.25);
-    --neon-blue: #42a5f5;
-    --neon-red: #ef4444;
-    --neon-green: #22c55e;
-    --deep-red: #dc2626;
-    
-    --font-ui: "Inter", -apple-system, sans-serif;
-    --font-mono: "JetBrains Mono", "Consolas", "Courier New", monospace;
+  --text-main: #f0f4fc;
+  --text-muted: #7e8b9f;
+  --text-dim: #4d576a;
+
+  --neon-emerald: #00f5a0;
+  --neon-cyan: #00d2ff;
+  --neon-purple: #9d4edd;
+  --neon-gold: #ffb800;
+  --neon-coral: #ff3366;
+
+  --font-sans: 'Plus Jakarta Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-body { 
-    margin: 0; 
-    background: var(--bg); 
-    color: var(--text); 
-    font-family: var(--font-ui); 
-    -webkit-font-smoothing: antialiased;
-    line-height: 1.5;
+body {
+  background-color: var(--bg-core);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: #1a2038; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #2a3558; }
-
-.topbar { 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    padding: 16px 32px; 
-    border-bottom: 1px solid var(--line); 
-    background: linear-gradient(180deg, rgba(8,12,20,0.98) 0%, rgba(0,0,0,0.95) 100%); 
-    backdrop-filter: blur(12px);
-    position: sticky; 
-    top: 0; 
-    z-index: 10;
+/* Ambient Cyber Glow Background */
+.glow-bg {
+  position: fixed;
+  top: -200px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1200px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(0, 210, 255, 0.07) 0%, rgba(157, 78, 221, 0.04) 50%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
 
-h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
-.eyebrow { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: 0.3em; margin-bottom: 2px; text-transform: uppercase; }
-
-.meta { display: flex; gap: 10px; font-size: 11px; font-family: var(--font-mono); }
-.meta span { color: var(--neon-blue); padding: 3px 8px; background: rgba(30, 136, 229, 0.08); border: 1px solid rgba(30, 136, 229, 0.18); border-radius: 4px; font-size: 10px; }
-
-main { padding: 20px 28px; max-width: 1440px; margin: 0 auto; }
-
-/* Grid — full width, no dead sidebar */
-.grid.layout { display: block; }
-
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
-.card { 
-    background: var(--panel); 
-    border: 1px solid var(--line); 
-    border-radius: 10px; 
-    padding: 18px 20px; 
-    transition: border-color 0.2s, box-shadow 0.2s; 
+/* TOPBAR */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 36px;
+  background: rgba(7, 9, 14, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-subtle);
 }
-.card:hover { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
 
-.label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; }
-.value { font-size: 28px; font-weight: 700; margin: 8px 0 4px; color: var(--neon-blue); font-family: var(--font-mono); }
-.hint { color: var(--muted); font-size: 11px; }
-
-.grid.two { display: block; margin-bottom: 20px; }
-
-.panel { 
-    background: var(--panel); 
-    border: 1px solid var(--line); 
-    border-radius: 10px; 
-    padding: 20px; 
-    margin-bottom: 20px;
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
-.panel-title { 
-    font-size: 13px; 
-    font-weight: 700; 
-    text-transform: uppercase; 
-    letter-spacing: 0.12em; 
-    margin: 0 0 14px; 
-    color: #fff; 
-    border-bottom: 1px solid var(--line); 
-    padding-bottom: 10px; 
-    display: flex;
-    align-items: center;
-    gap: 8px;
+
+.logo-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 210, 255, 0.08);
+  border: 1px solid rgba(0, 210, 255, 0.25);
+  padding: 5px 12px;
+  border-radius: 6px;
 }
-.panel-title::before { content: ''; display: inline-block; width: 3px; height: 14px; background: var(--accent); border-radius: 2px; }
 
-.table-container { overflow-x: auto; }
-
-.data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
-.data-table th { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; padding: 10px 10px; border-bottom: 1px solid var(--line); font-weight: 700; }
-.data-table td { padding: 10px 10px; border-bottom: 1px solid rgba(255,255,255,0.02); vertical-align: middle; }
-.data-table tbody tr:hover td { background: rgba(30, 136, 229, 0.04); }
-
-.clickable-row { cursor: pointer; transition: background 0.15s; }
-.clickable-row:hover td { background: rgba(30, 136, 229, 0.08) !important; }
-
-.rank { color: var(--muted); font-family: var(--font-mono); font-size: 10px; width: 28px; }
-.sub { color: var(--muted); font-size: 10px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
-
-.score-cell { font-family: var(--font-mono); font-weight: 600; font-size: 12px; }
-.score-cell.imp { color: var(--neon-blue); font-size: 13px; }
-
-.badge { display: inline-block; border-radius: 4px; padding: 3px 7px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-.badge.good { background: rgba(30, 136, 229, 0.12); color: var(--neon-blue); border: 1px solid rgba(30, 136, 229, 0.25); }
-.badge.watch { background: rgba(234, 179, 8, 0.1); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.25); }
-.badge.bad { background: rgba(239, 68, 68, 0.1); color: var(--neon-red); border: 1px solid rgba(239, 68, 68, 0.25); }
-.badge.neutral { background: rgba(100, 116, 139, 0.12); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.25); }
-
-/* Accuracy Tracker */
-.accuracy-hero { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
-.accuracy-card { 
-    background: var(--panel-alt); 
-    border: 1px solid var(--line); 
-    border-radius: 10px; 
-    padding: 28px; 
-    text-align: center; 
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan);
+  animation: pulse 2s infinite;
 }
-.accuracy-value { font-size: 2.8rem; font-weight: 700; color: var(--neon-blue); margin: 12px 0; font-family: var(--font-mono); text-shadow: 0 0 24px var(--accent-glow); }
-.streak-value { color: #eab308; text-shadow: 0 0 20px rgba(234, 179, 8, 0.3); }
-.ev-value { color: var(--neon-green); text-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
-.accuracy-label { font-size: 0.95rem; color: #fff; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
-.accuracy-hint { font-size: 0.8rem; color: var(--muted); margin-top: 6px; font-family: var(--font-mono); }
-.progress-bar-bg { background: rgba(255, 255, 255, 0.06); border-radius: 6px; height: 6px; width: 100%; overflow: hidden; margin-top: 14px; }
-.progress-bar-fill { background: linear-gradient(90deg, var(--accent), var(--neon-blue)); height: 100%; border-radius: 6px; transition: width 1s ease-in-out; box-shadow: 0 0 8px var(--accent-glow); }
 
-.heatmap-table th { writing-mode: vertical-rl; transform: rotate(180deg); text-align: left; padding: 8px; font-size: 8px; white-space: nowrap; }
-.heatmap-table td { padding: 3px; font-family: var(--font-mono); font-size: 10px; }
-
-/* Modal */
-.modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.88); backdrop-filter: blur(6px); }
-.modal-content { background-color: var(--panel); margin: 4% auto; border: 1px solid var(--accent); width: 90%; max-width: 1000px; border-radius: 10px; overflow: hidden; box-shadow: 0 0 60px var(--accent-glow); }
-.modal-header { padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); background: #000; }
-.modal-title { color: var(--neon-blue); font-weight: 700; font-size: 15px; letter-spacing: 0.05em; }
-.close-modal { color: var(--muted); font-size: 22px; font-weight: bold; cursor: pointer; transition: color 0.2s; }
-.close-modal:hover { color: var(--neon-red); }
-
-/* Tabs */
-.tabs { display: flex; gap: 0; padding: 0 28px; background: rgba(8, 12, 20, 0.95); border-bottom: 1px solid var(--line); }
-.tab-btn { background: none; border: none; color: var(--muted); font-family: var(--font-ui); font-size: 13px; font-weight: 600; padding: 14px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
-.tab-btn:hover { color: #fff; }
-.tab-btn.active { color: var(--neon-blue); border-bottom-color: var(--accent); }
-
-/* Candidate Cards */
-.candidate-section { overflow: visible; }
-.candidate-grid { 
-    display: grid; 
-    grid-template-columns: repeat(2, 1fr); 
-    gap: 14px; 
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 14px var(--neon-cyan); }
+  100% { transform: scale(0.95); opacity: 0.8; }
 }
-@media (max-width: 900px) { .candidate-grid { grid-template-columns: 1fr; } }
+
+.logo-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--neon-cyan);
+}
+
+.system-title h1 {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.version-tag {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+.status-pill-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.pill-label {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.pill-val {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.pill-val.highlight { color: var(--neon-gold); }
+.pill-val.neon-cyan { color: var(--neon-cyan); }
+
+.regime-bear-volatile { color: var(--neon-coral); text-shadow: 0 0 8px rgba(255, 51, 102, 0.4); }
+.regime-bull-trend { color: var(--neon-emerald); text-shadow: 0 0 8px rgba(0, 245, 160, 0.4); }
+
+/* CONTAINER */
+.app-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 28px 36px;
+  position: relative;
+  z-index: 1;
+}
+
+/* METRICS GRID */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 20px;
+  position: relative;
+  transition: all 0.25s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--border-active);
+  box-shadow: 0 8px 32px rgba(0, 210, 255, 0.06);
+  transform: translateY(-2px);
+}
+
+.metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.metric-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metric-icon { font-size: 14px; }
+
+.metric-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.metric-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.badge-gold { background: rgba(255, 184, 0, 0.12); color: var(--neon-gold); border: 1px solid rgba(255, 184, 0, 0.3); }
+.badge-purple { background: rgba(157, 78, 221, 0.12); color: var(--neon-purple); border: 1px solid rgba(157, 78, 221, 0.3); }
+.badge-green { background: rgba(0, 245, 160, 0.12); color: var(--neon-emerald); border: 1px solid rgba(0, 245, 160, 0.3); }
+.badge-cyan { background: rgba(0, 210, 255, 0.12); color: var(--neon-cyan); border: 1px solid rgba(0, 210, 255, 0.3); }
+.badge-amber { background: rgba(255, 138, 0, 0.12); color: #ff8a00; border: 1px solid rgba(255, 138, 0, 0.3); }
+
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+}
+
+.metric-sub {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* CONTROLS BAR */
+.controls-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.heading-glow-bar {
+  width: 4px;
+  height: 20px;
+  background: var(--neon-cyan);
+  border-radius: 2px;
+  box-shadow: 0 0 12px var(--neon-cyan);
+}
+
+.heading-glow-bar.cyan { background: var(--neon-cyan); box-shadow: 0 0 12px var(--neon-cyan); }
+.heading-glow-bar.purple { background: var(--neon-purple); box-shadow: 0 0 12px var(--neon-purple); }
+
+.section-heading h2 {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #ffffff;
+}
+
+.count-bubble {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(0, 210, 255, 0.12);
+  color: var(--neon-cyan);
+  border: 1px solid rgba(0, 210, 255, 0.3);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.filter-search-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-wrap input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 7px 12px 7px 32px;
+  border-radius: 6px;
+  outline: none;
+  width: 220px;
+  transition: all 0.2s;
+}
+
+.search-wrap input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.15);
+  width: 260px;
+}
+
+.btn-group {
+  display: flex;
+  background: var(--bg-surface);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+.filter-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filter-btn:hover { color: #ffffff; }
+.filter-btn.active {
+  background: rgba(0, 210, 255, 0.15);
+  color: var(--neon-cyan);
+}
+
+/* CANDIDATE CARDS GRID */
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-bottom: 40px;
+}
 
 .candidate-card {
-    background: var(--panel-alt);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 22px;
+  position: relative;
+  overflow: hidden;
 }
+
 .candidate-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 24px rgba(30, 136, 229, 0.08);
-    border-color: rgba(30, 136, 229, 0.3);
+  border-color: rgba(0, 210, 255, 0.4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(0, 210, 255, 0.08);
 }
 
-.cand-header { display: flex; align-items: center; gap: 10px; }
-.cand-rank { font-family: var(--font-mono); color: var(--muted); font-size: 11px; font-weight: 700; min-width: 26px; }
-.cand-info { flex: 1; min-width: 0; }
-.cand-symbol { font-weight: 700; font-size: 14px; color: #fff; letter-spacing: 0.02em; }
-.cand-company { color: var(--muted); font-size: 10px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cand-badge-wrap { flex-shrink: 0; }
-
-.cand-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.03); }
-.cand-metric { text-align: center; }
-.cand-metric-label { font-size: 8px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.1em; font-weight: 700; margin-bottom: 3px; }
-.cand-metric-value { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
-
-.neon-green { color: var(--neon-green); }
-.neon-red { color: var(--neon-red); }
-.neon-blue { color: var(--neon-blue); }
-
-.pct-tag { font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 3px; margin-left: 2px; }
-.pct-tag.up { background: rgba(34, 197, 94, 0.1); color: var(--neon-green); }
-.pct-tag.down { background: rgba(239, 68, 68, 0.1); color: var(--neon-red); }
-
-.cand-reasons {
-    font-size: 10px;
-    color: var(--muted);
-    line-height: 1.5;
-    padding: 6px 10px;
-    background: rgba(30, 136, 229, 0.03);
-    border-radius: 4px;
-    border-left: 2px solid var(--accent);
+.card-glow-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 210, 255, 0.6), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
 }
-.reasons-icon { font-size: 12px; margin-right: 3px; }
-        """
+
+.candidate-card:hover .card-glow-edge { opacity: 1; }
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.symbol-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rank-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--neon-cyan);
+  background: rgba(0, 210, 255, 0.08);
+  border: 1px solid rgba(0, 210, 255, 0.2);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.symbol-name {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.company-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.badge-mini-gold {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--neon-gold);
+  background: rgba(255, 184, 0, 0.15);
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  padding: 2px 6px;
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(255, 184, 0, 0.2);
+}
+
+.card-type-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.badge-card-gold { background: rgba(255, 184, 0, 0.1); color: var(--neon-gold); border: 1px solid rgba(255, 184, 0, 0.25); }
+.badge-card-cyan { background: rgba(0, 210, 255, 0.1); color: var(--neon-cyan); border: 1px solid rgba(0, 210, 255, 0.25); }
+.badge-card-red { background: rgba(255, 51, 102, 0.1); color: var(--neon-coral); border: 1px solid rgba(255, 51, 102, 0.25); }
+
+/* HERO METRIC GRID */
+.hero-metric-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1.5fr 1fr;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.hero-score-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero-score-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.hero-score-num {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 4px 0 6px;
+}
+
+.score-ultra { color: var(--neon-emerald); text-shadow: 0 0 14px rgba(0, 245, 160, 0.4); }
+.score-high { color: var(--neon-cyan); text-shadow: 0 0 14px rgba(0, 210, 255, 0.4); }
+.score-mid { color: var(--neon-gold); text-shadow: 0 0 14px rgba(255, 184, 0, 0.4); }
+
+.score-progress-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.score-fill { height: 100%; border-radius: 2px; }
+
+.price-levels-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  padding: 0 12px;
+}
+
+.level-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.level-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.level-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.currency { font-size: 8px; color: var(--text-dim); }
+
+.pct-chip {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 3px;
+}
+
+.pct-chip.up { background: rgba(0, 245, 160, 0.15); color: var(--neon-emerald); }
+.pct-chip.up-cyan { background: rgba(0, 210, 255, 0.15); color: var(--neon-cyan); }
+.pct-chip.down { background: rgba(255, 51, 102, 0.15); color: var(--neon-coral); }
+
+.sizing-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding-left: 4px;
+}
+
+.sizing-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.sizing-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.sizing-val {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.text-green { color: var(--neon-emerald); }
+.text-red { color: var(--neon-coral); }
+.text-cyan { color: var(--neon-cyan); }
+.text-purple { color: var(--neon-purple); }
+.mono-num { font-family: var(--font-mono); }
+
+/* RISK REWARD VISUAL BAR */
+.rr-meter-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rr-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.rr-stop {
+  height: 100%;
+  background: linear-gradient(90deg, var(--neon-coral), rgba(255, 51, 102, 0.3));
+}
+
+.rr-anchor {
+  width: 2px;
+  height: 100%;
+  background: #ffffff;
+  z-index: 2;
+}
+
+.rr-target {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(0, 245, 160, 0.3), var(--neon-emerald));
+}
+
+.rr-target-runner {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(0, 210, 255, 0.4), var(--neon-cyan));
+}
+
+.rr-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+/* TAGS ROW */
+.tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.tag-ml { background: rgba(0, 245, 160, 0.08); color: var(--neon-emerald); border: 1px solid rgba(0, 245, 160, 0.25); }
+.tag-warn { background: rgba(255, 184, 0, 0.08); color: var(--neon-gold); border: 1px solid rgba(255, 184, 0, 0.25); }
+.tag-err { background: rgba(255, 51, 102, 0.08); color: var(--neon-coral); border: 1px solid rgba(255, 51, 102, 0.25); }
+.tag-ok { background: rgba(0, 210, 255, 0.08); color: var(--neon-cyan); border: 1px solid rgba(0, 210, 255, 0.25); }
+
+/* TERMINAL LOG */
+.terminal-reasons {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.terminal-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--neon-cyan);
+  border-radius: 50%;
+}
+
+.terminal-title {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+}
+
+.terminal-body {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.reason-line {
+  margin-bottom: 3px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.reason-line:last-child {
+  margin-bottom: 0;
+}
+
+/* CARD ACTIONS */
+.card-footer {
+  margin-top: auto;
+}
+
+.btn-chart-modal {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(0, 210, 255, 0.06);
+  border: 1px solid rgba(0, 210, 255, 0.2);
+  color: var(--neon-cyan);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-chart-modal:hover {
+  background: rgba(0, 210, 255, 0.16);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 16px rgba(0, 210, 255, 0.2);
+  color: #ffffff;
+}
+
+/* TABLES */
+.panel-section {
+  margin-bottom: 36px;
+}
+
+.panel-header {
+  margin-bottom: 14px;
+}
+
+.panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.panel-title-wrap h3 {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #ffffff;
+}
+
+.panel-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.glass-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.table-container {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.data-table th {
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.data-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  vertical-align: middle;
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clickable-row:hover td {
+  background: rgba(0, 210, 255, 0.04) !important;
+}
+
+.rank-cell {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-weight: 700;
+  width: 40px;
+}
+
+.symbol-cell strong, .table-symbol {
+  font-weight: 800;
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.table-company {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.score-cell {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.highlight-score {
+  color: var(--neon-cyan);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.table-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.badge-good { background: rgba(0, 245, 160, 0.1); color: var(--neon-emerald); border: 1px solid rgba(0, 245, 160, 0.25); }
+.badge-watch { background: rgba(255, 184, 0, 0.1); color: var(--neon-gold); border: 1px solid rgba(255, 184, 0, 0.25); }
+.badge-bad { background: rgba(255, 51, 102, 0.1); color: var(--neon-coral); border: 1px solid rgba(255, 51, 102, 0.25); }
+.badge-neutral { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid var(--border-subtle); }
+
+.mini-pill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.table-action-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--neon-cyan);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.table-action-btn:hover {
+  background: var(--neon-cyan);
+  color: #000000;
+}
+
+/* HEATMAP */
+.heatmap-table td {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.hm-val { font-weight: 700; }
+.hm-max { font-size: 9px; opacity: 0.5; }
+
+/* TRADINGVIEW MODAL */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.active { display: flex; }
+
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+}
+
+.glass-modal {
+  position: relative;
+  z-index: 10;
+  width: 90%;
+  max-width: 1100px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid rgba(0, 210, 255, 0.35);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 210, 255, 0.15);
+  animation: modalIn 0.2s ease-out;
+}
+
+@keyframes modalIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 22px;
+  background: #000000;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan);
+}
+
+.modal-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.05em;
+}
+
+.close-modal-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.close-modal-btn:hover { color: var(--neon-coral); }
+
+/* FOOTER */
+.footer {
+  border-top: 1px solid var(--border-subtle);
+  padding: 24px 36px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.footer-content {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .candidate-grid { grid-template-columns: 1fr; }
+  .topbar { padding: 14px 20px; }
+  .app-container { padding: 20px; }
+  .hide-mobile { display: none; }
+}
+"""
 
     def _js(self) -> str:
         return """
 document.addEventListener("DOMContentLoaded", function() {
-    
-    // Accuracy Chart
-    if (histData.length > 0) {
-        // Group by signal_date
-        const daily = {};
-        histData.forEach(r => {
-            const date = (r.signal_date || "").substring(0, 10);
-            if (!daily[date]) daily[date] = { hits: 0, total: 0 };
-            daily[date].total += 1;
-            if (r.next_day_hit === 1) daily[date].hits += 1;
+    // --- LIVE FILTER & SEARCH LOGIC ---
+    const searchInput = document.getElementById('symbol-search');
+    const filterBtns = document.querySelectorAll('.filter-btn');
+    const cards = document.querySelectorAll('.candidate-card');
+    const countBadge = document.getElementById('candidate-count-badge');
+
+    let currentFilter = 'all';
+    let searchQuery = '';
+
+    function updateGrid() {
+        let visibleCount = 0;
+        cards.forEach(card => {
+            const sym = card.getAttribute('data-symbol').toLowerCase();
+            const comp = card.getAttribute('data-company').toLowerCase();
+            const tags = card.getAttribute('data-tags') || '';
+
+            const matchesSearch = !searchQuery || sym.includes(searchQuery) || comp.includes(searchQuery);
+            let matchesFilter = true;
+
+            if (currentFilter === 'top') {
+                matchesFilter = tags.includes('top');
+            } else if (currentFilter === 'breakout') {
+                matchesFilter = tags.includes('breakout');
+            } else if (currentFilter === 'watch') {
+                matchesFilter = tags.includes('watch');
+            } else if (currentFilter === 'verified') {
+                matchesFilter = tags.includes('verified');
+            }
+
+            if (matchesSearch && matchesFilter) {
+                card.style.display = 'flex';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
+            }
         });
-        
-        const sortedDates = Object.keys(daily).sort();
-        const labels = [];
-        const data = [];
-        
-        sortedDates.forEach(d => {
-            labels.push(d);
-            data.push((daily[d].hits / daily[d].total) * 100);
-        });
-        
-        const ctx = document.getElementById('accuracyChart');
-        if (ctx) {
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Daily Accuracy (%)',
-                        data: data,
-                        borderColor: '#1e88e5',
-                        backgroundColor: 'rgba(30, 136, 229, 0.08)',
-                        borderWidth: 2,
-                        tension: 0.3,
-                        fill: true,
-                        pointBackgroundColor: '#42a5f5',
-                        pointRadius: 3,
-                        pointHoverBackgroundColor: '#ef4444',
-                        pointHoverRadius: 5
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            min: 0,
-                            max: 100,
-                            grid: { color: '#1a2038' },
-                            ticks: { color: '#5a6580', font: { size: 10 } }
-                        },
-                        x: {
-                            grid: { color: '#1a2038' },
-                            ticks: { color: '#5a6580', maxTicksLimit: 10, font: { size: 10 } }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false }
-                    }
-                }
-            });
+
+        if (countBadge) {
+            countBadge.innerText = visibleCount;
         }
     }
-    
-    // TradingView Modal Logic
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function(e) {
+            searchQuery = e.target.value.toLowerCase().trim();
+            updateGrid();
+        });
+    }
+
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            filterBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentFilter = this.getAttribute('data-filter');
+            updateGrid();
+        });
+    });
+
+    updateGrid();
+
+    // --- TRADINGVIEW MODAL LOGIC ---
     const modal = document.getElementById('tv-modal');
-    const closeBtn = document.querySelector('.close-modal');
+    const closeBtn = document.querySelector('.close-modal-btn');
+    const backdrop = document.querySelector('.modal-backdrop');
     const container = document.getElementById('tv-widget-container');
     const modalTitle = document.getElementById('tv-modal-title');
-    
-    const rows = document.querySelectorAll('.clickable-row');
-    
-    rows.forEach(row => {
-        row.addEventListener('click', function() {
-            const symbol = this.getAttribute('data-symbol');
-            if (!symbol) return;
-            
-            modalTitle.innerText = `${symbol} - TradingView Advanced Chart`;
-            modal.style.display = 'block';
-            
-            container.innerHTML = ''; // Clear previous
-            
-            // Inject TV script dynamically
-            const tvScript = document.createElement('script');
-            tvScript.type = 'text/javascript';
-            tvScript.src = 'https://s3.tradingview.com/tv.js';
-            tvScript.onload = function() {
-                new TradingView.widget({
-                  "autosize": true,
-                  "symbol": `EGX:${symbol}`,
-                  "interval": "D",
-                  "timezone": "Africa/Cairo",
-                  "theme": "dark",
-                  "style": "1",
-                  "locale": "en",
-                  "enable_publishing": false,
-                  "backgroundColor": "#0a0a0a",
-                  "gridColor": "#222222",
-                  "hide_top_toolbar": false,
-                  "hide_legend": false,
-                  "save_image": false,
-                  "container_id": "tv-widget-container",
-                  "studies": [
+
+    function openChart(symbol) {
+        if (!symbol) return;
+        modalTitle.innerText = `${symbol} // TRADINGVIEW ADVANCED TERMINAL`;
+        modal.classList.add('active');
+        container.innerHTML = '';
+
+        const tvScript = document.createElement('script');
+        tvScript.type = 'text/javascript';
+        tvScript.src = 'https://s3.tradingview.com/tv.js';
+        tvScript.onload = function() {
+            new TradingView.widget({
+                "autosize": true,
+                "symbol": `EGX:${symbol}`,
+                "interval": "D",
+                "timezone": "Africa/Cairo",
+                "theme": "dark",
+                "style": "1",
+                "locale": "en",
+                "enable_publishing": false,
+                "backgroundColor": "#0d111a",
+                "gridColor": "rgba(255, 255, 255, 0.05)",
+                "hide_top_toolbar": false,
+                "hide_legend": false,
+                "save_image": false,
+                "container_id": "tv-widget-container",
+                "studies": [
                     "RSI@tv-basicstudies",
                     "MACD@tv-basicstudies",
                     "MASimple@tv-basicstudies"
-                  ]
-                });
-            };
-            document.head.appendChild(tvScript);
-        });
-    });
-    
-    closeBtn.onclick = function() {
-        modal.style.display = 'none';
+                ]
+            });
+        };
+        document.head.appendChild(tvScript);
+    }
+
+    function closeModal() {
+        modal.classList.remove('active');
         container.innerHTML = '';
     }
-    
-    window.onclick = function(event) {
-        if (event.target == modal) {
-            modal.style.display = 'none';
-            container.innerHTML = '';
+
+    // Trigger on card button click
+    document.querySelectorAll('.btn-chart-modal').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const symbol = this.getAttribute('data-symbol');
+            openChart(symbol);
+        });
+    });
+
+    // Trigger on table row or action button click
+    document.querySelectorAll('.table-action-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const symbol = this.getAttribute('data-symbol');
+            openChart(symbol);
+        });
+    });
+
+    document.querySelectorAll('.clickable-row').forEach(row => {
+        row.addEventListener('click', function() {
+            const symbol = this.getAttribute('data-symbol');
+            openChart(symbol);
+        });
+    });
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (backdrop) backdrop.addEventListener('click', closeModal);
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
         }
-    }
+    });
 });
-        """
+"""

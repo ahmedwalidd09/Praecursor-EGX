@@ -633,6 +633,8 @@ def calculate_next_day_prediction(
         regime=regime_name,
         kelly=kelly_fraction,
         rr_ratio=rr_ratio,
+        latest_close=latest_close,
+        turnover=turnover_val,
     )
 
     if "Candidate" in label or "Watch" in label:
@@ -645,6 +647,8 @@ def calculate_next_day_prediction(
                 ml_desc = f", ML cautious ({prob_val:.1%})"
         summary = f"Analysis for {symbol}: Strong setup based on Opportunity Score {base_score:.1f}%{ml_desc}, in {regime_name} regime"
         reasons.insert(0, summary)
+    elif "Illiquid Micro-Penny" in label:
+        reasons.insert(0, f"Analysis for {symbol}: Filtered out due to micro-penny price (<0.20 EGP) or insufficient daily liquidity (<250k EGP)")
     elif "Low Confidence" in label:
         reasons.insert(0, f"Analysis for {symbol}: Data unverified across consensus sources (Low Confidence)")
     elif "Poor Reward/Risk" in label:
@@ -680,9 +684,14 @@ def _label(
     regime: str = "Unknown",
     kelly: float = 0.0,
     rr_ratio: float = 1.0,
+    latest_close: float = 1.0,
+    turnover: float = 1_000_000.0,
 ) -> str:
     if not consensus_accepted:
         return "Low Confidence"
+    
+    if latest_close < 0.20 or turnover < 250_000:
+        return "Avoid Tomorrow (Illiquid Micro-Penny)"
     
     if opp_score < 30.0:
         return "Avoid Tomorrow"

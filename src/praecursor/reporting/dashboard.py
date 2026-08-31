@@ -242,12 +242,21 @@ class ScannerDashboardWriter:
 
         return f"<section class='metrics-grid'>{cards_html}</section>"
 
+    def _format_price_val(self, p: float) -> str:
+        if p <= 0:
+            return "0.00"
+        if p < 0.10:
+            return f"{p:.4f}"
+        elif p < 1.00:
+            return f"{p:.3f}"
+        return f"{p:.2f}"
+
     def _candidate_panel(self, title: str, results: list[Any], mode: str) -> str:
         candidate_items = [
             item for item in results
             if "Avoid" not in item.next_day_label
         ]
-        display_items = candidate_items if candidate_items else results[:10]
+        display_items = candidate_items if candidate_items else [item for item in results if "Avoid" not in item.next_day_label][:10]
 
         cards = []
         for rank, item in enumerate(display_items, start=1):
@@ -341,15 +350,15 @@ class ScannerDashboardWriter:
                 <div class="price-levels-box">
                   <div class="level-row">
                     <span class="level-label">ENTRY</span>
-                    <span class="level-val mono-num">{latest_close:.2f} <small class="currency">EGP</small></span>
+                    <span class="level-val mono-num">{self._format_price_val(latest_close)} <small class="currency">EGP</small></span>
                   </div>
                   <div class="level-row">
                     <span class="level-label text-green">TARGET</span>
-                    <span class="level-val text-green mono-num">{target_price:.2f} <span class="pct-chip up">+{target_pct:.1f}%</span></span>
+                    <span class="level-val text-green mono-num">{self._format_price_val(target_price)} <span class="pct-chip up">+{target_pct:.1f}%</span></span>
                   </div>
                   <div class="level-row">
                     <span class="level-label text-red">STOP LOSS</span>
-                    <span class="level-val text-red mono-num">{stop_loss:.2f} <span class="pct-chip down">-{stop_pct:.1f}%</span></span>
+                    <span class="level-val text-red mono-num">{self._format_price_val(stop_loss)} <span class="pct-chip down">-{stop_pct:.1f}%</span></span>
                   </div>
                 </div>
 
@@ -439,7 +448,7 @@ class ScannerDashboardWriter:
                 f"<td class='score-cell mono-num'>{item.final_predictor_score:.0f}%</td>"
                 f"<td class='score-cell mono-num highlight-score'>{score:.1f}%</td>"
                 f"<td><span class='table-badge {badge_cls}'>{escape(clean_label)}</span></td>"
-                f"<td class='mono-num'>{item.opportunity_score.latest_close:.2f}</td>"
+                f"<td class='mono-num'>{self._format_price_val(item.opportunity_score.latest_close)}</td>"
                 f"<td><span class='mini-pill {consensus_badge}'>{escape(consensus_text)}</span></td>"
                 f"<td><button class='table-action-btn' data-symbol='{escape(item.symbol)}'>Chart</button></td>"
                 f"</tr>"

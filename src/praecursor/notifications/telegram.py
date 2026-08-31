@@ -331,20 +331,26 @@ class TelegramReportFormatter:
             card_text = card.get_text()
             if "MODERATE LIQUIDITY" in card_text:
                 liq = "MODERATE"
-            elif "THIN LIQUIDITY" in card_text:
-                liq = "THIN"
-
             count += 1
             is_top = "Top Pick" in badge or count <= 2
             badge_title = f"⭐ <b>TOP PICK #{count}: {sym}</b>" if is_top else f"📌 <b>#{count}: {sym}</b>"
             comp_tag = f" ({comp})" if comp else ""
 
+            def _fmt_p(val: float) -> str:
+                if val <= 0:
+                    return "0.00"
+                if val < 0.10:
+                    return f"{val:.4f}"
+                elif val < 1.00:
+                    return f"{val:.3f}"
+                return f"{val:.2f}"
+
             card_lines = [
                 f"{badge_title}{comp_tag}",
                 f"• <b>AI Conviction:</b> {score:.1f}%",
-                f"• <b>Entry:</b> {entry_val:.2f} EGP",
-                f"• <b>Target:</b> {target_val:.2f} (+{target_pct:.1f}%)",
-                f"• <b>Stop Loss:</b> {stop_val:.2f} (-{stop_pct:.1f}%)",
+                f"• <b>Entry:</b> {_fmt_p(entry_val)} EGP",
+                f"• <b>Target:</b> {_fmt_p(target_val)} (+{target_pct:.1f}%)",
+                f"• <b>Stop Loss:</b> {_fmt_p(stop_val)} (-{stop_pct:.1f}%)",
                 f"• <b>R:R Ratio:</b> {rr_val:.2f}x | <b>Half-Kelly:</b> {kelly_val:.1f}%",
                 f"• <b>Liquidity:</b> 💧 {liq}",
             ]

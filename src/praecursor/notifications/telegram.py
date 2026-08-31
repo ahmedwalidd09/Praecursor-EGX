@@ -221,6 +221,11 @@ class TelegramReportFormatter:
             else:
                 return None
 
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            BeautifulSoup = None
+
         html = target_path.read_text(encoding="utf-8")
 
         reg_m = re.search(r'class="pill-val regime-[^>]*>([^<]+)</span>', html)
@@ -249,60 +254,101 @@ class TelegramReportFormatter:
         )
         blocks.append(header)
 
-        # Extract candidate cards directly
-        card_blocks = re.findall(r'<div class="candidate-card glass-card".*?<!-- CARD FOOTER ACTIONS -->', html, re.DOTALL)
+        if not BeautifulSoup:
+            return None
+
+        soup = BeautifulSoup(html, "html.parser")
+        cards = soup.select(".candidate-card")
+        if not cards:
+            return None
 
         count = 0
-        for block in card_blocks:
-            sym_m = re.search(r'<div class="symbol-name">([^<]+)</div>', block)
-            comp_m = re.search(r'<div class="company-name"[^>]*>([^<]+)</div>', block)
-            badge_m = re.search(r'<span class="card-type-badge[^>]*>([^<]+)</span>', block)
-            score_m = re.search(r'<div class="hero-score-num[^>]*>([\d\.]+)%</div>', block)
-            entry_m = re.search(r'<span class="level-label">ENTRY</span>\s*<span class="level-val mono-num">([\d\.]+)', block)
-            tgt_m = re.search(r'<span class="level-label text-green">TARGET</span>\s*<span class="level-val text-green mono-num">([\d\.]+)\s*<span class="pct-chip up">\+([\d\.]+)%</span>', block)
-            stp_m = re.search(r'<span class="level-label text-red">STOP LOSS</span>\s*<span class="level-val text-red mono-num">([\d\.]+)\s*<span class="pct-chip down">-([\d\.]+)%</span>', block)
-            rr_m = re.search(r'<span class="sizing-label">R:R RATIO</span>\s*<span class="sizing-val text-cyan mono-num">([\d\.]+)x</span>', block)
-            kelly_m = re.search(r'<span class="sizing-label">HALF-KELLY</span>\s*<span class="sizing-val text-purple mono-num">([\d\.]+)%</span>', block)
+        for card in cards:
+            sym_el = card.select_one(".symbol-name")
+            comp_el = card.select_one(".company-name")
+            badge_el = card.select_one(".card-type-badge")
+            score_el = card.select_one(".hero-score-num")
 
-            if not (sym_m and entry_m and tgt_m and stp_m):
+            sym = sym_el.text.strip() if sym_el else ""
+            comp = comp_el.text.strip() if comp_el else ""
+            badge = badge_el.text.strip() if badge_el else ""
+
+            if not sym or "Avoid" in badge:
                 continue
 
-            badge_text = badge_m.group(1).strip() if badge_m else ""
-            if "Avoid" in badge_text:
-                continue
+            score_text = score_el.text.strip().replace("%", "") if score_el else "0"
+            try:
+                score = float(score_text)
+            except ValueError:
+                score = 0.0
 
-            count += 1
-            sym = sym_m.group(1).strip()
-            comp = html_lib.unescape(comp_m.group(1).strip() if comp_m else "")
-            score = float(score_m.group(1)) if score_m else 0.0
-            entry = float(entry_m.group(1))
-            target = float(tgt_m.group(1))
-            target_pct = float(tgt_m.group(2))
-            stop = float(stp_m.group(1))
-            stop_pct = float(stp_m.group(2))
-            rr = float(rr_m.group(1)) if rr_m else (target_pct / stop_pct if stop_pct > 0 else 1.5)
-            kelly = float(kelly_m.group(1)) if kelly_m else 22.0
+            entry_val = 0.0
+            target_val = 0.0
+            target_pct = 0.0
+            stop_val = 0.0
+            stop_pct = 0.0
+
+            for row in card.select(".level-row"):
+                lbl = row.select_one(".level-label")
+                val = row.select_one(".level-val")
+                if not lbl or not val:
+                    continue
+                text_lbl = lbl.text.strip().upper()
+                if "ENTRY" in text_lbl:
+                    m = re.search(r"([\d\.]+)", val.text)
+                    if m: entry_val = float(m.group(1))
+                elif "TARGET" in text_lbl:
+                    m = re.search(r"([\d\.]+)", val.text)
+                    if m: target_val = float(m.group(1))
+                    pct_el = row.select_one(".pct-chip")
+                    if pct_el:
+                        m_pct = re.search(r"([\d\.]+)", pct_el.text)
+                        if m_pct: target_pct = float(m_pct.group(1))
+                elif "STOP LOSS" in text_lbl:
+                    m = re.search(r"([\d\.]+)", val.text)
+                    if m: stop_val = float(m.group(1))
+                    pct_el = row.select_one(".pct-chip")
+                    if pct_el:
+                        m_pct = re.search(r"([\d\.]+)", pct_el.text)
+                        if m_pct: stop_pct = float(m_pct.group(1))
+
+            rr_val = 1.5
+            kelly_val = 22.0
+            for s_item in card.select(".sizing-item"):
+                lbl = s_item.select_one(".sizing-label")
+                val = s_item.select_one(".sizing-val")
+                if not lbl or not val:
+                    continue
+                text_lbl = lbl.text.strip().upper()
+                if "R:R" in text_lbl:
+                    m = re.search(r"([\d\.]+)", val.text)
+                    if m: rr_val = float(m.group(1))
+                elif "KELLY" in text_lbl:
+                    m = re.search(r"([\d\.]+)", val.text)
+                    if m: kelly_val = float(m.group(1))
 
             liq = "HIGH"
-            if "MODERATE LIQUIDITY" in block:
+            card_text = card.get_text()
+            if "MODERATE LIQUIDITY" in card_text:
                 liq = "MODERATE"
-            elif "THIN LIQUIDITY" in block:
+            elif "THIN LIQUIDITY" in card_text:
                 liq = "THIN"
 
-            is_top = "Top Pick" in badge_text or count <= 2
+            count += 1
+            is_top = "Top Pick" in badge or count <= 2
             badge_title = f"⭐ <b>TOP PICK #{count}: {sym}</b>" if is_top else f"📌 <b>#{count}: {sym}</b>"
             comp_tag = f" ({comp})" if comp else ""
 
-            card = [
+            card_lines = [
                 f"{badge_title}{comp_tag}",
                 f"• <b>AI Conviction:</b> {score:.1f}%",
-                f"• <b>Entry:</b> {entry:.2f} EGP",
-                f"• <b>Target:</b> {target:.2f} (+{target_pct:.1f}%)",
-                f"• <b>Stop Loss:</b> {stop:.2f} (-{stop_pct:.1f}%)",
-                f"• <b>R:R Ratio:</b> {rr:.2f}x | <b>Half-Kelly:</b> {kelly:.1f}%",
+                f"• <b>Entry:</b> {entry_val:.2f} EGP",
+                f"• <b>Target:</b> {target_val:.2f} (+{target_pct:.1f}%)",
+                f"• <b>Stop Loss:</b> {stop_val:.2f} (-{stop_pct:.1f}%)",
+                f"• <b>R:R Ratio:</b> {rr_val:.2f}x | <b>Half-Kelly:</b> {kelly_val:.1f}%",
                 f"• <b>Liquidity:</b> 💧 {liq}",
             ]
-            blocks.append("\n".join(card))
+            blocks.append("\n".join(card_lines))
 
             if count >= top_n:
                 break
@@ -314,21 +360,19 @@ class TelegramReportFormatter:
         return "\n\n".join(blocks)
 
     def format_scanner_result(self, result: Any = None, top_n: int = 5) -> str:
-        raw_candidates = getattr(result, "next_day_results", None)
-        if raw_candidates is None and result is not None:
-            raw_candidates = getattr(result, "symbol_results", None)
-
-        if not raw_candidates:
-            dashboard_path = DASHBOARD_PATH
-            if not dashboard_path.exists() and Path("reports/dashboard.html").exists():
+        # 1. ALWAYS try parsing dashboard.html first for 100% exact parity with the UI
+        dashboard_path = getattr(result, "dashboard_report_path", None) or DASHBOARD_PATH
+        if not (dashboard_path and Path(dashboard_path).exists()):
+            if Path("reports/dashboard.html").exists():
                 dashboard_path = Path("reports/dashboard.html")
-            if dashboard_path.exists():
-                try:
-                    from_dash = self.format_from_dashboard_html(dashboard_path, top_n=top_n)
-                    if from_dash:
-                        return from_dash
-                except Exception as exc:
-                    logger.warning(f"Failed to format from dashboard HTML: {exc}")
+
+        if dashboard_path and Path(dashboard_path).exists():
+            try:
+                from_dash = self.format_from_dashboard_html(dashboard_path, top_n=top_n)
+                if from_dash:
+                    return from_dash
+            except Exception as exc:
+                logger.warning(f"Failed to format from dashboard HTML: {exc}")
 
         from praecursor.scoring.regime import MarketRegimeModel
         regime = MarketRegimeModel().get_latest_regime().get("regime", "Bull Trend")

@@ -1,9 +1,11 @@
 {
-  "training_date": "2026-09-04T13:21:13.623012",
+  "training_date": "2026-09-04T18:15:22.219479",
   "n_samples_train": 12445,
   "n_samples_test": 3112,
   "test_accuracy": 0.9075,
   "threshold": 0.4271,
+  "xgb_weight": 0.6,
+  "lgb_weight": 0.4,
   "features": [
     "rsi14",
     "rel_volume20",

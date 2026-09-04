@@ -119,7 +119,7 @@ def _get_next_day_model():
     if _NEXT_DAY_MODEL is None:
         try:
             model_path = Path(__file__).resolve().parents[3] / "models" / "xgboost_next_day.json"
-            if model_path.exists():
+            if model_path.is_file() and model_path.stat().st_size > 0:
                 _NEXT_DAY_MODEL = xgb.XGBClassifier()
                 _NEXT_DAY_MODEL.load_model(str(model_path))
             else:
@@ -136,7 +136,7 @@ def _get_next_day_lgb_model():
         try:
             import lightgbm as lgb
             model_path = Path(__file__).resolve().parents[3] / "models" / "lightgbm_next_day.txt"
-            if model_path.exists():
+            if model_path.is_file() and model_path.stat().st_size > 0:
                 _NEXT_DAY_LGB_MODEL = lgb.Booster(model_file=str(model_path))
             else:
                 _NEXT_DAY_LGB_MODEL = False
@@ -198,6 +198,9 @@ def _calculate_structural_levels(
     Derive price-action and structure-based Target and Stop-Loss levels.
     Uses real support/resistance pivots, breakout levels, dynamic EMAs, and swing pivots.
     """
+    if latest_close <= 0 or _missing(latest_close):
+        return 0.0, 0.0, "Invalid close price", "Invalid close price"
+
     atr14 = values.get("ATR14", float("nan"))
     if _missing(atr14) or atr14 <= 0:
         atr14 = latest_close * 0.04
@@ -308,6 +311,13 @@ def _calculate_structural_levels(
     if target_price > max_price:
         target_price = max_price
         target_desc = f"clamped by EGX daily limit ceiling ({cb_limit*100:.0f}%)"
+
+    if stop_price <= 0 or stop_price >= latest_close:
+        stop_price = latest_close * 0.96
+        stop_desc = "4.0% protective stop floor"
+    if target_price <= latest_close:
+        target_price = latest_close * 1.05
+        target_desc = "5.0% baseline technical target"
 
     return target_price, stop_price, target_desc, stop_desc
 
@@ -464,11 +474,24 @@ def calculate_next_day_prediction(
     xgb_w = meta.get("xgb_weight", 0.6)
     lgb_w = meta.get("lgb_weight", 0.4)
 
+    # Validate probabilities and sanitize NaNs / out-of-bounds
+    if xgb_prob is not None and (isnan(xgb_prob) or not (0.0 <= xgb_prob <= 1.0)):
+        xgb_prob = None
+    if lgb_prob is not None and (isnan(lgb_prob) or not (0.0 <= lgb_prob <= 1.0)):
+        lgb_prob = None
+
+    ensemble_prob = None
     if xgb_prob is not None and lgb_prob is not None:
         if abs(xgb_prob - lgb_prob) > 0.30:
             score -= 5.0
             reasons.append(f"[MODEL DISAGREEMENT] XGB and LGB differ by {abs(xgb_prob - lgb_prob)*100:.0f}% — reduced confidence")
-        ensemble_prob = (xgb_prob ** xgb_w * lgb_prob ** lgb_w) ** (1.0 / (xgb_w + lgb_w))
+        total_w = xgb_w + lgb_w
+        if total_w <= 0:
+            total_w = 1.0
+            xgb_w, lgb_w = 0.5, 0.5
+        c_xgb = max(1e-6, min(xgb_prob, 1.0 - 1e-6))
+        c_lgb = max(1e-6, min(lgb_prob, 1.0 - 1e-6))
+        ensemble_prob = (c_xgb ** xgb_w * c_lgb ** lgb_w) ** (1.0 / total_w)
         ml_bonus = (ensemble_prob - 0.5) * 20.0
         score += ml_bonus
         reasons.append(f"Ensemble Model Probability: {ensemble_prob*100:.1f}% (Bonus: {ml_bonus:+.1f})")
@@ -491,23 +514,17 @@ def calculate_next_day_prediction(
         score *= 1.07
         reasons.append(f"Regime {regime}: Soft bull market bonus applied")
 
-    whipsaw_multiplier = _get_whipsaw_penalty(symbol)
-    if whipsaw_multiplier < 1.0:
-        reasons.append(f"[WHIPSAW] {symbol} has failed recent breakout attempts - soft penalty applied")
-
-    vpoc_overhead_penalty = 0.0
     vpoc_dist = values.get("VPOC_Distance_Pct", float("nan"))
     if not _missing(vpoc_dist) and 0.5 < vpoc_dist < 4.0:
-        vpoc_overhead_penalty = 8.0
+        vpoc_overhead_penalty += 8.0
         reasons.append(f"Major overhead volume resistance near {vpoc_dist:+.1f}%")
 
-    gap_blackout_penalty = 0.0
     if stock_obj is not None and hasattr(stock_obj, "history") and len(stock_obj.history) >= 2:
         prev_bar = stock_obj.history[-2]
         curr_bar = stock_obj.history[-1]
         gap_pct = abs(curr_bar.open - prev_bar.close) / prev_bar.close * 100.0 if prev_bar.close > 0 else 0.0
         if gap_pct > 8.0 and curr_bar.volume == 0:
-            gap_blackout_penalty = 10.0
+            gap_blackout_penalty = max(gap_blackout_penalty, 10.0)
             reasons.append(f"Corporate action blackout / non-organic gap of {gap_pct:.1f}%")
 
     turnover20 = values.get("Turnover20", float("nan"))
@@ -665,7 +682,10 @@ def calculate_next_day_prediction(
             regime_mult = 0.9
             
         adjusted_kelly = half_kelly * regime_mult
-        kelly_fraction = max(0.02, min(adjusted_kelly, 0.25))
+        if adjusted_kelly > 0:
+            kelly_fraction = max(0.02, min(adjusted_kelly, 0.25))
+        else:
+            kelly_fraction = 0.0
         
         if regime_mult != 1.0:
             reasons.append(f"Kelly fraction adjusted by {regime_mult}x due to {regime_name} regime.")
@@ -688,7 +708,7 @@ def calculate_next_day_prediction(
 
     if "Candidate" in label or "Watch" in label:
         ml_desc = ""
-        prob_val = ensemble_prob if 'ensemble_prob' in locals() and ensemble_prob is not None else (xgb_prob if 'xgb_prob' in locals() and xgb_prob is not None else None)
+        prob_val = ensemble_prob if ensemble_prob is not None else (xgb_prob if xgb_prob is not None else lgb_prob)
         if prob_val is not None:
             if prob_val >= 0.5:
                 ml_desc = f", ML confirms ({prob_val:.1%})"
@@ -739,7 +759,7 @@ def _label(
     if not consensus_accepted:
         return "Low Confidence"
     
-    if latest_close < 0.20 or turnover < 250_000:
+    if _missing(latest_close) or latest_close < 0.20 or _missing(turnover) or turnover < 250_000:
         return "Avoid Tomorrow (Illiquid Micro-Penny)"
     
     if opp_score < 30.0:

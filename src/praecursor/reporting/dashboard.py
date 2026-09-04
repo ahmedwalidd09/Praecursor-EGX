@@ -1,7 +1,15 @@
 from html import escape
 from pathlib import Path
+import sys
 from typing import Any
 from zoneinfo import ZoneInfo
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure") and stream is not None:
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DASHBOARD_REPORT = ROOT / "reports" / "dashboard.html"
@@ -12,7 +20,8 @@ class ScannerDashboardWriter:
 
     def write(self, result: Any, output_path: Path = DEFAULT_DASHBOARD_REPORT) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(self._html(result), encoding="utf-8")
+        (output_path.parent / "archive").mkdir(parents=True, exist_ok=True)
+        output_path.write_text(self._html(result), encoding="utf-8", errors="replace")
         return output_path
 
     def _html(self, result: Any) -> str:
@@ -252,31 +261,35 @@ class ScannerDashboardWriter:
         return f"{p:.2f}"
 
     def _candidate_panel(self, title: str, results: list[Any], mode: str) -> str:
+        results_list = list(results) if results else []
         candidate_items = [
-            item for item in results
-            if "Avoid" not in item.next_day_label
+            item for item in results_list
+            if "Avoid" not in getattr(item, "next_day_label", "")
         ]
-        display_items = candidate_items if candidate_items else [item for item in results if "Avoid" not in item.next_day_label][:10]
+        display_items = candidate_items if candidate_items else results_list[:10]
 
         cards = []
         for rank, item in enumerate(display_items, start=1):
-            pred = item.next_day_prediction
-            score = float(item.next_day_score)
-            label = item.next_day_label
-            reasons = item.next_day_reasons_text or ""
+            pred = getattr(item, 'next_day_prediction', None)
+            score = float(getattr(item, 'next_day_score', 0.0) or 0.0)
+            label = getattr(item, 'next_day_label', '') or ""
+            reasons = getattr(item, 'next_day_reasons_text', '') or getattr(item, 'next_day_reasons', '') or ""
 
-            latest_close = float(pred.latest_close)
-            target_price = float(pred.target_price)
+            opp = getattr(item, 'opportunity_score', None)
+            company = str(getattr(opp, 'company', '') or getattr(item, 'symbol', '') or '')
+            latest_close = float(getattr(pred, 'latest_close', 0.0) or getattr(opp, 'latest_close', 0.0) or 0.0)
+            target_price = float(getattr(pred, 'target_price', 0.0) or (latest_close * 1.07))
             target_price_2 = float(getattr(pred, 'target_price_2', 0.0) or (target_price * 1.15))
-            stop_loss = float(pred.stop_loss_price)
+            stop_loss = float(getattr(pred, 'stop_loss_price', 0.0) or (latest_close * 0.95))
+            kelly_fraction = float(getattr(pred, 'kelly_fraction', 0.22) or 0.22)
 
             target_pct = ((target_price - latest_close) / latest_close * 100) if latest_close > 0 and target_price > 0 else 0
             target_pct_2 = ((target_price_2 - latest_close) / latest_close * 100) if latest_close > 0 and target_price_2 > 0 else 0
             stop_pct = ((latest_close - stop_loss) / latest_close * 100) if latest_close > 0 and stop_loss > 0 else 0
             rr_ratio = (target_pct / stop_pct) if stop_pct > 0 else 0.0
 
-            liquidity_tier = getattr(pred, 'liquidity_tier', 'MODERATE')
-            fill_feasibility = getattr(pred, 'fill_feasibility', 'Standard Execution')
+            liquidity_tier = getattr(pred, 'liquidity_tier', 'MODERATE') if pred else 'MODERATE'
+            fill_feasibility = getattr(pred, 'fill_feasibility', 'Standard Execution') if pred else 'Standard Execution'
             liq_badge_cls = "tag-ok" if liquidity_tier == "HIGH" else ("tag-warn" if liquidity_tier == "MODERATE" else "tag-err")
 
             # Score color grade
@@ -291,8 +304,9 @@ class ScannerDashboardWriter:
                 score_gradient = "linear-gradient(135deg, #FFB800 0%, #FF8A00 100%)"
 
             # Parse Badge Label
+            consensus_res = getattr(item, 'consensus_result', None)
             is_top_pick = "Top Pick" in label
-            is_low_conf = "Low Confidence" in label or (item.consensus_result and not item.consensus_result.accepted)
+            is_low_conf = "Low Confidence" in label or (consensus_res is not None and not consensus_res.accepted)
             is_breakout = "Breakout" in label
 
             # Clean up badge text for presentation
@@ -303,9 +317,10 @@ class ScannerDashboardWriter:
             badge_style = "badge-card-gold" if is_top_pick else ("badge-card-red" if is_low_conf else "badge-card-cyan")
 
             # Check for warnings in reasons
-            has_backtest_warn = "[BACKTEST REJECTION]" in reasons
-            has_hmm_warn = "[HMM CAUTION]" in reasons
-            has_ml_confirm = "ML confirms" in reasons
+            reasons_str = " ; ".join(reasons) if isinstance(reasons, list) else str(reasons)
+            has_backtest_warn = "[BACKTEST REJECTION]" in reasons_str
+            has_hmm_warn = "[HMM CAUTION]" in reasons_str
+            has_ml_confirm = "ML confirms" in reasons_str
 
             # Card Data Attributes for Filtering
             data_tags = []
@@ -315,8 +330,10 @@ class ScannerDashboardWriter:
             if "Watch" in label: data_tags.append("watch")
             data_filter_str = " ".join(data_tags)
 
+            sym_str = str(getattr(item, 'symbol', '') or '')
+
             cards.append(f"""
-            <div class="candidate-card glass-card" data-symbol="{escape(item.symbol)}" data-company="{escape(item.opportunity_score.company.lower())}" data-tags="{data_filter_str}">
+            <div class="candidate-card glass-card" data-symbol="{escape(sym_str)}" data-company="{escape(company.lower())}" data-tags="{data_filter_str}">
               <div class="card-glow-edge"></div>
 
               <!-- CARD HEADER -->
@@ -324,8 +341,8 @@ class ScannerDashboardWriter:
                 <div class="symbol-block">
                   <span class="rank-pill">#{rank:02d}</span>
                   <div>
-                    <div class="symbol-name">{escape(item.symbol)}</div>
-                    <div class="company-name" title="{escape(item.opportunity_score.company)}">{escape(item.opportunity_score.company)}</div>
+                    <div class="symbol-name">{escape(sym_str)}</div>
+                    <div class="company-name" title="{escape(company)}">{escape(company)}</div>
                   </div>
                 </div>
 
@@ -370,7 +387,7 @@ class ScannerDashboardWriter:
                   </div>
                   <div class="sizing-item">
                     <span class="sizing-label">HALF-KELLY</span>
-                    <span class="sizing-val text-purple mono-num">{pred.kelly_fraction * 100:.1f}%</span>
+                    <span class="sizing-val text-purple mono-num">{kelly_fraction * 100:.1f}%</span>
                   </div>
                 </div>
               </div>
@@ -410,7 +427,7 @@ class ScannerDashboardWriter:
 
               <!-- CARD FOOTER ACTIONS -->
               <div class="card-footer">
-                <button class="btn-chart-modal" data-symbol="{escape(item.symbol)}">
+                <button class="btn-chart-modal" data-symbol="{escape(sym_str)}">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
                   OPEN TRADINGVIEW PRO CHART
                 </button>
@@ -423,34 +440,45 @@ class ScannerDashboardWriter:
     def _ranking_table(self, results: list[Any]) -> str:
         rows = []
         for rank, item in enumerate(results, start=1):
-            consensus = item.consensus_result
+            consensus = getattr(item, 'consensus_result', None)
             consensus_text = "N/A"
             consensus_badge = "badge-neutral"
             if consensus:
-                consensus_text = f"{consensus.agreeing_source_count}/{consensus.source_count}"
-                consensus_badge = "badge-green" if consensus.accepted else "badge-red"
+                agree_cnt = getattr(consensus, 'agreeing_source_count', 0)
+                src_cnt = getattr(consensus, 'source_count', 0)
+                consensus_text = f"{agree_cnt}/{src_cnt}"
+                consensus_badge = "badge-green" if getattr(consensus, 'accepted', False) else "badge-red"
 
-            pred = item.next_day_prediction
-            score = item.next_day_score
-            label = item.next_day_label
+            pred = getattr(item, 'next_day_prediction', None)
+            score = float(getattr(item, 'next_day_score', 0.0) or 0.0)
+            label = str(getattr(item, 'next_day_label', '') or "")
             clean_label = label.replace("⭐", "").strip()
 
             badge_cls = self._badge_class(label)
 
+            opp = getattr(item, 'opportunity_score', None)
+            company = str(getattr(opp, 'company', '') or getattr(item, 'symbol', '') or '')
+            sym_str = str(getattr(item, 'symbol', '') or '')
+            score_pct = getattr(opp, 'score_percent', None)
+            if score_pct is None:
+                score_pct = float(getattr(opp, 'total_score', 0.0) or 0.0)
+            latest_c = float(getattr(opp, 'latest_close', 0.0) or (getattr(pred, 'latest_close', 0.0) if pred else 0.0) or 0.0)
+            final_pred_score = float(getattr(item, 'final_predictor_score', 0.0) or 0.0)
+
             rows.append(
-                f"<tr class='clickable-row' data-symbol='{escape(item.symbol)}'>"
+                f"<tr class='clickable-row' data-symbol='{escape(sym_str)}'>"
                 f"<td class='rank-cell'>#{rank:02d}</td>"
                 f"<td class='symbol-cell'>"
-                f"  <span class='table-symbol'>{escape(item.symbol)}</span>"
-                f"  <span class='table-company'>{escape(item.opportunity_score.company)}</span>"
+                f"  <span class='table-symbol'>{escape(sym_str)}</span>"
+                f"  <span class='table-company'>{escape(company)}</span>"
                 f"</td>"
-                f"<td class='score-cell mono-num'>{item.opportunity_score.score_percent:.0f}%</td>"
-                f"<td class='score-cell mono-num'>{item.final_predictor_score:.0f}%</td>"
+                f"<td class='score-cell mono-num'>{score_pct:.0f}%</td>"
+                f"<td class='score-cell mono-num'>{final_pred_score:.0f}%</td>"
                 f"<td class='score-cell mono-num highlight-score'>{score:.1f}%</td>"
                 f"<td><span class='table-badge {badge_cls}'>{escape(clean_label)}</span></td>"
-                f"<td class='mono-num'>{self._format_price_val(item.opportunity_score.latest_close)}</td>"
+                f"<td class='mono-num'>{self._format_price_val(latest_c)}</td>"
                 f"<td><span class='mini-pill {consensus_badge}'>{escape(consensus_text)}</span></td>"
-                f"<td><button class='table-action-btn' data-symbol='{escape(item.symbol)}'>Chart</button></td>"
+                f"<td><button class='table-action-btn' data-symbol='{escape(sym_str)}'>Chart</button></td>"
                 f"</tr>"
             )
 
@@ -474,14 +502,26 @@ class ScannerDashboardWriter:
 
     def _heatmap_table(self, results: list[Any]) -> str:
         if not results: return ""
-        comp_names = [c.name for c in results[0].opportunity_score.components]
-        headers = "".join(f"<th>{escape(name)}</th>" for name in comp_names)
+        first_opp = getattr(results[0], 'opportunity_score', None)
+        components = getattr(first_opp, 'components', None) if first_opp else None
+        if not components:
+            return ""
+        comp_names = [getattr(c, 'name', '') for c in components if hasattr(c, 'name')]
+        if not comp_names:
+            return ""
+        headers = "".join(f"<th>{escape(str(name))}</th>" for name in comp_names)
 
         rows = []
         for rank, item in enumerate(results, start=1):
+            opp = getattr(item, 'opportunity_score', None)
+            item_components = getattr(opp, 'components', None) if opp else None
+            if not item_components:
+                continue
             cells = []
-            for c in item.opportunity_score.components:
-                pct = c.score / c.max_score if c.max_score > 0 else 0
+            for c in item_components:
+                c_score = float(getattr(c, 'score', 0.0) or 0.0)
+                c_max = float(getattr(c, 'max_score', 0.0) or 0.0)
+                pct = c_score / c_max if c_max > 0 else 0
                 alpha = max(0.06, pct * 0.9)
                 if pct >= 0.75:
                     color = f"rgba(0, 245, 160, {alpha})" # Neon Emerald
@@ -493,20 +533,23 @@ class ScannerDashboardWriter:
                     color = f"rgba(255, 255, 255, 0.03)"
                     text_color = "rgba(255, 255, 255, 0.4)"
 
-                val = f"{c.score:.1f}" if c.score % 1 != 0 else f"{c.score:.0f}"
-                max_val = f"{c.max_score:.1f}" if c.max_score % 1 != 0 else f"{c.max_score:.0f}"
+                val = f"{c_score:.1f}" if c_score % 1 != 0 else f"{c_score:.0f}"
+                max_val = f"{c_max:.1f}" if c_max % 1 != 0 else f"{c_max:.0f}"
+                c_name = str(getattr(c, 'name', '') or '')
+                c_reason = str(getattr(c, 'reason', '') or '')
 
                 cells.append(
-                    f"<td style='background: {color}; color: {text_color};' title='{escape(c.name)}: {val}/{max_val}&#10;{escape(c.reason)}'>"
+                    f"<td style='background: {color}; color: {text_color};' title='{escape(c_name)}: {val}/{max_val}&#10;{escape(c_reason)}'>"
                     f"<span class='hm-val'>{val}</span>"
                     f"<span class='hm-max'>/{max_val}</span>"
                     f"</td>"
                 )
 
+            sym_str = str(getattr(item, 'symbol', '') or '')
             rows.append(
-                f"<tr class='clickable-row' data-symbol='{escape(item.symbol)}'>"
+                f"<tr class='clickable-row' data-symbol='{escape(sym_str)}'>"
                 f"<td class='rank-cell'>#{rank:02d}</td>"
-                f"<td class='symbol-cell'><strong>{escape(item.symbol)}</strong></td>"
+                f"<td class='symbol-cell'><strong>{escape(sym_str)}</strong></td>"
                 f"{''.join(cells)}"
                 f"</tr>"
             )
@@ -523,24 +566,29 @@ class ScannerDashboardWriter:
           <tbody>{''.join(rows)}</tbody>
         </table>"""
 
-    def _format_reasons_html(self, reasons: str) -> str:
+    def _format_reasons_html(self, reasons: Any) -> str:
         if not reasons:
             return "<div class='reason-line text-cyan'>• Strong technical momentum and volume breakout profile.</div>"
         
-        parts = [p.strip() for p in reasons.split(";") if p.strip()]
+        if isinstance(reasons, list):
+            parts = [str(p).strip() for p in reasons if str(p).strip()]
+        else:
+            parts = [p.strip() for p in str(reasons).split(";") if p.strip()]
         if not parts:
-            return f"<div class='reason-line'>• {escape(reasons)}</div>"
+            return f"<div class='reason-line'>• {escape(str(reasons))}</div>"
             
         lines = []
         for p in parts:
             cls = ""
-            if "ML confirms" in p or "Bonus: +" in p or "Explosive setup" in p:
+            p_str = str(p)
+            p_lower = p_str.lower()
+            if "ML confirms" in p_str or "Bonus: +" in p_str or "Explosive setup" in p_str:
                 cls = "text-green"
-            elif "penalty" in p.lower() or "caution" in p.lower() or "rejection" in p.lower() or "not accepted" in p.lower() or "poor" in p.lower():
+            elif "penalty" in p_lower or "caution" in p_lower or "rejection" in p_lower or "not accepted" in p_lower or "poor" in p_lower:
                 cls = "text-red"
-            elif "Regime" in p or "Base Opportunity" in p or "Analysis for" in p:
+            elif "Regime" in p_str or "Base Opportunity" in p_str or "Analysis for" in p_str:
                 cls = "text-cyan"
-            lines.append(f"<div class='reason-line {cls}'>• {escape(p)}</div>")
+            lines.append(f"<div class='reason-line {cls}'>• {escape(p_str)}</div>")
         return "".join(lines)
 
     def _badge_class(self, label: str) -> str:

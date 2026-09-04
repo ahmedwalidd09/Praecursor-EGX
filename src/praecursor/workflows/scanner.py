@@ -352,7 +352,7 @@ class ScannerWorkflow:
         self.history_store = (
             history_store
             if history_store is not None
-            else SignalHistoryStore(self.price_cache.database_path)
+            else SignalHistoryStore(self.price_cache.path)
             if self.enable_history
             else None
         )
@@ -398,7 +398,7 @@ class ScannerWorkflow:
         # Auto-backfill outcomes for all prior predictions using freshly available price data
         try:
             from praecursor.analysis.accuracy_tracker import track_outcomes_from_db
-            db_target = getattr(self, "price_cache", None) and getattr(self.price_cache, "database_path", None)
+            db_target = getattr(self, "price_cache", None) and getattr(self.price_cache, "path", None)
             backfilled = track_outcomes_from_db(db_path=db_target)
             if backfilled:
                 logger.info(f"[AUTO-OUTCOME] Backfilled {backfilled} prediction outcomes from prior scans.")
@@ -416,7 +416,7 @@ class ScannerWorkflow:
 
         def process_symbol(symbol: str):
             try:
-                local_cache = PriceCache(database_path=self.price_cache.database_path)
+                local_cache = PriceCache(database_path=self.price_cache.path)
                 local_primary_manager = DataManager(
                     sources=[self.market_data_source],
                     minimum_bars=self.minimum_bars,

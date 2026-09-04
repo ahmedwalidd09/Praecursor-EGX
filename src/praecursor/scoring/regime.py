@@ -33,6 +33,8 @@ def get_egx30_data(lookback_days=1000) -> pd.DataFrame:
             _EGX30_CACHE = df
             _EGX30_CACHE_TIME = time.time()
             return df
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         _EGX30_CACHE = df.dropna()
         _EGX30_CACHE_TIME = time.time()
     except Exception as e:
@@ -59,13 +61,16 @@ class MarketRegimeModel:
             return "Unknown"
             
         df = self.fetch_data()
-        if len(df) < 20:
+        if "Close" not in df.columns or len(df) < 20:
             return "Unknown"
             
         # Feature Engineering for HMM
+        df = df[df["Close"] > 0].copy()
+        if len(df) < 20:
+            return "Unknown"
         df["Return"] = np.log(df["Close"] / df["Close"].shift(1))
         df["Volatility"] = df["Return"].rolling(window=10).std()
-        df = df.dropna()
+        df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=["Return", "Volatility"])
         
         if len(df) < 50:
             return "Unknown"
@@ -141,16 +146,18 @@ class MarketRegimeModel:
     def get_historical_regime(self, date_str: str) -> dict:
         """Label a historical date as Bull or Bear based on EGX30 close vs MA200."""
         df = self.fetch_data()
-        if len(df) == 0:
+        if len(df) == 0 or "Close" not in df.columns:
             return {"regime": "Unknown", "score": 0.5}
             
+        df = df[df["Close"] > 0].copy()
         df["MA200"] = df["Close"].rolling(200).mean()
         try:
             dt = pd.to_datetime(date_str)
-            # Ensure index is tz-naive or normalize if necessary.
-            # yfinance index is usually tz-aware.
-            if df.index.tz is not None and dt.tzinfo is None:
-                dt = dt.tz_localize(df.index.tz)
+            # Ensure index and dt are both tz-naive for robust comparison
+            if hasattr(df.index, 'tz_localize') and df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            if hasattr(dt, 'tz_localize') and dt.tzinfo is not None:
+                dt = dt.tz_localize(None)
                 
             sub_df = df[df.index <= dt]
             if len(sub_df) == 0:

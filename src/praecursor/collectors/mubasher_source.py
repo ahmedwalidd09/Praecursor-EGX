@@ -1,6 +1,9 @@
+import logging
 import re
-from datetime import date, datetime, time
+import time as time_module
+from datetime import date, datetime, time, timedelta, timezone
 from html.parser import HTMLParser
+from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -8,6 +11,8 @@ from urllib.request import Request, urlopen
 from praecursor.collectors.collection_result import CollectionResult
 from praecursor.collectors.market_data_source import MarketDataSource
 from praecursor.core.price_bar import PriceBar
+
+logger = logging.getLogger(__name__)
 
 
 class MubasherTextParser(HTMLParser):
@@ -61,9 +66,18 @@ class MubasherSource(MarketDataSource):
             raise ValueError("start_date must be before or equal to end_date.")
 
         normalized_symbol = symbol.strip().upper()
-        quote_date = date.today()
+        warnings: list[str] = []
 
-        if quote_date < start_date or quote_date > end_date:
+        # Determine Cairo local date for market quote validation
+        try:
+            from zoneinfo import ZoneInfo
+            cairo_now = datetime.now(ZoneInfo("Africa/Cairo"))
+        except Exception:
+            cairo_now = datetime.now(timezone(timedelta(hours=3)))
+        quote_date = cairo_now.date()
+
+        # If requested end_date is before quote_date, allow recent quotes within 3 calendar days (weekend gap)
+        if quote_date < start_date or end_date < (quote_date - timedelta(days=3)):
             return CollectionResult(
                 symbol=normalized_symbol,
                 source_name=self.name,
@@ -73,9 +87,22 @@ class MubasherSource(MarketDataSource):
                 confidence=self.DEFAULT_CONFIDENCE,
             )
 
-        html_text = self._download_html(normalized_symbol)
-        page_text = self._extract_text(html_text)
-        price_bar, warnings = self._parse_latest_quote(normalized_symbol, quote_date, page_text)
+        effective_quote_date = min(quote_date, end_date)
+
+        try:
+            html_text = self._download_html(normalized_symbol)
+            page_text = self._extract_text(html_text)
+            price_bar, parse_warnings = self._parse_latest_quote(normalized_symbol, effective_quote_date, page_text)
+            warnings.extend(parse_warnings)
+        except Exception as error:
+            logger.warning(f"Mubasher data fetch failed for {symbol}: {error}")
+            return CollectionResult(
+                symbol=normalized_symbol,
+                source_name=self.name,
+                price_bars=[],
+                warnings=[f"Mubasher fetch failed for {symbol}: {error}"],
+                confidence=self.DEFAULT_CONFIDENCE,
+            )
 
         warnings.append(
             "Mubasher quote is delayed/latest-page data and may not match end-of-day close."
@@ -103,13 +130,31 @@ class MubasherSource(MarketDataSource):
             },
         )
 
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                return response.read().decode("utf-8", errors="replace")
-        except HTTPError as error:
-            raise RuntimeError(f"Mubasher returned HTTP {error.code} for {symbol}.") from error
-        except URLError as error:
-            raise RuntimeError(f"Could not connect to Mubasher for {symbol}: {error.reason}") from error
+        last_error = None
+        for attempt in range(2):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    return response.read().decode("utf-8", errors="replace")
+            except HTTPError as error:
+                last_error = error
+                if error.code in (404, 410):
+                    raise RuntimeError(f"Mubasher returned HTTP {error.code} for {symbol}.") from error
+                if attempt == 0:
+                    time_module.sleep(0.5)
+            except (URLError, TimeoutError, ConnectionResetError, RemoteDisconnected, OSError) as error:
+                last_error = error
+                if attempt == 0:
+                    time_module.sleep(0.5)
+            except Exception as error:
+                last_error = error
+                break
+
+        if isinstance(last_error, HTTPError):
+            raise RuntimeError(f"Mubasher returned HTTP {last_error.code} for {symbol}.") from last_error
+        elif isinstance(last_error, URLError):
+            raise RuntimeError(f"Could not connect to Mubasher for {symbol}: {last_error.reason}") from last_error
+        else:
+            raise RuntimeError(f"Could not connect to Mubasher for {symbol}: {last_error}")
 
     def _extract_text(self, html_text: str) -> str:
         parser = MubasherTextParser()

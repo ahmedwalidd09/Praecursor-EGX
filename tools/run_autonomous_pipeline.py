@@ -57,7 +57,7 @@ def run_stage(
     max_attempts: int = 3,
     initial_backoff: float = 10.0,
 ) -> bool:
-    """Execute a single pipeline stage via subprocess with real-time output streaming and retry logic."""
+    """Execute a single pipeline stage via subprocess with output logging and retry logic."""
     logger.info(f"=== [Stage {stage_num}] Starting: {stage_name} ===")
     logger.info(f"Command: {' '.join(cmd)}")
     
@@ -65,7 +65,7 @@ def run_stage(
         if attempt > 1:
             logger.info(f"=== [Stage {stage_num}] Retry attempt {attempt}/{max_attempts}: {stage_name} ===")
         try:
-            process = subprocess.Popen(
+            res = subprocess.run(
                 cmd,
                 cwd=str(cwd),
                 stdout=subprocess.PIPE,
@@ -73,15 +73,13 @@ def run_stage(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                bufsize=1,
             )
-            if process.stdout:
-                for line in iter(process.stdout.readline, ""):
+            if res.stdout:
+                for line in res.stdout.splitlines():
                     clean_line = line.rstrip()
                     if clean_line:
                         logger.info(clean_line)
-                process.stdout.close()
-            return_code = process.wait()
+            return_code = res.returncode
 
             if return_code == 0:
                 logger.info(f"=== [Stage {stage_num}] Completed Successfully: {stage_name} ===")
@@ -245,6 +243,7 @@ def run_pipeline(
             logger.error(f"Pipeline finished with warnings/errors. ({stages_passed}/{total_stages} stages passed)")
             return 1
     finally:
+        os.environ.pop("PRAECURSOR_PIPELINE_RUNNING", None)
         if logger:
             close_logging(logger)
 

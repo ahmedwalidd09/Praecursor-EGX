@@ -1,5 +1,8 @@
+import logging
+import time as time_module
 from datetime import date, datetime, time
 from html.parser import HTMLParser
+from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -8,6 +11,8 @@ from praecursor.collectors.collection_result import CollectionResult
 from praecursor.collectors.market_data_source import MarketDataSource
 from praecursor.core.price_bar import PriceBar
 from praecursor.data.symbol_mapper import SymbolMapper
+
+logger = logging.getLogger(__name__)
 
 
 class StockAnalysisTableParser(HTMLParser):
@@ -86,8 +91,18 @@ class StockAnalysisSource(MarketDataSource):
 
         stockanalysis_symbol = self.symbol_mapper.get_stockanalysis_symbol(symbol)
         url = self._build_url(stockanalysis_symbol)
-        html_text = self._download_html(url, stockanalysis_symbol)
-        price_bars, warnings = self._parse_price_bars(html_text, symbol, start_date, end_date)
+        try:
+            html_text = self._download_html(url, stockanalysis_symbol)
+            price_bars, warnings = self._parse_price_bars(html_text, symbol, start_date, end_date)
+        except Exception as error:
+            logger.warning(f"StockAnalysis fetch failed for {symbol}: {error}")
+            return CollectionResult(
+                symbol=symbol.strip().upper(),
+                source_name=self.name,
+                price_bars=[],
+                warnings=[f"StockAnalysis fetch failed for {symbol}: {error}"],
+                confidence=self.DEFAULT_CONFIDENCE,
+            )
 
         return CollectionResult(
             symbol=symbol.strip().upper(),
@@ -113,17 +128,39 @@ class StockAnalysisSource(MarketDataSource):
             },
         )
 
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                return response.read().decode("utf-8", errors="replace")
-        except HTTPError as error:
+        last_error = None
+        for attempt in range(2):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    return response.read().decode("utf-8", errors="replace")
+            except HTTPError as error:
+                last_error = error
+                if error.code in (404, 410):
+                    raise RuntimeError(
+                        f"StockAnalysis returned HTTP {error.code} for {stockanalysis_symbol}."
+                    ) from error
+                if attempt == 0:
+                    time_module.sleep(0.5)
+            except (URLError, TimeoutError, ConnectionResetError, RemoteDisconnected, OSError) as error:
+                last_error = error
+                if attempt == 0:
+                    time_module.sleep(0.5)
+            except Exception as error:
+                last_error = error
+                break
+
+        if isinstance(last_error, HTTPError):
             raise RuntimeError(
-                f"StockAnalysis returned HTTP {error.code} for {stockanalysis_symbol}."
-            ) from error
-        except URLError as error:
+                f"StockAnalysis returned HTTP {last_error.code} for {stockanalysis_symbol}."
+            ) from last_error
+        elif isinstance(last_error, URLError):
             raise RuntimeError(
-                f"Could not connect to StockAnalysis for {stockanalysis_symbol}: {error.reason}"
-            ) from error
+                f"Could not connect to StockAnalysis for {stockanalysis_symbol}: {last_error.reason}"
+            ) from last_error
+        else:
+            raise RuntimeError(
+                f"Could not connect to StockAnalysis for {stockanalysis_symbol}: {last_error}"
+            )
 
     def _parse_price_bars(
         self,

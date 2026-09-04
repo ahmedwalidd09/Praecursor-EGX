@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from statistics import median
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ class PriceConsensusEngine:
 
         consensus_close = float(median([price.close for price in relevant_prices]))
         valid_highs = [p.high for p in relevant_prices if p.high is not None and p.high > 0]
-        consensus_high = float(median(valid_highs)) if valid_highs else consensus_close
+        consensus_high = max(float(median(valid_highs)), consensus_close) if valid_highs else consensus_close
 
         logger.info(
             "Comparing multi-source price data for %s on %s across %d sources (TradingView, Mubasher, etc.):",
@@ -210,6 +210,8 @@ class PriceConsensusEngine:
         warnings: list[str] = []
         seen_sources: set[str] = set()
 
+        target_dt = trade_date.date() if isinstance(trade_date, datetime) else trade_date
+
         for price in prices:
             if price.symbol.strip().upper() != symbol:
                 warnings.append(
@@ -217,7 +219,8 @@ class PriceConsensusEngine:
                 )
                 continue
 
-            if price.trade_date != trade_date:
+            price_dt = price.trade_date.date() if isinstance(price.trade_date, datetime) else price.trade_date
+            if price_dt != target_dt:
                 warnings.append(
                     f"Ignored {price.source_name}: expected date {trade_date}, got {price.trade_date}."
                 )
@@ -226,6 +229,22 @@ class PriceConsensusEngine:
             if price.close <= 0:
                 warnings.append(f"Ignored {price.source_name}: close price must be positive.")
                 continue
+
+            # Normalize high to be at least close if high is provided
+            norm_high = price.high
+            if norm_high is not None and norm_high > 0 and norm_high < price.close:
+                norm_high = price.close
+                warnings.append(
+                    f"Adjusted {price.source_name} high ({price.high}) to close ({price.close})."
+                )
+                price = SourcePrice(
+                    source_name=price.source_name,
+                    symbol=price.symbol,
+                    trade_date=price.trade_date,
+                    close=price.close,
+                    high=norm_high,
+                    volume=price.volume,
+                )
 
             source_key = price.source_name.strip().lower()
 

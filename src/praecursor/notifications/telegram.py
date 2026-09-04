@@ -5,9 +5,17 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 import urllib.parse
 import urllib.request
 from typing import Any
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure") and stream is not None:
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 logger = logging.getLogger(__name__)
 
@@ -106,37 +114,97 @@ class TelegramClient:
         self.settings = settings or TelegramSettings.load()
         self.base_url = f"https://api.telegram.org/bot{self.settings.bot_token}"
 
+    @staticmethod
+    def split_message(text: str, max_length: int = 4000) -> list[str]:
+        """Split a message into chunks within Telegram's 4096 character limit."""
+        if not text or len(text) <= max_length:
+            return [text] if text else [""]
+
+        chunks = []
+        lines = text.split("\n")
+        current_chunk: list[str] = []
+        current_len = 0
+
+        for line in lines:
+            if len(line) > max_length:
+                if current_chunk:
+                    chunks.append("\n".join(current_chunk))
+                    current_chunk = []
+                    current_len = 0
+                for i in range(0, len(line), max_length):
+                    chunks.append(line[i:i + max_length])
+                continue
+
+            line_len = len(line) + (1 if current_chunk else 0)
+            if current_len + line_len > max_length:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = [line]
+                current_len = len(line)
+            else:
+                current_chunk.append(line)
+                current_len += line_len
+
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+
+        return chunks
+
     def send_message(self, text: str, parse_mode: str = "HTML", max_retries: int = 3) -> dict[str, Any]:
         if not self.settings.is_configured:
             logger.warning("Telegram bot credentials not configured.")
             return {"ok": False, "description": "Credentials not configured"}
 
-        payload = {
-            "chat_id": self.settings.chat_id,
-            "text": text,
-            "disable_web_page_preview": True,
-        }
-        if parse_mode:
-            payload["parse_mode"] = parse_mode
+        chunks = self.split_message(text, max_length=4000)
+        last_resp = {"ok": True}
+        for chunk in chunks:
+            payload = {
+                "chat_id": self.settings.chat_id,
+                "text": chunk,
+                "disable_web_page_preview": True,
+            }
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
 
-        data = urllib.parse.urlencode(payload).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}/sendMessage",
-            data=data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+            data = urllib.parse.urlencode(payload).encode("utf-8")
+            request = urllib.request.Request(
+                f"{self.base_url}/sendMessage",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
 
-        last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                return self._send_json_request(request)
-            except Exception as e:
-                last_error = e
-                logger.warning(f"Telegram sendMessage attempt {attempt}/{max_retries} failed: {e}")
-                if attempt < max_retries:
-                    time.sleep(1.5 * attempt)
+            last_error = None
+            sent = False
+            for attempt in range(1, max_retries + 1):
+                try:
+                    last_resp = self._send_json_request(request)
+                    sent = True
+                    break
+                except Exception as e:
+                    last_error = e
+                    # If HTML parsing failed on a chunk, retry without parse_mode (plain text)
+                    if "can't parse entities" in str(e).lower() and parse_mode:
+                        try:
+                            payload_plain = dict(payload)
+                            payload_plain.pop("parse_mode", None)
+                            data_plain = urllib.parse.urlencode(payload_plain).encode("utf-8")
+                            req_plain = urllib.request.Request(
+                                f"{self.base_url}/sendMessage",
+                                data=data_plain,
+                                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                            )
+                            last_resp = self._send_json_request(req_plain)
+                            sent = True
+                            break
+                        except Exception:
+                            pass
+                    logger.warning(f"Telegram sendMessage attempt {attempt}/{max_retries} failed: {e}")
+                    if attempt < max_retries:
+                        time.sleep(1.5 * attempt)
 
-        raise RuntimeError(f"Telegram sendMessage failed after {max_retries} attempts: {last_error}")
+            if not sent:
+                raise RuntimeError(f"Telegram sendMessage failed after {max_retries} attempts: {last_error}")
+
+        return last_resp
 
     def send_document(self, file_path: Path, caption: str = "") -> dict[str, Any]:
         if not self.settings.is_configured:
@@ -226,7 +294,11 @@ class TelegramReportFormatter:
         except ImportError:
             BeautifulSoup = None
 
-        html = target_path.read_text(encoding="utf-8")
+        try:
+            html = target_path.read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, OSError) as exc:
+            logger.warning(f"Could not read dashboard HTML from {target_path}: {exc}")
+            return None
 
         reg_m = re.search(r'class="pill-val regime-[^>]*>([^<]+)</span>', html)
         regime = reg_m.group(1).strip() if reg_m else "BULL TREND"
@@ -262,8 +334,15 @@ class TelegramReportFormatter:
         if not cards:
             return None
 
+        non_avoid_cards = [
+            c for c in cards
+            if "Avoid" not in (c.select_one(".card-type-badge").text if c.select_one(".card-type-badge") else "")
+        ]
+        display_cards = non_avoid_cards if non_avoid_cards else cards
+
+        footer = "━━━━━━━━━━━━━━━━━━━━\n📊 <b>Full Terminal:</b> Open <code>reports/dashboard.html</code>"
         count = 0
-        for card in cards:
+        for card in display_cards:
             sym_el = card.select_one(".symbol-name")
             comp_el = card.select_one(".company-name")
             badge_el = card.select_one(".card-type-badge")
@@ -273,7 +352,7 @@ class TelegramReportFormatter:
             comp = comp_el.text.strip() if comp_el else ""
             badge = badge_el.text.strip() if badge_el else ""
 
-            if not sym or "Avoid" in badge:
+            if not sym:
                 continue
 
             score_text = score_el.text.strip().replace("%", "") if score_el else "0"
@@ -332,8 +411,14 @@ class TelegramReportFormatter:
             if "MODERATE LIQUIDITY" in card_text:
                 liq = "MODERATE"
             count += 1
-            is_top = "Top Pick" in badge or count <= 2
-            badge_title = f"⭐ <b>TOP PICK #{count}: {sym}</b>" if is_top else f"📌 <b>#{count}: {sym}</b>"
+            is_avoid = "Avoid" in badge
+            is_top = not is_avoid and ("Top Pick" in badge or count <= 2)
+            if is_avoid:
+                badge_title = f"⚠️ <b>DEFENSIVE #{count}: {sym}</b>"
+            elif is_top:
+                badge_title = f"⭐ <b>TOP PICK #{count}: {sym}</b>"
+            else:
+                badge_title = f"📌 <b>#{count}: {sym}</b>"
             comp_tag = f" ({comp})" if comp else ""
 
             def _fmt_p(val: float) -> str:
@@ -354,7 +439,15 @@ class TelegramReportFormatter:
                 f"• <b>R:R Ratio:</b> {rr_val:.2f}x | <b>Half-Kelly:</b> {kelly_val:.1f}%",
                 f"• <b>Liquidity:</b> 💧 {liq}",
             ]
-            blocks.append("\n".join(card_lines))
+            card_str = "\n".join(card_lines)
+
+            # Ensure message stays comfortably within Telegram's 4096 character limit
+            projected_len = sum(len(b) for b in blocks) + len(card_str) + len(footer) + ((len(blocks) + 1) * 2)
+            if projected_len > 4000 and count > 1:
+                blocks.append(f"<i>... and {len(display_cards) - count + 1} more candidates in full terminal</i>")
+                break
+
+            blocks.append(card_str)
 
             if count >= top_n:
                 break
@@ -362,15 +455,17 @@ class TelegramReportFormatter:
         if not count:
             return None
 
-        blocks.append("━━━━━━━━━━━━━━━━━━━━\n📊 <b>Full Terminal:</b> Open <code>reports/dashboard.html</code>")
+        blocks.append(footer)
         return "\n\n".join(blocks)
 
     def format_scanner_result(self, result: Any = None, top_n: int = 5) -> str:
-        # 1. ALWAYS try parsing dashboard.html first for 100% exact parity with the UI
-        dashboard_path = getattr(result, "dashboard_report_path", None) or DASHBOARD_PATH
-        if not (dashboard_path and Path(dashboard_path).exists()):
-            if Path("reports/dashboard.html").exists():
-                dashboard_path = Path("reports/dashboard.html")
+        # Try parsing dashboard.html only if result is None or if result.dashboard_report_path explicitly exists
+        dashboard_path = getattr(result, "dashboard_report_path", None)
+        if result is None:
+            dashboard_path = dashboard_path or DASHBOARD_PATH
+            if not (dashboard_path and Path(dashboard_path).exists()):
+                if Path("reports/dashboard.html").exists():
+                    dashboard_path = Path("reports/dashboard.html")
 
         if dashboard_path and Path(dashboard_path).exists():
             try:
@@ -406,15 +501,20 @@ class TelegramReportFormatter:
         blocks.append(header)
 
         # Extract top next-day candidates
-        raw_candidates = getattr(result, "next_day_results", [])
-        top_candidates = []
-        for item in raw_candidates:
-            label = getattr(item, "next_day_label", "")
-            if "Avoid" in label:
-                continue
-            top_candidates.append(item)
-            if len(top_candidates) >= top_n:
-                break
+        raw_candidates = getattr(result, "next_day_results", []) or []
+        if not raw_candidates and result is not None:
+            raw_candidates = getattr(result, "symbol_results", []) or []
+
+        top_candidates = [
+            item for item in raw_candidates
+            if "Avoid" not in getattr(item, "next_day_label", "")
+        ]
+        if not top_candidates and raw_candidates:
+            top_candidates = list(raw_candidates[:top_n])
+        else:
+            top_candidates = top_candidates[:top_n]
+
+        footer = "━━━━━━━━━━━━━━━━━━━━\n📊 <b>Full Terminal:</b> Open <code>reports/dashboard.html</code>"
 
         if not top_candidates:
             blocks.append("⚠️ <b>No qualified breakout setups found today (Defensive Mode).</b>")
@@ -484,8 +584,14 @@ class TelegramReportFormatter:
                 elif "High Liquidity" in reasons:
                     liq_tier = "HIGH"
 
-                is_top = "Top Pick" in label or idx <= 2
-                badge = f"⭐ <b>TOP PICK #{idx}: {sym}</b>" if is_top else f"📌 <b>#{idx}: {sym}</b>"
+                is_avoid = "Avoid" in label
+                is_top = not is_avoid and ("Top Pick" in label or idx <= 2)
+                if is_avoid:
+                    badge = f"⚠️ <b>DEFENSIVE #{idx}: {sym}</b>"
+                elif is_top:
+                    badge = f"⭐ <b>TOP PICK #{idx}: {sym}</b>"
+                else:
+                    badge = f"📌 <b>#{idx}: {sym}</b>"
                 comp_tag = f" ({comp})" if comp else ""
 
                 card = [
@@ -497,9 +603,17 @@ class TelegramReportFormatter:
                     f"• <b>R:R Ratio:</b> {rr_ratio:.2f}x | <b>Half-Kelly:</b> {kelly*100:.1f}%",
                     f"• <b>Liquidity:</b> 💧 {liq_tier}",
                 ]
-                blocks.append("\n".join(card))
+                card_str = "\n".join(card)
 
-        blocks.append("━━━━━━━━━━━━━━━━━━━━\n📊 <b>Full Terminal:</b> Open <code>reports/dashboard.html</code>")
+                # Ensure message length stays well within Telegram 4096 character limit
+                projected_len = sum(len(b) for b in blocks) + len(card_str) + len(footer) + ((len(blocks) + 1) * 2)
+                if projected_len > 4000 and idx > 1:
+                    blocks.append(f"<i>... and {len(top_candidates) - idx + 1} more candidates in full terminal</i>")
+                    break
+
+                blocks.append(card_str)
+
+        blocks.append(footer)
         return "\n\n".join(blocks)
 
 

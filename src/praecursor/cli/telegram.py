@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 import argparse
 import json
@@ -7,7 +7,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.stdout.reconfigure(encoding='utf-8')
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure") and stream is not None:
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from praecursor.notifications.telegram import TelegramClient, TelegramReportFormatter, TelegramSettings
 from praecursor.storage.signal_history import SignalHistoryStore
@@ -232,17 +237,24 @@ def parse_symbols(value: str | None) -> list[str] | None:
     return [symbol.strip().upper() for symbol in value.split(",") if symbol.strip()]
 
 
-def send_report_files(client: TelegramClient, result) -> None:
+def send_report_files(client: TelegramClient, result: Any) -> None:
     paths = [
-        result.next_day_report_path,
-        result.report_path,
-        result.markdown_report_path,
-        result.dashboard_report_path,
+        getattr(result, "next_day_report_path", None),
+        getattr(result, "report_path", None),
+        getattr(result, "markdown_report_path", None),
+        getattr(result, "dashboard_report_path", None),
+        getattr(result, "archive_report_path", None),
+        getattr(result, "archive_markdown_report_path", None),
     ]
     for path in paths:
-        if path and Path(path).exists():
-            client.send_document(Path(path), caption=f"Praecursor-EGX report: {Path(path).name}")
-            print(f"Telegram file sent: {path}")
+        if path:
+            p = Path(path)
+            if p.exists() and p.is_file():
+                try:
+                    client.send_document(p, caption=f"Praecursor-EGX report: {p.name}")
+                    print(f"Telegram file sent: {p}")
+                except Exception as e:
+                    print(f"Warning: Failed to send {p} to Telegram: {e}")
 
 
 if __name__ == "__main__":

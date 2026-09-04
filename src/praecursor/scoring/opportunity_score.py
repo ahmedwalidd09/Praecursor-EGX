@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from math import isnan
+from math import isinf, isnan
 
 from praecursor.core.stock import Stock
 from praecursor.scoring.analyzer import Analyzer
@@ -117,7 +117,7 @@ class OpportunityScore:
 
     @property
     def score_percent(self) -> float:
-        if self.max_score == 0:
+        if self.max_score <= 0 or isnan(self.total_score):
             return 0.0
 
         return max(0.0, min((self.total_score / self.max_score) * 100, 100.0))
@@ -224,6 +224,17 @@ class OpportunityScorer:
         self.analyzer.add_indicator(SectorSpilloverIndicator())
 
     def score(self, stock: Stock) -> OpportunityScore:
+        if stock is None or not hasattr(stock, "history") or not stock.history:
+            return OpportunityScore(
+                symbol=getattr(stock, "symbol", "") if stock else "",
+                company=getattr(stock, "company", "") if stock else "",
+                latest_close=0.0,
+                total_score=0.0,
+                max_score=self.MAX_SCORE,
+                indicator_values={},
+                components=[],
+                stock=stock,
+            )
         latest_close = stock.latest().close
         indicator_values = self._calculate_indicators(stock)
         components = self._build_components(stock.symbol, latest_close, indicator_values)
@@ -848,7 +859,7 @@ class OpportunityScorer:
     def _score_vpoc(self, vpoc_distance: float, vpoc_above: float = 0.0) -> ScoreComponent:
         """Upgrade #5: VPOC scoring with overhead resistance flag."""
         max_score = 3.0  # Increased weight; VPOC is strong structural evidence
-        if self._missing(vpoc_distance): return ScoreComponent("VPOC", 0.0, max_score, "Unavailable.")
+        if self._missing(vpoc_distance) or isinf(float(vpoc_distance)): return ScoreComponent("VPOC", 0.0, max_score, "Unavailable.")
         if vpoc_above == 1.0:
             # VPOC is above price = overhead resistance; this is a bearish structural signal
             return ScoreComponent("VPOC", 0.0, max_score, "VPOC is ABOVE price: Overhead resistance present. Caution.")

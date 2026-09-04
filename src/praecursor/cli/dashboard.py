@@ -2,12 +2,20 @@ import argparse
 import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
+import sys
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure") and stream is not None:
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 from praecursor.core.settings import ScannerSettings
 from praecursor.data.symbol_mapper import SymbolMapper
@@ -16,6 +24,10 @@ from praecursor.workflows.scanner import ScannerWorkflow
 
 
 REPORTS_DIR = DEFAULT_DASHBOARD_REPORT.parent
+ARCHIVE_DIR = REPORTS_DIR / "archive"
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+
 scan_status = {
     "running": False,
     "last_completed": None,
@@ -28,6 +40,7 @@ scan_status = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     yield
 
 
@@ -120,7 +133,15 @@ async def get_dashboard() -> HTMLResponse:
             "</body></html>"
         )
 
-    html = DEFAULT_DASHBOARD_REPORT.read_text(encoding="utf-8")
+    try:
+        html = DEFAULT_DASHBOARD_REPORT.read_text(encoding="utf-8", errors="replace")
+    except (FileNotFoundError, OSError):
+        return HTMLResponse(
+            "<!doctype html><html><body style=\"font-family: sans-serif; padding: 40px;\">"
+            "<h1>No dashboard generated yet.</h1>"
+            "<p>Run a scan to generate the latest report.</p>"
+            "</body></html>"
+        )
     
     # Inject auto-refresh every 60s
     if "<head>" in html and "http-equiv=\"refresh\"" not in html:
@@ -220,11 +241,25 @@ async def trigger_scan(background_tasks: BackgroundTasks) -> dict[str, str]:
 async def list_reports() -> list[str]:
     if not REPORTS_DIR.exists():
         return []
-    return [path.name for path in REPORTS_DIR.iterdir() if path.is_file() and not path.name.startswith(".")]
+    try:
+        return [path.name for path in REPORTS_DIR.iterdir() if path.is_file() and not path.name.startswith(".")]
+    except OSError:
+        return []
+
+
+@app.get("/api/reports/archive")
+async def list_archive_reports() -> list[str]:
+    if not ARCHIVE_DIR.exists():
+        return []
+    try:
+        return [path.name for path in ARCHIVE_DIR.iterdir() if path.is_file() and not path.name.startswith(".")]
+    except OSError:
+        return []
 
 
 # Mount static files for easy CSV downloads
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
 

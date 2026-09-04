@@ -1,6 +1,17 @@
 import os
 import sys
 import logging
+from pathlib import Path
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure") and stream is not None:
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+Path("reports/archive").mkdir(parents=True, exist_ok=True)
+
 from praecursor.core.settings import ScannerSettings
 from praecursor.storage.signal_history import SignalHistoryStore
 from praecursor.storage.price_cache import PriceCache

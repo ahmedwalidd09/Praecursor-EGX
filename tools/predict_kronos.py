@@ -98,8 +98,11 @@ def main():
     print(f"  • Expected Return:   {ret_sign}{prediction.expected_return_pct:.2f}%")
     print(f"  • Current Close:     {prediction.current_close:.3f} EGP")
     print(f"  • Predicted Open:    {prediction.predicted_open:.3f} EGP")
-    print(f"  • Predicted High:    {prediction.predicted_high:.3f} EGP (Max Upside: {((prediction.predicted_high - current_close) / current_close * 100):+.2f}%)")
-    print(f"  • Predicted Low:     {prediction.predicted_low:.3f} EGP (Max Drawdown: {((prediction.predicted_low - current_close) / current_close * 100):+.2f}%)")
+    max_upside = ((prediction.predicted_high - current_close) / current_close * 100) if current_close > 0 else 0.0
+    max_drawdown = ((prediction.predicted_low - current_close) / current_close * 100) if current_close > 0 else 0.0
+
+    print(f"  • Predicted High:    {prediction.predicted_high:.3f} EGP (Max Upside: {max_upside:+.2f}%)")
+    print(f"  • Predicted Low:     {prediction.predicted_low:.3f} EGP (Max Drawdown: {max_drawdown:+.2f}%)")
     print(f"  • Predicted Close:   {prediction.predicted_close:.3f} EGP")
     print("=" * 72)
     print("✨ Foundation model alignment completed.")

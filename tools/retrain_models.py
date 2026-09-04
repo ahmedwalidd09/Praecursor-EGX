@@ -182,6 +182,7 @@ def extract_features_from_stock(stock: Stock, scorer: OpportunityScorer) -> dict
             consecutive_green = count
             day_of_week = float(history[-1].date.weekday())
             
+        flat_values["OpportunityScorePct"] = opp_score.score_percent
         flat_values["Momentum1"] = momentum1
         flat_values["ConsecutiveGreen"] = float(consecutive_green)
         flat_values["DayOfWeek"] = day_of_week
@@ -189,7 +190,13 @@ def extract_features_from_stock(stock: Stock, scorer: OpportunityScorer) -> dict
         row = {}
         for indicator_name, feature_name in INDICATOR_TO_FEATURE.items():
             val = flat_values.get(indicator_name, 0.0)
-            if val != val:  # NaN check
+            if isinstance(val, dict):
+                val = val.get("VPOC_Distance_Pct", 0.0) if "VPOC_Distance_Pct" in val else 0.0
+            try:
+                val = float(val)
+                if np.isnan(val) or np.isinf(val):
+                    val = 0.0
+            except (ValueError, TypeError):
                 val = 0.0
             row[feature_name] = val
 
@@ -232,11 +239,15 @@ def extract_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, list]:
         feat_vec = []
         for indicator_name, feature_name in INDICATOR_TO_FEATURE.items():
             val = cached_data.get(indicator_name, 0.0)
-            if val is None or (isinstance(val, float) and val != val):
-                val = 0.0
             if isinstance(val, dict):
                 val = val.get("VPOC_Distance_Pct", 0.0) if "VPOC_Distance_Pct" in val else 0.0
-            feat_vec.append(float(val))
+            try:
+                val = float(val)
+                if np.isnan(val) or np.isinf(val):
+                    val = 0.0
+            except (ValueError, TypeError):
+                val = 0.0
+            feat_vec.append(val)
         X.append(feat_vec)
         y.append(target)
         run_dates.append(run_date)
@@ -344,10 +355,11 @@ def main():
     cal_scores = np.array(cal_scores)
     alpha = 0.1
     n_cal = len(cal_scores)
-    q_level = np.ceil((n_cal + 1) * (1 - alpha)) / n_cal if n_cal > 0 else 0.5
-    if q_level > 1.0:
-        q_level = 1.0
-    q_hat = float(np.quantile(cal_scores, q_level)) if n_cal > 0 else 0.5
+    if n_cal > 0:
+        q_level = min(1.0, np.ceil((n_cal + 1) * (1 - alpha)) / n_cal)
+        q_hat = float(np.quantile(cal_scores, q_level))
+    else:
+        q_hat = 0.5
     logger.info(f"Conformal Calibration q_hat (90%): {q_hat:.4f}")
 
     meta_data = {
@@ -356,6 +368,8 @@ def main():
         "n_samples_test": len(X_test),
         "test_accuracy": round(acc, 4),
         "threshold": optimal_threshold,
+        "xgb_weight": 0.6,
+        "lgb_weight": 0.4,
         "features": FEATURES,
         "conformal_q_hat": q_hat,
     }

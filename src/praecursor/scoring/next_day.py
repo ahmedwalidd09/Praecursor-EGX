@@ -581,10 +581,10 @@ def calculate_next_day_prediction(
 
     # Step 2: Kronos Financial Candlestick Foundation Model Alignment (v6.3 Institutional Alpha)
     is_breakout_setup = (breakout20 == 1.0 or breakout50 == 1.0 or volume_confirmed_breakout == 1.0)
-    is_candidate_setup = (score >= 50.0 or base_score >= 50.0)
+    is_candidate_setup = (score >= 68.0 and base_score >= 60.0)
 
     predict_kronos_fn = _get_kronos_predictor_fn()
-    if predict_kronos_fn is not None and (is_breakout_setup or is_candidate_setup):
+    if predict_kronos_fn is not None and (is_breakout_setup and is_candidate_setup):
         try:
             history_df = None
             if stock_obj is not None and hasattr(stock_obj, "history") and len(stock_obj.history) >= 20:

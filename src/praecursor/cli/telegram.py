@@ -166,23 +166,25 @@ def main() -> int:
 
     formatter = TelegramReportFormatter()
 
-    if args.use_latest:
-        result = load_latest_scan_result()
-        if result is None:
-            print("Warning: No scanner runs found in database. Exiting cleanly.")
-            return 0
-        message = formatter.format_scanner_result(result, top_n=args.top)
+    dash_html = Path("reports/dashboard.html")
+    if args.use_latest or (not args.run_scanner and not args.message):
+        message = None
+        if dash_html.exists():
+            try:
+                message = formatter.format_from_dashboard_html(dash_html, top_n=args.top)
+            except Exception as e:
+                logger.warning(f"Could not format from dashboard HTML: {e}")
+        if not message:
+            result = load_latest_scan_result()
+            if result is None:
+                print("Warning: No scanner runs found in database. Exiting cleanly.")
+                return 0
+            message = formatter.format_scanner_result(result, top_n=args.top)
     elif args.run_scanner:
         result = ScannerWorkflow().run(symbols=parse_symbols(args.symbols))
         message = formatter.format_scanner_result(result, top_n=args.top)
     elif args.message:
         message = args.message
-    else:
-        result = load_latest_scan_result()
-        if result is None:
-            print("Warning: No scanner runs found in database. Exiting cleanly.")
-            return 0
-        message = formatter.format_scanner_result(result, top_n=args.top)
 
     if args.dry_run:
         print("\n--- TELEGRAM MESSAGE PREVIEW ---")

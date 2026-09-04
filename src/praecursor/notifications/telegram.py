@@ -246,7 +246,7 @@ class TelegramReportFormatter:
         blocks = []
         header = (
             f"🏛 <b>PRAECURSOR-EGX QUANT SCAN</b>\n"
-            f"⚡ <b>Version:</b> v6.1 Institutional Alpha\n"
+            f"⚡ <b>Version:</b> v6.3 Institutional Alpha\n"
             f"🕒 <b>Last Ran At:</b> {scan_time_str}\n"
             f"🎯 <b>Predicted For:</b> {target_session_str} (Open)\n"
             f"🌐 <b>Market Regime:</b> {regime.title()}\n"
@@ -397,7 +397,7 @@ class TelegramReportFormatter:
         blocks = []
         header = (
             f"🏛 <b>PRAECURSOR-EGX QUANT SCAN</b>\n"
-            f"⚡ <b>Version:</b> v6.1 Institutional Alpha\n"
+            f"⚡ <b>Version:</b> v6.3 Institutional Alpha\n"
             f"🕒 <b>Last Ran At:</b> {scan_time_str}\n"
             f"🎯 <b>Predicted For:</b> {target_session_str} (Open)\n"
             f"🌐 <b>Market Regime:</b> {regime}\n"

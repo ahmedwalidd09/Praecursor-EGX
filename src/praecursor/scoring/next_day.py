@@ -158,6 +158,19 @@ def _get_hmm_model():
     return _HMM_MODEL_FN if _HMM_MODEL_FN is not False else None
 
 
+_KRONOS_MODEL_FN = None
+def _get_kronos_predictor_fn():
+    global _KRONOS_MODEL_FN
+    if _KRONOS_MODEL_FN is None:
+        try:
+            from praecursor.ml.kronos_forecaster import predict_next_candle
+            _KRONOS_MODEL_FN = predict_next_candle
+        except Exception as e:
+            logger.debug(f"Failed to load Kronos forecaster: {e}")
+            _KRONOS_MODEL_FN = False
+    return _KRONOS_MODEL_FN if _KRONOS_MODEL_FN is not False else None
+
+
 def _get_next_day_meta():
     global _NEXT_DAY_META
     if _NEXT_DAY_META is None:
@@ -565,6 +578,42 @@ def calculate_next_day_prediction(
     stop_pct = (latest_close - stop_loss_price) / latest_close * 100.0 if latest_close > 0 else 0.0
     reasons.append(f"Target placed at {target_price:.2f} (+{target_pct:.1f}%) {target_desc}")
     reasons.append(f"Stop Loss placed at {stop_loss_price:.2f} (-{stop_pct:.1f}%) {stop_desc}")
+
+    # Step 2: Kronos Financial Candlestick Foundation Model Alignment (v6.3 Institutional Alpha)
+    is_breakout_setup = (breakout20 == 1.0 or breakout50 == 1.0 or volume_confirmed_breakout == 1.0)
+    is_candidate_setup = (score >= 50.0 or base_score >= 50.0)
+
+    predict_kronos_fn = _get_kronos_predictor_fn()
+    if predict_kronos_fn is not None and (is_breakout_setup or is_candidate_setup):
+        try:
+            history_df = None
+            if stock_obj is not None and hasattr(stock_obj, "history") and len(stock_obj.history) >= 20:
+                history_df = pd.DataFrame([
+                    {
+                        "trade_date": b.date.strftime("%Y-%m-%d") if hasattr(b.date, "strftime") else str(b.date),
+                        "open": float(b.open),
+                        "high": float(b.high),
+                        "low": float(b.low),
+                        "close": float(b.close),
+                        "volume": float(b.volume),
+                    }
+                    for b in stock_obj.history
+                ])
+            kronos_pred = predict_kronos_fn(symbol, history_df=history_df)
+            if kronos_pred is not None and kronos_pred.is_valid:
+                if kronos_pred.predicted_high >= target_price or (kronos_pred.direction == "BULLISH" and kronos_pred.expected_return_pct > 0):
+                    score += 3.0
+                    reasons.append(
+                        f"[KRONOS FOUNDATION AI] Forecasts Bullish candle expansion "
+                        f"(Predicted High: {kronos_pred.predicted_high:.3f}, +{kronos_pred.expected_return_pct:.1f}%)"
+                    )
+                else:
+                    reasons.append(
+                        f"[KRONOS FOUNDATION AI CAUTION] Model forecasts muted/bearish next-day candle "
+                        f"(Predicted Close: {kronos_pred.predicted_close:.3f}, {kronos_pred.expected_return_pct:+.1f}%)"
+                    )
+        except Exception as e:
+            logger.debug(f"Kronos prediction error for {symbol}: {e}")
 
     # Step 3: EGX Liquidity & Fill Feasibility Analysis
     turnover_val = values.get("AvgTurnover20", 0.0)

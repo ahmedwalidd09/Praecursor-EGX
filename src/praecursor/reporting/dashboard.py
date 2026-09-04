@@ -62,7 +62,7 @@ class ScannerDashboardWriter:
         <span class="logo-text">PRAECURSOR // EGX</span>
       </div>
       <div class="system-title">
-        <h1>Opportunity Pulse <span class="version-tag">v6.1 QUANT ALPHA</span></h1>
+        <h1>Opportunity Pulse <span class="version-tag">v6.3 Institutional Alpha</span></h1>
       </div>
     </div>
 

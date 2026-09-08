@@ -1,14 +1,14 @@
 {
-  "running": true,
-  "stage": 1,
-  "stage_name": "Market Data & Symbol Scanner",
-  "processed": 1,
-  "total": 1,
-  "percent": 100.0,
-  "current_symbol": "COMI",
+  "running": false,
+  "stage": 0,
+  "stage_name": "Idle",
+  "processed": 0,
+  "total": 0,
+  "percent": 0.0,
+  "current_symbol": null,
   "elapsed_seconds": 0,
   "eta_seconds": 0,
-  "telegram_status": "Queued for Stage 4",
+  "telegram_status": "Ready",
   "error": null,
   "completed": false
 }

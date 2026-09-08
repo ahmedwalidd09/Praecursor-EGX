@@ -1,14 +1,14 @@
 {
-  "running": false,
-  "stage": 0,
-  "stage_name": "Idle",
-  "processed": 0,
-  "total": 0,
-  "percent": 0.0,
-  "current_symbol": null,
+  "running": true,
+  "stage": 1,
+  "stage_name": "Stage 1: Finalizing Reports, Dashboard & Database...",
+  "processed": 1,
+  "total": 1,
+  "percent": 100.0,
+  "current_symbol": "Compiling rankings & writing reports...",
   "elapsed_seconds": 0,
-  "eta_seconds": 0,
-  "telegram_status": "Ready",
+  "eta_seconds": 15,
+  "telegram_status": "Queued for Stage 4",
   "error": null,
   "completed": false
 }

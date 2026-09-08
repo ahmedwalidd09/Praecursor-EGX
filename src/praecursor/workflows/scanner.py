@@ -582,6 +582,29 @@ class ScannerWorkflow:
             joblib.delayed(process_symbol)(sym) for sym in selected_symbols
         )
 
+        with lock:
+            status_data = {
+                "running": True,
+                "stage": 1,
+                "stage_name": "Stage 1: Finalizing Reports, Dashboard & Database...",
+                "processed": total_symbols,
+                "total": total_symbols,
+                "percent": 100.0,
+                "current_symbol": "Compiling rankings & writing reports...",
+                "elapsed_seconds": int(time.time() - start_time),
+                "eta_seconds": 15,
+                "telegram_status": "Queued for Stage 4",
+                "error": None,
+                "completed": False,
+            }
+            try:
+                tmp_file = status_file.with_suffix(".tmp")
+                with open(tmp_file, "w", encoding="utf-8") as f:
+                    json.dump(status_data, f, indent=2)
+                os.replace(tmp_file, status_file)
+            except Exception as e:
+                logger.warning("Failed to write scan status: %s", e)
+
         for res in results:
             if isinstance(res, SymbolScanResult):
                 symbol_results.append(res)

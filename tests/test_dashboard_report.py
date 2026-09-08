@@ -98,6 +98,39 @@ class DashboardReportTests(unittest.TestCase):
             self.assertTrue(is_valid, f"reports/dashboard.html has malformed or unclosed tags: {errors}")
 
 
+class TestMissionControlEndpoints(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+        from praecursor.cli.dashboard import app
+        self.client = TestClient(app)
+
+    def test_mission_control_homepage_renders_and_validates(self):
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("PRAECURSOR", res.text)
+        self.assertIn("v6.3 Institutional Alpha", res.text)
+        self.assertIn("RUN SCAN", res.text)
+        self.assertIn("Browse Previous Scan Dashboard", res.text)
+
+        validator = StrictHTMLValidator()
+        is_valid, errors = validator.validate(res.text)
+        self.assertTrue(is_valid, f"Mission Control HTML has unclosed tags: {errors}")
+
+    def test_api_status_endpoint_structure(self):
+        res = self.client.get("/api/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        for expected_key in ["running", "stage", "stage_name", "processed", "total", "percent", "telegram_status", "completed"]:
+            self.assertIn(expected_key, data, f"Missing key '{expected_key}' in /api/status")
+
+    def test_dashboard_terminal_route(self):
+        res = self.client.get("/dashboard", follow_redirects=False)
+        self.assertIn(res.status_code, (200, 303))
+        if res.status_code == 200:
+            self.assertIn("MISSION CONTROL", res.text)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

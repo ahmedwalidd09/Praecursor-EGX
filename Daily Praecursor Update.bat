@@ -1,23 +1,22 @@
 @echo off
 echo ===================================================
-echo PRAECURSOR-EGX DAILY AUTONOMOUS PIPELINE
+echo PRAECURSOR-EGX MISSION CONTROL LAUNCHER
 echo ===================================================
 echo.
 cd /d "%USERPROFILE%\.gemini\antigravity\scratch\Praecursor-EGX"
 
-echo [1/3] Starting the Dashboard Server (in a new window)...
-start "Praecursor Dashboard Server" cmd /k "title Praecursor Dashboard Server && echo Leave this window open to keep the website running! && echo. && python -m praecursor.cli.dashboard"
+echo [1/2] Starting the Dashboard Server in the background...
+start "Praecursor Dashboard Server" cmd /k "title Praecursor Dashboard Server && echo Leave this window open to keep Mission Control running! && echo. && python -m praecursor.cli.dashboard"
 
 echo.
-echo [2/3] Running autonomous pipeline (scanner + accuracy + retraining + dashboard)...
-echo This takes 2-5 minutes. Do not close this window.
-echo.
-python tools/run_autonomous_pipeline.py --force
-
-echo.
-echo [3/3] Launching Dashboard in your browser...
+echo [2/2] Launching Mission Control in your browser...
+timeout /t 2 /nobreak >nul
 start http://127.0.0.1:8000
 
 echo.
-echo Pipeline complete. Check logs/ for details.
-pause
+echo ===================================================
+echo Mission Control is live at http://127.0.0.1:8000
+echo Click 'RUN SCAN' on the launch screen to trigger
+echo the full autonomous scan and live telemetry!
+echo ===================================================
+

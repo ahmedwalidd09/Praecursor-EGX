@@ -6,6 +6,7 @@ Executes Scanner, Outcome Tracking, Retraining, Dashboard Generation, and Telegr
 
 import argparse
 from datetime import datetime, date
+import json
 import logging
 import os
 from pathlib import Path
@@ -15,6 +16,51 @@ import time
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOGS_DIR = PROJECT_ROOT / "logs"
+
+
+def update_scan_status(stage: float, stage_name: str, project_root: Path | None = None, **kwargs) -> None:
+    """Helper function to atomically update data/scan_status.json."""
+    root = project_root or PROJECT_ROOT
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    status_file = data_dir / "scan_status.json"
+
+    current_data = {
+        "running": True,
+        "stage": stage,
+        "stage_name": stage_name,
+        "processed": 0,
+        "total": 0,
+        "percent": 0.0,
+        "current_symbol": None,
+        "elapsed_seconds": 0,
+        "eta_seconds": 0,
+        "telegram_status": "Queued for Stage 4",
+        "error": None,
+        "completed": False,
+    }
+
+    if status_file.exists():
+        try:
+            with open(status_file, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+                if isinstance(existing, dict):
+                    current_data.update(existing)
+        except Exception:
+            pass
+
+    current_data["stage"] = stage
+    current_data["stage_name"] = stage_name
+    for k, v in kwargs.items():
+        current_data[k] = v
+
+    try:
+        tmp_file = status_file.with_suffix(".tmp")
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(current_data, f, indent=2)
+        os.replace(tmp_file, status_file)
+    except Exception:
+        pass
 
 
 def is_egx_trading_day(target_date: date) -> bool:
@@ -156,6 +202,23 @@ def run_pipeline(
             logger.info(f"SKIPPED: Non-trading day ({date_str}) - skipping automated scan.")
             return 0
 
+        current_stage = 1.0
+        current_stage_name = "Market Data & Symbol Scanner"
+        completed_successfully = False
+        pipeline_error = None
+
+        # Start of Pipeline
+        update_scan_status(
+            stage=1,
+            stage_name="Market Data & Symbol Scanner",
+            running=True,
+            completed=False,
+            percent=0.0,
+            telegram_status="Queued for Stage 4",
+            error=None,
+            project_root=root,
+        )
+
         if trading_day:
             logger.info(f"PROCESSING: EGX Trading Day ({date_str}) - executing autonomous scan pipeline.")
         else:
@@ -178,11 +241,21 @@ def run_pipeline(
             root,
         )
         if not s1_ok:
-            logger.error("Stage 1 (Scanner) failed. Aborting downstream pipeline execution.")
+            pipeline_error = "Stage 1 (Scanner) failed. Aborting downstream pipeline execution."
+            logger.error(pipeline_error)
             return 1
         stages_passed += 1
             
         # Stage 1.5: Backfill Outcomes (uses freshly downloaded prices from Stage 1)
+        current_stage = 1.5
+        current_stage_name = "Outcome Backfill & Tracking"
+        update_scan_status(
+            stage=1.5,
+            stage_name="Outcome Backfill & Tracking",
+            percent=40.0,
+            current_symbol=None,
+            project_root=root,
+        )
         outcome_cmd = [python_exe, "tools/track_outcomes.py"]
         s1_5_ok = run_stage(logger, 1.5, "Outcome Backfill", outcome_cmd, root)
         if s1_5_ok:
@@ -191,6 +264,15 @@ def run_pipeline(
             logger.warning("Stage 1.5 (Outcome Backfill) completed with errors.")
 
         # Stage 2: Model Retraining
+        current_stage = 2.0
+        current_stage_name = "XGBoost & LightGBM Model Retraining"
+        update_scan_status(
+            stage=2,
+            stage_name="XGBoost & LightGBM Model Retraining",
+            percent=60.0,
+            current_symbol=None,
+            project_root=root,
+        )
         s2_ok = run_stage(
             logger,
             2,
@@ -204,6 +286,15 @@ def run_pipeline(
             logger.warning("Stage 2 (Model Retraining) completed with errors.")
 
         # Stage 3: Dashboard Regeneration
+        current_stage = 3.0
+        current_stage_name = "Institutional Dashboard Generation"
+        update_scan_status(
+            stage=3,
+            stage_name="Institutional Dashboard Generation",
+            percent=80.0,
+            current_symbol=None,
+            project_root=root,
+        )
         s3_ok = run_stage(
             logger,
             3,
@@ -217,6 +308,16 @@ def run_pipeline(
             logger.warning("Stage 3 (Dashboard Regeneration) completed with errors.")
 
         # Stage 4: Notifications Broadcast (Telegram)
+        current_stage = 4.0
+        current_stage_name = "Telegram Summary Broadcast"
+        update_scan_status(
+            stage=4,
+            stage_name="Telegram Summary Broadcast",
+            percent=95.0,
+            telegram_status="Delivering...",
+            current_symbol=None,
+            project_root=root,
+        )
         from praecursor.notifications.telegram import TelegramSettings
         tg_settings = TelegramSettings.load()
         has_telegram_credentials = tg_settings.is_configured
@@ -242,13 +343,40 @@ def run_pipeline(
 
         overall_success = s1_ok and s2_ok and s3_ok
         if overall_success:
+            completed_successfully = True
+            update_scan_status(
+                stage=5,
+                stage_name="Complete",
+                running=False,
+                completed=True,
+                percent=100.0,
+                telegram_status="Delivered ✅",
+                eta_seconds=0,
+                current_symbol=None,
+                project_root=root,
+            )
             logger.info(f"Pipeline completed successfully. ({stages_passed}/{total_stages} stages passed)")
             return 0
         else:
-            logger.error(f"Pipeline finished with warnings/errors. ({stages_passed}/{total_stages} stages passed)")
+            pipeline_error = f"Pipeline finished with warnings/errors. ({stages_passed}/{total_stages} stages passed)"
+            logger.error(pipeline_error)
             return 1
+    except Exception as err:
+        pipeline_error = str(err)
+        if logger:
+            logger.error(f"Pipeline failed with exception: {err}")
+        return 1
     finally:
         os.environ.pop("PRAECURSOR_PIPELINE_RUNNING", None)
+        if not completed_successfully and current_stage > 0:
+            err_msg = pipeline_error or "Pipeline terminated"
+            update_scan_status(
+                stage=current_stage,
+                stage_name=current_stage_name,
+                running=False,
+                error=err_msg,
+                project_root=root,
+            )
         if logger:
             close_logging(logger)
 

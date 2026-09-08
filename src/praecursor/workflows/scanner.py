@@ -1,7 +1,11 @@
+import json
 import logging
+import os
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+import threading
+import time
 from typing import Callable, Optional
 import joblib
 
@@ -413,8 +417,39 @@ class ScannerWorkflow:
         symbol_results: list[SymbolScanResult] = []
         errors: dict[str, str] = {}
         total_symbols = len(selected_symbols)
+        lock = threading.Lock()
+        completed_count = 0
+        start_time = time.time()
+        project_root = REPORTS_ROOT.parent
+        data_dir = project_root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        status_file = data_dir / "scan_status.json"
+
+        # Initialize status file for Stage 1
+        initial_status = {
+            "running": True,
+            "stage": 1,
+            "stage_name": "Market Data & Symbol Scanner",
+            "processed": 0,
+            "total": total_symbols,
+            "percent": 0.0,
+            "current_symbol": None,
+            "elapsed_seconds": 0,
+            "eta_seconds": 0,
+            "telegram_status": "Queued for Stage 4",
+            "error": None,
+            "completed": False,
+        }
+        try:
+            tmp_init = status_file.with_suffix(".tmp")
+            with open(tmp_init, "w", encoding="utf-8") as f:
+                json.dump(initial_status, f, indent=2)
+            os.replace(tmp_init, status_file)
+        except Exception as e:
+            logger.warning("Failed to write initial scan status: %s", e)
 
         def process_symbol(symbol: str):
+            res_item = None
             try:
                 local_cache = PriceCache(database_path=self.price_cache.path)
                 local_primary_manager = DataManager(
@@ -484,7 +519,7 @@ class ScannerWorkflow:
                 if consensus_result is not None:
                     warnings.extend(consensus_result.warnings)
 
-                return SymbolScanResult(
+                res_item = SymbolScanResult(
                     symbol=symbol,
                     downloaded_bars=len(primary_result.price_bars),
                     cached_bars=len(cached_bars),
@@ -497,8 +532,51 @@ class ScannerWorkflow:
                     consensus_result=consensus_result,
                     consensus_error=consensus_error,
                 )
+                return res_item
             except Exception as error:
-                return (symbol, str(error))
+                res_item = (symbol, str(error))
+                return res_item
+            finally:
+                with lock:
+                    nonlocal completed_count
+                    completed_count += 1
+                    pct = (completed_count / total_symbols) * 100.0 if total_symbols > 0 else 100.0
+                    elapsed = time.time() - start_time
+                    avg_per_symbol = elapsed / completed_count if completed_count > 0 else 0
+                    eta_seconds = max(0, int(avg_per_symbol * (total_symbols - completed_count)))
+                    elapsed_m, elapsed_s = divmod(int(elapsed), 60)
+                    eta_m, eta_s = divmod(eta_seconds, 60)
+                    elapsed_str = f"{elapsed_m}m {elapsed_s}s"
+                    eta_str = f"{eta_m}m {eta_s}s"
+                    logger.info(
+                        f"[SCAN PROGRESS] [{completed_count}/{total_symbols}] {pct:.1f}% | Scanned {symbol} | Elapsed: {elapsed_str} | ETA: {eta_str}"
+                    )
+                    status_data = {
+                        "running": True,
+                        "stage": 1,
+                        "stage_name": "Market Data & Symbol Scanner",
+                        "processed": completed_count,
+                        "total": total_symbols,
+                        "percent": round(pct, 1),
+                        "current_symbol": symbol,
+                        "elapsed_seconds": int(elapsed),
+                        "eta_seconds": eta_seconds,
+                        "telegram_status": "Queued for Stage 4",
+                        "error": None,
+                        "completed": False,
+                    }
+                    try:
+                        tmp_file = status_file.with_suffix(".tmp")
+                        with open(tmp_file, "w", encoding="utf-8") as f:
+                            json.dump(status_data, f, indent=2)
+                        os.replace(tmp_file, status_file)
+                    except Exception as e:
+                        logger.warning("Failed to write scan status: %s", e)
+                    if progress_callback:
+                        try:
+                            progress_callback(completed_count, total_symbols)
+                        except Exception:
+                            pass
 
         results = joblib.Parallel(n_jobs=4, backend="threading")(
             joblib.delayed(process_symbol)(sym) for sym in selected_symbols

@@ -120,9 +120,14 @@ def run_pipeline(
     date_str = effective_date.strftime("%Y-%m-%d")
     
     from datetime import timedelta
-    next_trading_day = effective_date + timedelta(days=1)
-    while next_trading_day.weekday() in (4, 5):  # Friday, Saturday
-        next_trading_day += timedelta(days=1)
+    from zoneinfo import ZoneInfo
+    now_cairo = datetime.now(ZoneInfo("Africa/Cairo"))
+    if now_cairo.weekday() not in (4, 5) and now_cairo.hour < 10:
+        next_trading_day = now_cairo.date()
+    else:
+        next_trading_day = effective_date + timedelta(days=1)
+        while next_trading_day.weekday() in (4, 5):  # Friday, Saturday
+            next_trading_day += timedelta(days=1)
     next_trading_day_str = next_trading_day.strftime("%Y-%m-%d")
     
     # Ensure reports output directories are prepared for next-day scan output files

@@ -36,9 +36,13 @@ class ScannerDashboardWriter:
             model_time_str = "Unknown"
 
         generated_dt = result.generated_at.astimezone(ZoneInfo('Africa/Cairo'))
-        next_day = generated_dt.date() + timedelta(days=1)
-        while next_day.weekday() in (4, 5):  # Friday, Saturday (EGX weekend)
-            next_day += timedelta(days=1)
+        # If running before market open (10:00 AM Cairo) on an EGX trading day (Sun-Thu), target is TODAY.
+        if generated_dt.weekday() not in (4, 5) and generated_dt.hour < 10:
+            next_day = generated_dt.date()
+        else:
+            next_day = generated_dt.date() + timedelta(days=1)
+            while next_day.weekday() in (4, 5):  # Friday, Saturday (EGX weekend)
+                next_day += timedelta(days=1)
 
         # Get Market Regime non-blocking
         regime_name = "Bull Trend"

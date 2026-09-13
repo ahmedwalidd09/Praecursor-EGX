@@ -63,9 +63,11 @@ def update_scan_status(stage: float, stage_name: str, project_root: Path | None 
         pass
 
 
-def is_egx_trading_day(target_date: date) -> bool:
-    """Check if given date is an EGX trading day (Sunday=6, Monday=0, Tuesday=1, Wednesday=2, Thursday=3)."""
-    return target_date.weekday() in (6, 0, 1, 2, 3)
+def is_egx_scan_day(target_date: date) -> bool:
+    """Check if given date is an EGX scan day: Saturday through Wednesday (Sat=5, Sun=6, Mon=0, Tue=1, Wed=2)."""
+    return target_date.weekday() in (5, 6, 0, 1, 2)
+
+is_egx_trading_day = is_egx_scan_day
 
 
 def setup_logging(logs_dir: Path | None = None, run_date: date | None = None) -> tuple[logging.Logger, Path]:
@@ -197,9 +199,9 @@ def run_pipeline(
         logger.info(f"Target Date: {next_trading_day_str}")
         logger.info("==================================================")
 
-        trading_day = is_egx_trading_day(effective_date)
+        trading_day = is_egx_scan_day(effective_date)
         if not trading_day and not force:
-            logger.info(f"SKIPPED: Non-trading day ({date_str}) - skipping automated scan.")
+            logger.info(f"SKIPPED: Non-scan day ({date_str}) - skipping automated scan.")
             return 0
 
         current_stage = 1.0
@@ -220,7 +222,7 @@ def run_pipeline(
         )
 
         if trading_day:
-            logger.info(f"PROCESSING: EGX Trading Day ({date_str}) - executing autonomous scan pipeline.")
+            logger.info(f"PROCESSING: EGX Scan Day ({date_str}) - executing autonomous scan pipeline.")
         else:
             logger.info(f"PROCESSING: Forced execution on non-trading day ({date_str}) - executing autonomous scan pipeline.")
 

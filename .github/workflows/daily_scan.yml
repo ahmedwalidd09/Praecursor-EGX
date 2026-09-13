@@ -2,13 +2,13 @@ name: Praecursor-EGX Autonomous Scanner
 
 on:
   schedule:
-    # Run Sunday to Thursday at 12:45 UTC (14:45 Cairo Time / 15:45 Cairo DST)
-    # EGX trading closes at 14:30 Cairo time.
-    - cron: '45 12 * * 0-4'
+    # Run Saturday through Wednesday at 12:30 UTC (15:30 / 3:30 PM Cairo Time)
+    # Generates next-day target briefing before each trading day
+    - cron: '30 12 * * 6,0,1,2,3'
   workflow_dispatch:
     inputs:
       force:
-        description: 'Force execution even on non-trading days'
+        description: 'Force execution even on non-scan days'
         required: false
         type: boolean
         default: false
@@ -59,7 +59,7 @@ jobs:
           mkdir -p logs
           mkdir -p reports/archive
 
-          # 1. Try downloading latest dynamic snapshot from GitHub Release
+          # Try downloading latest dynamic snapshot from GitHub Release
           DOWNLOADED=false
           if gh release view db-latest >/dev/null 2>&1; then
             echo "Found existing 'db-latest' release. Downloading database snapshot..."
@@ -70,14 +70,10 @@ jobs:
             fi
           fi
 
-          # 2. Fallback to seed database if no release snapshot exists yet
-          if [ "$DOWNLOADED" != "true" ]; then
-            if [ -f "database/seed_praecursor.db.gz" ]; then
-              echo "Using bundled seed database (seed_praecursor.db.gz)..."
-              gunzip -c database/seed_praecursor.db.gz > database/praecursor.db
-            else
-              echo "WARNING: No prior database snapshot or seed found. A fresh database will be initialized."
-            fi
+          if [ "$DOWNLOADED" = "true" ]; then
+            echo "Successfully restored database from 'db-latest' release."
+          else
+            echo "No prior release snapshot found. Database will initialize fresh from market sources."
           fi
 
           ls -lh database/

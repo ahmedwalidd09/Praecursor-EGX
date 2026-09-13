@@ -1,0 +1,151 @@
+name: Praecursor-EGX Autonomous Scanner
+
+on:
+  schedule:
+    # Run Sunday to Thursday at 12:45 UTC (14:45 Cairo Time / 15:45 Cairo DST)
+    # EGX trading closes at 14:30 Cairo time.
+    - cron: '45 12 * * 0-4'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force execution even on non-trading days'
+        required: false
+        type: boolean
+        default: false
+      dry_run_telegram:
+        description: 'Skip sending Telegram notifications'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  run-scanner:
+    name: Run Autonomous Daily Scan & Models
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gzip
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install CPU-only PyTorch first (fast ~150MB instead of 2.5GB CUDA)
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Restore Database State
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p database
+          mkdir -p data
+          mkdir -p logs
+          mkdir -p reports/archive
+
+          # 1. Try downloading latest dynamic snapshot from GitHub Release
+          DOWNLOADED=false
+          if gh release view db-latest >/dev/null 2>&1; then
+            echo "Found existing 'db-latest' release. Downloading database snapshot..."
+            if gh release download db-latest --pattern "praecursor.db.gz" --dir database --clobber; then
+              echo "Decompressing downloaded snapshot..."
+              gunzip -f database/praecursor.db.gz
+              DOWNLOADED=true
+            fi
+          fi
+
+          # 2. Fallback to seed database if no release snapshot exists yet
+          if [ "$DOWNLOADED" != "true" ]; then
+            if [ -f "database/seed_praecursor.db.gz" ]; then
+              echo "Using bundled seed database (seed_praecursor.db.gz)..."
+              gunzip -c database/seed_praecursor.db.gz > database/praecursor.db
+            else
+              echo "WARNING: No prior database snapshot or seed found. A fresh database will be initialized."
+            fi
+          fi
+
+          ls -lh database/
+
+      - name: Configure Telegram Secrets
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          mkdir -p config
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            echo "Writing configured Telegram secrets from GitHub Secrets..."
+            cat <<EOF > config/telegram.json
+          {
+            "bot_token": "$TELEGRAM_BOT_TOKEN",
+            "chat_id": "$TELEGRAM_CHAT_ID"
+          }
+          EOF
+          else
+            echo "Using default/fallback Telegram credentials embedded in Praecursor settings."
+          fi
+
+      - name: Execute Autonomous Daily Pipeline
+        env:
+          PYTHONUNBUFFERED: "1"
+          PYTHONPATH: "src"
+        run: |
+          FLAGS=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FLAGS="$FLAGS --force"
+          fi
+          if [ "${{ github.event.inputs.dry_run_telegram }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run-telegram"
+          fi
+
+          echo "Running command: python tools/run_autonomous_pipeline.py $FLAGS"
+          python tools/run_autonomous_pipeline.py $FLAGS
+
+      - name: Persist Updated Database to GitHub Release
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f "database/praecursor.db" ]; then
+            echo "Compressing updated database..."
+            gzip -c database/praecursor.db > database/praecursor.db.gz
+            echo "Compressed DB size: $(ls -lh database/praecursor.db.gz | awk '{print $5}')"
+
+            echo "Uploading updated snapshot to GitHub Release 'db-latest'..."
+            if gh release view db-latest >/dev/null 2>&1; then
+              gh release upload db-latest database/praecursor.db.gz --clobber
+            else
+              gh release create db-latest database/praecursor.db.gz \
+                --title "Praecursor Database Storage" \
+                --notes "Automated persistent database snapshot for Praecursor-EGX autonomous scans" \
+                --latest
+            fi
+            echo "Database successfully persisted to 'db-latest' release."
+          fi
+
+      - name: Upload Daily Reports & Telemetry Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-scan-reports-${{ github.run_id }}
+          path: |
+            reports/dashboard.html
+            reports/opportunity_ranking.csv
+            data/scan_status.json
+            logs/*.log
+          retention-days: 30

@@ -239,7 +239,7 @@ def run_pipeline(
 
         python_exe = sys.executable
         stages_passed = 0
-        total_stages = 5
+        total_stages = 6
 
         # Stage 1: Daily Scanner
         s1_cmd = [python_exe, "tools/run_scanner.py"]
@@ -299,6 +299,29 @@ def run_pipeline(
             stages_passed += 1
         else:
             logger.warning("Stage 2 (Model Retraining) completed with errors.")
+
+        # Stage 2.5: Candlestick Chart Generation
+        current_stage = 2.5
+        current_stage_name = "Institutional Candlestick Chart Generation"
+        update_scan_status(
+            stage=2.5,
+            stage_name="Institutional Candlestick Chart Generation",
+            percent=70.0,
+            current_symbol=None,
+            project_root=root,
+        )
+        s2_5_ok = run_stage(
+            logger,
+            2.5,
+            "Candlestick Chart Generation",
+            [python_exe, "tools/chart_generator.py", "--top", "5"],
+            root,
+            timeout_seconds=180.0,
+        )
+        if s2_5_ok:
+            stages_passed += 1
+        else:
+            logger.warning("Stage 2.5 (Candlestick Chart Generation) completed with warnings.")
 
         # Stage 3: Dashboard Regeneration
         current_stage = 3.0

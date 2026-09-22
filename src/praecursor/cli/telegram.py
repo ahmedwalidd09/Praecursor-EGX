@@ -191,10 +191,25 @@ def main() -> int:
     elif args.message:
         message = args.message
 
+    if result is None:
+        result = load_latest_scan_result()
+
     if args.dry_run:
         print("\n--- TELEGRAM MESSAGE PREVIEW ---")
         print(message)
         print("--------------------------------\n")
+        if not args.no_charts and result:
+            charts_dir = Path("reports/charts")
+            candidates = [c for c in getattr(result, "next_day_results", []) if "Avoid" not in getattr(c, "next_day_label", "")]
+            candidates.sort(key=lambda x: getattr(x, "next_day_score", 0.0), reverse=True)
+            top_actionable = candidates[:args.top_charts]
+            print(f"--- CANDIDATE CHARTS QUEUED FOR PHOTO DISPATCH ({len(top_actionable)}) ---")
+            for rank, item in enumerate(top_actionable, start=1):
+                sym = getattr(item, "symbol", "")
+                png = charts_dir / f"{sym}_chart.png"
+                exists_tag = "[EXISTS]" if png.exists() else "[WILL GENERATE]"
+                print(f"  Photo #{rank}: {sym} -> {png} {exists_tag}")
+            print("----------------------------------------------------------\n")
         return 0
 
     if not settings.is_configured:
@@ -211,6 +226,11 @@ def main() -> int:
         print(f"[Telegram] [ERROR] Delivery failed: {resp}")
         return 1
 
+    if not args.no_charts and result is not None:
+        from praecursor.notifications.telegram import dispatch_candidate_charts
+        charts_sent = dispatch_candidate_charts(client, result=result, max_charts=args.top_charts, verbose=True)
+        print(f"[Telegram] Delivered {charts_sent} visual technical radar charts as photos.")
+
     if args.send_files and result is not None:
         send_report_files(client, result)
 
@@ -226,6 +246,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--symbols", help="Comma-separated symbols for scanner run, e.g. COMI,SWDY.")
     parser.add_argument("--message", help="Send a custom Telegram message instead of scanner output.")
     parser.add_argument("--top", type=int, default=5, help="Number of candidates per section. Default: 5.")
+    parser.add_argument("--top-charts", type=int, default=3, help="Max number of candidate charts to send as photos. Default: 3.")
+    parser.add_argument("--no-charts", action="store_true", help="Skip sending candlestick chart images.")
     parser.add_argument("--send-files", action="store_true", help="Also send CSV/HTML/Markdown report files.")
     parser.add_argument("--dry-run", action="store_true", help="Print message without sending to Telegram.")
     return parser.parse_args()

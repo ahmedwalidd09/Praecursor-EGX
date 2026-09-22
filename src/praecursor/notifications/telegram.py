@@ -238,6 +238,49 @@ class TelegramClient:
         )
         return self._send_json_request(request)
 
+    def send_photo(self, photo_path: Path, caption: str = "", parse_mode: str = "HTML") -> dict[str, Any]:
+        """Send a photo image to Telegram with optional caption and HTML formatting."""
+        if not self.settings.is_configured:
+            return {"ok": False, "description": "Credentials not configured"}
+
+        p = Path(photo_path)
+        if not p.exists() or not p.is_file():
+            return {"ok": False, "description": f"Photo not found: {p}"}
+
+        boundary = "----PraecursorEGXPhotoBoundary"
+        file_bytes = p.read_bytes()
+        filename = p.name
+        content_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+
+        body_parts = [
+            self._form_field(boundary, "chat_id", self.settings.chat_id),
+        ]
+
+        if caption:
+            # Telegram photo caption limit is 1024 characters
+            body_parts.append(self._form_field(boundary, "caption", caption[:1024]))
+            if parse_mode:
+                body_parts.append(self._form_field(boundary, "parse_mode", parse_mode))
+
+        body_parts.append(
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="photo"; filename="{filename}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode("utf-8")
+            + file_bytes
+            + b"\r\n"
+        )
+        body_parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+        body = b"".join(body_parts)
+
+        request = urllib.request.Request(
+            f"{self.base_url}/sendPhoto",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        return self._send_json_request(request)
+
     def _form_field(self, boundary: str, name: str, value: str) -> bytes:
         return (
             f"--{boundary}\r\n"
@@ -617,8 +660,90 @@ class TelegramReportFormatter:
         return "\n\n".join(blocks)
 
 
-def dispatch_telegram_scan_briefing(result=None, top_n: int = 5, verbose: bool = True) -> bool:
-    """Send latest scan report to Telegram bot."""
+def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: int = 3, verbose: bool = True) -> int:
+    """Dispatch high-resolution chart photos for the top actionable candidates to Telegram."""
+    charts_dir = PROJECT_ROOT / "reports" / "charts"
+    sent_count = 0
+
+    if result is None:
+        try:
+            from praecursor.cli.telegram import load_latest_scan_result
+            result = load_latest_scan_result()
+        except Exception:
+            result = None
+
+    if not result:
+        return 0
+
+    candidates = getattr(result, "next_day_results", [])
+    if not candidates:
+        return 0
+
+    # Filter out Avoid candidates
+    actionable = [
+        c for c in candidates 
+        if "Avoid" not in getattr(c, "next_day_label", "")
+    ]
+    
+    # Sort by next_day_score descending
+    actionable.sort(key=lambda x: getattr(x, "next_day_score", 0.0), reverse=True)
+
+    for rank, item in enumerate(actionable[:max_charts], start=1):
+        sym = getattr(item, "symbol", "")
+        if not sym:
+            continue
+        chart_png = charts_dir / f"{sym}_chart.png"
+        if not chart_png.exists():
+            try:
+                from tools.chart_generator import render_chart_to_png
+                chart_png = render_chart_to_png(sym)
+            except Exception:
+                chart_png = None
+
+        if not chart_png or not Path(chart_png).exists():
+            continue
+
+        pred = getattr(item, "next_day_prediction", None)
+        opp = getattr(item, "opportunity_score", None)
+        company = getattr(opp, "company", sym) if opp else sym
+        close_p = float(getattr(pred, "latest_close", 0.0) or (getattr(opp, "latest_close", 0.0) if opp else 0.0) or 0.0)
+        target_p = float(getattr(pred, "target_price", 0.0) or 0.0)
+        stop_p = float(getattr(pred, "stop_loss_price", 0.0) or 0.0)
+        label = getattr(item, "next_day_label", "")
+
+        target_pct = ((target_p - close_p) / close_p * 100) if close_p > 0 and target_p > 0 else 0.0
+        stop_pct = ((close_p - stop_p) / close_p * 100) if close_p > 0 and stop_p > 0 else 0.0
+        rr = (target_pct / stop_pct) if stop_pct > 0 else 0.0
+        kelly_frac = float(getattr(pred, "kelly_fraction", 0.0) or 0.0)
+
+        caption = (
+            f"🎯 <b>#{rank} {sym} — {company}</b>\n"
+            f"📊 Target: <b>{target_p:.2f} EGP (+{target_pct:.1f}%)</b>\n"
+            f"🛑 Stop Loss: <b>{stop_p:.2f} EGP (-{stop_pct:.1f}%)</b>\n"
+            f"⚖️ Risk/Reward: <b>{rr:.1f} : 1</b> | Half-Kelly: <b>{kelly_frac * 100:.1f}%</b>\n"
+            f"🏷️ Setup: <i>{label}</i>"
+        )
+
+        try:
+            if verbose:
+                print(f"[Telegram] Sending technical radar chart for {sym} to Chat ID {client.settings.chat_id}...")
+            resp = client.send_photo(Path(chart_png), caption=caption, parse_mode="HTML")
+            if resp.get("ok"):
+                sent_count += 1
+                if verbose:
+                    print(f"[Telegram] [SUCCESS] Chart for {sym} delivered!")
+            else:
+                if verbose:
+                    print(f"[Telegram] Warning: Failed to send chart for {sym}: {resp}")
+        except Exception as e:
+            if verbose:
+                print(f"[Telegram] Warning: Error sending photo for {sym}: {e}")
+
+    return sent_count
+
+
+def dispatch_telegram_scan_briefing(result=None, top_n: int = 5, verbose: bool = True, send_charts: bool = True) -> bool:
+    """Send latest scan report and top candidate chart photos to Telegram bot."""
     settings = TelegramSettings.load()
     if not settings.is_configured:
         if verbose:
@@ -645,6 +770,8 @@ def dispatch_telegram_scan_briefing(result=None, top_n: int = 5, verbose: bool =
         if resp.get("ok"):
             if verbose:
                 print(f"[Telegram] [SUCCESS] Scan report delivered to Chat ID {settings.chat_id}!")
+            if send_charts:
+                dispatch_candidate_charts(client, result=result, max_charts=3, verbose=verbose)
             return True
         else:
             if verbose:

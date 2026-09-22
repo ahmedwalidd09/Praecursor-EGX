@@ -1183,9 +1183,13 @@ class ScannerDashboardWriter:
 
               <!-- CARD FOOTER ACTIONS -->
               <div class="card-footer">
+                <button class="btn-radar-modal" data-symbol="{escape(sym_str)}">
+                  <span class="btn-icon">&#9889;</span>
+                  <span>QUANT RADAR</span>
+                </button>
                 <button class="btn-chart-modal" data-symbol="{escape(sym_str)}">
                   <span class="btn-icon">&#128200;</span>
-                  <span>OPEN TRADINGVIEW PRO CHART</span>
+                  <span>TRADINGVIEW</span>
                 </button>
               </div>
             </div>
@@ -2897,10 +2901,37 @@ body {
 /* CARD ACTIONS */
 .card-footer {
   margin-top: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.btn-radar-modal {
+  flex: 1.2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--neon-green, #10B981);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-radar-modal:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10B981;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.3);
+  color: #ffffff;
 }
 
 .btn-chart-modal {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2911,7 +2942,7 @@ body {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
-  padding: 8px 12px;
+  padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
@@ -3514,6 +3545,25 @@ document.addEventListener("DOMContentLoaded", function() {
         modal.classList.remove('active');
         container.innerHTML = '';
     }
+
+    function openRadarChart(symbol) {
+        if (!symbol) return;
+        modalTitle.innerText = `${symbol} // QUANT TECHNICAL RADAR (INSTITUTIONAL)`;
+        modal.classList.add('active');
+        container.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:#07080B;padding:12px;border-radius:8px;">
+                <img src="charts/${symbol}_chart.png" alt="${symbol} Radar Chart" style="max-width:100%;max-height:540px;border-radius:6px;object-fit:contain;box-shadow:0 8px 24px rgba(0,0,0,0.6);" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'color:#9CA3AF;padding:40px;font-family:monospace;text-align:center;\\'>&#9888;&#65039; Technical radar chart for <b>${symbol}</b> has not been generated yet.<br><br>Run <code>python tools/chart_generator.py --symbol ${symbol}</code> to generate.</div>';">
+            </div>
+        `;
+    }
+
+    document.querySelectorAll('.btn-radar-modal').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const symbol = this.getAttribute('data-symbol');
+            openRadarChart(symbol);
+        });
+    });
 
     document.querySelectorAll('.btn-chart-modal').forEach(btn => {
         btn.addEventListener('click', function(e) {

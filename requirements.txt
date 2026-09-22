@@ -14,3 +14,4 @@ einops>=0.8.0
 huggingface_hub>=0.20.0
 safetensors>=0.4.0
 git+https://github.com/rongardF/tvdatafeed.git
+playwright>=1.40.0

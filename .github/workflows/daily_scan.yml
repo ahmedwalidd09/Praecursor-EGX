@@ -50,6 +50,10 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
+      - name: Install Playwright & Chromium
+        run: |
+          playwright install --with-deps chromium
+
       - name: Restore Database State
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -142,6 +146,7 @@ jobs:
           path: |
             reports/dashboard.html
             reports/opportunity_ranking.csv
+            reports/charts/*.png
             data/scan_status.json
             logs/*.log
           retention-days: 30

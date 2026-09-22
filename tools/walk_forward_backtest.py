@@ -103,10 +103,14 @@ def build_stock_from_prices(symbol: str, run_date: str, conn) -> Stock | None:
     
     rows = conn.execute("""
         SELECT trade_date, open, high, low, close, volume
-        FROM source_prices
-        WHERE ticker = ? AND trade_date <= ?
+        FROM (
+            SELECT trade_date, open, high, low, close, volume
+            FROM source_prices
+            WHERE ticker = ? AND trade_date <= ?
+            ORDER BY trade_date DESC
+            LIMIT 300
+        )
         ORDER BY trade_date ASC
-        LIMIT 300
     """, (symbol, run_date_end)).fetchall()
 
     if len(rows) < 20:

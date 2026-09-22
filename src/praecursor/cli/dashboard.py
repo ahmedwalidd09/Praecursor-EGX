@@ -113,12 +113,19 @@ def run_pipeline_subprocess() -> None:
             encoding="utf-8",
             errors="replace",
         )
-        stdout, _ = pipeline_proc.communicate()
-        if pipeline_proc.returncode != 0:
+        try:
+            stdout, _ = pipeline_proc.communicate(timeout=2400)
+        except subprocess.TimeoutExpired:
+            pipeline_proc.kill()
+            stdout, _ = pipeline_proc.communicate()
+            scan_status["error"] = "Pipeline execution timed out after 40 minutes and was terminated."
+        
+        if pipeline_proc.returncode != 0 and not scan_status.get("error"):
             scan_status["error"] = f"Pipeline finished with returncode {pipeline_proc.returncode}"
     except Exception as e:
         scan_status["error"] = str(e)
     finally:
+        pipeline_proc = None
         scan_status["running"] = False
         scan_status["last_completed"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 

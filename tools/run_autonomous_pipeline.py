@@ -104,9 +104,10 @@ def run_stage(
     cwd: Path,
     max_attempts: int = 3,
     initial_backoff: float = 10.0,
+    timeout_seconds: float = 1200.0,
 ) -> bool:
-    """Execute a single pipeline stage via subprocess with output logging and retry logic."""
-    logger.info(f"=== [Stage {stage_num}] Starting: {stage_name} ===")
+    """Execute a single pipeline stage via subprocess with output logging, timeouts, and retry logic."""
+    logger.info(f"=== [Stage {stage_num}] Starting: {stage_name} (Timeout: {int(timeout_seconds)}s) ===")
     logger.info(f"Command: {' '.join(cmd)}")
     
     for attempt in range(1, max_attempts + 1):
@@ -121,6 +122,7 @@ def run_stage(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                timeout=timeout_seconds,
             )
             if res.stdout:
                 for line in res.stdout.splitlines():
@@ -136,6 +138,15 @@ def run_stage(
                 logger.error(
                     f"=== [Stage {stage_num}] Attempt {attempt}/{max_attempts} Failed: {stage_name} (Exit Code: {return_code}) ==="
                 )
+        except subprocess.TimeoutExpired as te:
+            logger.error(
+                f"=== [Stage {stage_num}] TimeoutExpired ({timeout_seconds}s limit) in {stage_name} (Attempt {attempt}/{max_attempts}) ==="
+            )
+            if te.stdout:
+                for line in str(te.stdout).splitlines():
+                    clean_line = line.rstrip()
+                    if clean_line:
+                        logger.info(clean_line)
         except Exception as e:
             logger.error(f"=== [Stage {stage_num}] Unexpected exception in {stage_name} (Attempt {attempt}/{max_attempts}): {e} ===")
         
@@ -241,6 +252,7 @@ def run_pipeline(
             "Daily Scanner",
             s1_cmd,
             root,
+            timeout_seconds=900.0,
         )
         if not s1_ok:
             pipeline_error = "Stage 1 (Scanner) failed. Aborting downstream pipeline execution."
@@ -259,7 +271,7 @@ def run_pipeline(
             project_root=root,
         )
         outcome_cmd = [python_exe, "tools/track_outcomes.py"]
-        s1_5_ok = run_stage(logger, 1.5, "Outcome Backfill", outcome_cmd, root)
+        s1_5_ok = run_stage(logger, 1.5, "Outcome Backfill", outcome_cmd, root, timeout_seconds=300.0)
         if s1_5_ok:
             stages_passed += 1
         else:
@@ -281,6 +293,7 @@ def run_pipeline(
             "Model Retraining",
             [python_exe, "tools/retrain_models.py"],
             root,
+            timeout_seconds=600.0,
         )
         if s2_ok:
             stages_passed += 1
@@ -303,6 +316,7 @@ def run_pipeline(
             "Dashboard Regeneration",
             [python_exe, "tools/regenerate_dashboard.py"],
             root,
+            timeout_seconds=300.0,
         )
         if s3_ok:
             stages_passed += 1
@@ -336,6 +350,7 @@ def run_pipeline(
             "Telegram Summary Broadcast",
             telegram_cmd,
             root,
+            timeout_seconds=180.0,
         )
 
         if s4_ok:

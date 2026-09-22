@@ -11,7 +11,7 @@ def fetch_tradingview_symbols():
         'filter': [{'left': 'type', 'operation': 'in_range', 'right': ['stock', 'dr', 'fund']}]
     }
     print(f"Fetching from {url}...")
-    res = requests.post(url, json=payload)
+    res = requests.post(url, json=payload, timeout=30)
     if res.status_code != 200:
         raise RuntimeError(f"Failed to fetch symbols: {res.status_code} {res.text}")
     

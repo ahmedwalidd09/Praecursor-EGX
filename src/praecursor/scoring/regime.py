@@ -21,15 +21,50 @@ _REGIME_CACHE = None
 _REGIME_CACHE_TIME = 0
 _REGIME_CACHE_TTL = 14400  # 4 hours in seconds
 
+_DB_PATH = Path(__file__).resolve().parents[3] / "database" / "praecursor.db"
+
+
+def _load_egx30_from_db(lookback_days: int = 1000) -> pd.DataFrame:
+    """Fallback: load COMI daily price history from source_prices in local SQLite."""
+    try:
+        import sqlite3
+        if not _DB_PATH.exists():
+            return pd.DataFrame()
+        with sqlite3.connect(str(_DB_PATH)) as conn:
+            query = """
+            SELECT trade_date, open as Open, high as High, low as Low, close as Close, volume as Volume
+            FROM (
+                SELECT trade_date, open, high, low, close, volume
+                FROM source_prices
+                WHERE ticker = 'COMI'
+                ORDER BY trade_date DESC
+                LIMIT ?
+            )
+            ORDER BY trade_date ASC
+            """
+            df = pd.read_sql(query, conn, params=(lookback_days,))
+        if not df.empty:
+            df["trade_date"] = pd.to_datetime(df["trade_date"])
+            df.set_index("trade_date", inplace=True)
+            df.index.name = "Date"
+            logger.info(f"[REGIME] Successfully loaded {len(df)} bars of COMI from local database as fallback.")
+            return df
+    except Exception as exc:
+        logger.warning(f"[REGIME] Fallback DB query failed: {exc}")
+    return pd.DataFrame()
+
+
 def get_egx30_data(lookback_days=1000) -> pd.DataFrame:
     global _EGX30_CACHE, _EGX30_CACHE_TIME
-    if _EGX30_CACHE is not None and (time.time() - _EGX30_CACHE_TIME) < _REGIME_CACHE_TTL:
+    if _EGX30_CACHE is not None and not _EGX30_CACHE.empty and (time.time() - _EGX30_CACHE_TIME) < _REGIME_CACHE_TTL:
         return _EGX30_CACHE
     try:
         ticker = yf.Ticker("COMI.CA")
         df = ticker.history(period=f"{lookback_days}d")
+        if df is None or df.empty:
+            logger.warning("Could not fetch EGX30 data from Yahoo. Attempting local DB fallback...")
+            df = _load_egx30_from_db(lookback_days)
         if df.empty:
-            logger.warning("Could not fetch EGX30 data from Yahoo.")
             _EGX30_CACHE = df
             _EGX30_CACHE_TIME = time.time()
             return df
@@ -38,8 +73,9 @@ def get_egx30_data(lookback_days=1000) -> pd.DataFrame:
         _EGX30_CACHE = df.dropna()
         _EGX30_CACHE_TIME = time.time()
     except Exception as e:
-        logger.error(f"Error fetching EGX30: {e}")
-        _EGX30_CACHE = pd.DataFrame()
+        logger.warning(f"Error fetching EGX30 from Yahoo: {e}. Attempting local DB fallback...")
+        df = _load_egx30_from_db(lookback_days)
+        _EGX30_CACHE = df.dropna() if not df.empty else pd.DataFrame()
         _EGX30_CACHE_TIME = time.time()
     return _EGX30_CACHE
 

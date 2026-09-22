@@ -246,7 +246,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--symbols", help="Comma-separated symbols for scanner run, e.g. COMI,SWDY.")
     parser.add_argument("--message", help="Send a custom Telegram message instead of scanner output.")
     parser.add_argument("--top", type=int, default=5, help="Number of candidates per section. Default: 5.")
-    parser.add_argument("--top-charts", type=int, default=3, help="Max number of candidate charts to send as photos. Default: 3.")
+    parser.add_argument("--top-charts", type=int, default=5, help="Max number of candidate charts to send as photos. Default: 5.")
     parser.add_argument("--no-charts", action="store_true", help="Skip sending candlestick chart images.")
     parser.add_argument("--send-files", action="store_true", help="Also send CSV/HTML/Markdown report files.")
     parser.add_argument("--dry-run", action="store_true", help="Print message without sending to Telegram.")

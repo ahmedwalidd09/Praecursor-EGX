@@ -660,7 +660,7 @@ class TelegramReportFormatter:
         return "\n\n".join(blocks)
 
 
-def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: int = 3, verbose: bool = True) -> int:
+def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: int = 5, verbose: bool = True) -> int:
     """Dispatch high-resolution chart photos for the top actionable candidates to Telegram."""
     charts_dir = PROJECT_ROOT / "reports" / "charts"
     sent_count = 0
@@ -771,7 +771,7 @@ def dispatch_telegram_scan_briefing(result=None, top_n: int = 5, verbose: bool =
             if verbose:
                 print(f"[Telegram] [SUCCESS] Scan report delivered to Chat ID {settings.chat_id}!")
             if send_charts:
-                dispatch_candidate_charts(client, result=result, max_charts=3, verbose=verbose)
+                dispatch_candidate_charts(client, result=result, max_charts=5, verbose=verbose)
             return True
         else:
             if verbose:

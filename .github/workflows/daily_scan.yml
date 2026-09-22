@@ -1,6 +1,9 @@
 name: Praecursor-EGX Autonomous Scanner
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Run Saturday through Wednesday at 12:30 UTC (15:30 / 3:30 PM Cairo Time)
     # Generates next-day target briefing before each trading day
@@ -106,7 +109,7 @@ jobs:
           PYTHONPATH: "src"
         run: |
           FLAGS=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "${{ github.event.inputs.force }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then
             FLAGS="$FLAGS --force"
           fi
           if [ "${{ github.event.inputs.dry_run_telegram }}" = "true" ]; then

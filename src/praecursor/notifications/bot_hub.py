@@ -618,8 +618,13 @@ class TelegramBotHub:
 
         return events
 
-    def run_polling(self, poll_interval: float = 2.0, max_iterations: int | None = None) -> None:
-        """Run long-polling daemon until interrupted."""
+    def run_polling(
+        self,
+        poll_interval: float = 2.0,
+        max_iterations: int | None = None,
+        stop_event: Any | None = None,
+    ) -> None:
+        """Run long-polling daemon until interrupted or stop_event is set."""
         print(f"[BotHub] Starting Telegram Bot Hub long-polling daemon (interval: {poll_interval}s)...")
         print(f"[BotHub] Super-Admin Chat ID: {self.admin_chat_id or 'Not Configured'}")
         print(f"[BotHub] Whitelisted terminals: {len(self.store.get_whitelisted_users())}")
@@ -627,6 +632,8 @@ class TelegramBotHub:
         iterations = 0
         try:
             while True:
+                if stop_event is not None and getattr(stop_event, "is_set", lambda: False)():
+                    break
                 if max_iterations is not None and iterations >= max_iterations:
                     break
                 try:

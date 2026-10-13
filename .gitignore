@@ -16,6 +16,8 @@ logs/
 
 # Secrets & Credentials
 config/telegram.json
+*.lic
+data/*.lic
 
 # Database
 database/*.db

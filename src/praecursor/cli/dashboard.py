@@ -8,9 +8,10 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import socket
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -25,6 +26,12 @@ for stream in (sys.stdout, sys.stderr):
 from praecursor.core.settings import ScannerSettings
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.reporting.dashboard import DEFAULT_DASHBOARD_REPORT
+from praecursor.security.access_gate import (
+    check_telegram_approval,
+    get_short_node_id,
+    is_machine_whitelisted,
+    send_telegram_access_request,
+)
 from praecursor.workflows.scanner import ScannerWorkflow
 
 PROJECT_ROOT = DEFAULT_DASHBOARD_REPORT.parent.parent
@@ -1062,10 +1069,436 @@ MISSION_CONTROL_HTML = """<!doctype html>
 """
 
 
+def render_access_gate_html() -> str:
+    node_id = get_short_node_id()
+    hostname = socket.gethostname()
+    username = os.environ.get("USERNAME", "Unknown")
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PRAECURSOR // EGX — Institutional Access Gate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg-dark: #07090e;
+      --bg-card: rgba(13, 18, 36, 0.78);
+      --cyan-neon: #00f2fe;
+      --cyan-glow: rgba(0, 242, 254, 0.35);
+      --blue-accent: #4facfe;
+      --emerald-neon: #10b981;
+      --red-accent: #ef4444;
+      --border-subtle: rgba(56, 189, 248, 0.22);
+      --border-active: rgba(0, 242, 254, 0.65);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }}
+
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+    body {{
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(ellipse at 50% 15%, rgba(0, 242, 254, 0.08) 0%, transparent 65%),
+        radial-gradient(circle at 85% 85%, rgba(79, 172, 254, 0.05) 0%, transparent 50%),
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+    }}
+
+    .gate-container {{
+      width: 100%;
+      max-width: 620px;
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 24px;
+      padding: 38px 36px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 45px rgba(0, 242, 254, 0.08);
+      position: relative;
+      overflow: hidden;
+    }}
+
+    .gate-container::before {{
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--cyan-neon), transparent);
+    }}
+
+    .top-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 242, 254, 0.12);
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      color: var(--cyan-neon);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 18px;
+    }}
+
+    .top-badge .dot {{
+      width: 6px;
+      height: 6px;
+      background: var(--cyan-neon);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--cyan-neon);
+    }}
+
+    h1.gate-header {{
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: #fff;
+      line-height: 1.4;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }}
+
+    p.gate-sub {{
+      color: var(--text-muted);
+      font-size: 13.5px;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }}
+
+    .terminal-card {{
+      background: rgba(7, 10, 20, 0.65);
+      border: 1px solid rgba(56, 189, 248, 0.16);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }}
+
+    .card-row {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }}
+
+    .card-label {{
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      font-weight: 500;
+    }}
+
+    .card-value {{
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: #fff;
+    }}
+
+    .card-value.highlight-cyan {{
+      color: var(--cyan-neon);
+      text-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+    }}
+
+    .card-value.status-locked {{
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+    }}
+
+    .card-value.status-ok {{
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+    }}
+
+    .btn {{
+      width: 100%;
+      padding: 13px 20px;
+      border-radius: 12px;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.25s ease;
+      outline: none;
+    }}
+
+    .btn-telegram {{
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(2, 132, 199, 0.3));
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+      box-shadow: 0 4px 18px rgba(2, 132, 199, 0.2);
+      margin-bottom: 22px;
+    }}
+
+    .btn-telegram:hover:not(:disabled) {{
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
+      border-color: var(--cyan-neon);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.35);
+      transform: translateY(-1px);
+    }}
+
+    .btn-verify {{
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(37, 99, 235, 0.35);
+    }}
+
+    .btn-verify:hover:not(:disabled) {{
+      background: linear-gradient(135deg, #00f2fe, #4facfe);
+      color: #070913;
+      box-shadow: 0 0 25px rgba(0, 242, 254, 0.5);
+      transform: translateY(-1px);
+    }}
+
+    .btn:disabled {{
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none !important;
+    }}
+
+    .input-group {{
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 22px;
+    }}
+
+    .pin-input {{
+      width: 100%;
+      background: rgba(7, 10, 20, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 12px;
+      padding: 13px 18px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 15px;
+      letter-spacing: 2px;
+      outline: none;
+      transition: all 0.2s ease;
+      text-align: center;
+    }}
+
+    .pin-input:focus {{
+      border-color: var(--cyan-neon);
+      box-shadow: 0 0 16px rgba(0, 242, 254, 0.3);
+      background: rgba(13, 18, 36, 0.95);
+    }}
+
+    .pin-input::placeholder {{
+      color: #64748b;
+      letter-spacing: 0.5px;
+      font-size: 13.5px;
+    }}
+
+    .helper-text {{
+      font-size: 12.5px;
+      color: #94a3b8;
+      text-align: center;
+      line-height: 1.5;
+      font-style: italic;
+    }}
+
+    .toast-msg {{
+      display: none;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 18px;
+      text-align: center;
+      font-weight: 500;
+    }}
+
+    .toast-success {{
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+    }}
+
+    .toast-error {{
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #f87171;
+    }}
+
+    .toast-info {{
+      background: rgba(0, 242, 254, 0.12);
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      color: var(--cyan-neon);
+    }}
+  </style>
+</head>
+<body>
+  <div class="gate-container">
+    <div class="top-badge"><div class="dot"></div> CRYPTO-GATE // HARDWARE RESTRICTED</div>
+    <h1 class="gate-header">🔒 PRAECURSOR-EGX // INSTITUTIONAL ACCESS GATE</h1>
+    <p class="gate-sub">This terminal workstation is not currently authorized. An institutional cryptographic permission slip is required to unlock Mission Control.</p>
+
+    <div class="terminal-card">
+      <div class="card-row">
+        <span class="card-label">Node ID:</span>
+        <span class="card-value highlight-cyan" id="disp-node">{node_id}</span>
+      </div>
+      <div class="card-row">
+        <span class="card-label">Host:</span>
+        <span class="card-value">{hostname}</span>
+      </div>
+      <div class="card-row">
+        <span class="card-label">User:</span>
+        <span class="card-value">{username}</span>
+      </div>
+      <div class="card-row">
+        <span class="card-label">Platform:</span>
+        <span class="card-value">Windows x64 (HMAC-SHA256)</span>
+      </div>
+      <div class="card-row">
+        <span class="card-label">Terminal Status:</span>
+        <span class="card-value status-locked" id="disp-status">LOCKED (UNAUTHORIZED)</span>
+      </div>
+    </div>
+
+    <div id="toast" class="toast-msg"></div>
+
+    <button id="req-btn" class="btn btn-telegram" onclick="requestTelegramAccess()">
+      🚀 Request Access via Telegram
+    </button>
+
+    <div class="input-group">
+      <input type="text" id="pin-input" class="pin-input" placeholder="Enter Permission Slip PIN Code" autofocus />
+      <button id="verify-btn" class="btn btn-verify" onclick="verifyPin()">
+        🔑 Verify & Unlock Terminal
+      </button>
+    </div>
+
+    <p class="helper-text">
+      Your request is sent to the Administrator. Enter the PIN provided to permanently authorize this terminal.
+    </p>
+  </div>
+
+  <script>
+    function showToast(msg, type) {{
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.className = 'toast-msg ' + (type === 'success' ? 'toast-success' : type === 'error' ? 'toast-error' : 'toast-info');
+      t.style.display = 'block';
+    }}
+
+    function requestTelegramAccess() {{
+      const btn = document.getElementById('req-btn');
+      btn.disabled = true;
+      btn.innerText = 'DISPATCHING ACCESS REQUEST...';
+      showToast('Transmitting access request to Administrator Telegram...', 'info');
+
+      fetch('/api/access/request', {{ method: 'POST' }})
+        .then(r => r.json())
+        .then(d => {{
+          if (d.ok) {{
+            showToast('✅ Access request dispatched to Telegram! Reply to message or enter PIN below.', 'success');
+            btn.innerText = '✅ Request Sent via Telegram';
+          }} else {{
+            showToast('❌ ' + (d.message || 'Failed to dispatch request.'), 'error');
+            btn.disabled = false;
+            btn.innerText = '🚀 Request Access via Telegram';
+          }}
+        }})
+        .catch(err => {{
+          showToast('❌ Network error: ' + err, 'error');
+          btn.disabled = false;
+          btn.innerText = '🚀 Request Access via Telegram';
+        }});
+    }}
+
+    function verifyPin() {{
+      const pin = document.getElementById('pin-input').value.trim();
+      const btn = document.getElementById('verify-btn');
+      btn.disabled = true;
+      btn.innerText = 'VERIFYING CREDENTIALS...';
+      showToast('Validating Telegram approval & HMAC license...', 'info');
+
+      fetch('/api/access/verify', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ pin: pin }})
+      }})
+        .then(r => r.json())
+        .then(d => {{
+          if (d.ok) {{
+            showToast('🎉 ' + (d.message || 'PIN verified! Terminal whitelisted permanently.'), 'success');
+            btn.innerText = '✅ TERMINAL UNLOCKED';
+            const stat = document.getElementById('disp-status');
+            stat.className = 'card-value status-ok';
+            stat.innerText = 'AUTHORIZED // WHITELISTED';
+            setTimeout(() => {{
+              window.location.reload();
+            }}, 1200);
+          }} else {{
+            showToast('❌ ' + (d.message || 'PIN verification failed.'), 'error');
+            btn.disabled = false;
+            btn.innerText = '🔑 Verify & Unlock Terminal';
+          }}
+        }})
+        .catch(err => {{
+          showToast('❌ Error: ' + err, 'error');
+          btn.disabled = false;
+          btn.innerText = '🔑 Verify & Unlock Terminal';
+        }});
+    }}
+
+    document.getElementById('pin-input').addEventListener('keypress', function(e) {{
+      if (e.key === 'Enter') {{
+        verifyPin();
+      }}
+    }});
+  </script>
+</body>
+</html>
+"""
+
+
 @app.get("/", response_class=HTMLResponse)
 async def get_mission_control() -> HTMLResponse:
-    """Serve the dedicated Cyberpunk Mission Control Launch Screen."""
-    response = HTMLResponse(MISSION_CONTROL_HTML)
+    """Serve the dedicated Cyberpunk Mission Control Launch Screen or Access Gate."""
+    if not is_machine_whitelisted():
+        response = HTMLResponse(render_access_gate_html())
+    else:
+        response = HTMLResponse(MISSION_CONTROL_HTML)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -1074,7 +1507,14 @@ async def get_mission_control() -> HTMLResponse:
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard_terminal() -> Any:
-    """Serve the full terminal dashboard (reports/dashboard.html)."""
+    """Serve the full terminal dashboard (reports/dashboard.html) or Access Gate."""
+    if not is_machine_whitelisted():
+        response = HTMLResponse(render_access_gate_html())
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     if not DEFAULT_DASHBOARD_REPORT.exists():
         return RedirectResponse(url="/", status_code=303)
 
@@ -1124,6 +1564,35 @@ async def get_dashboard_terminal() -> Any:
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/api/access/status")
+async def get_access_status() -> dict[str, Any]:
+    return {
+        "whitelisted": is_machine_whitelisted(),
+        "node_id": get_short_node_id(),
+    }
+
+
+@app.post("/api/access/request")
+async def request_access() -> dict[str, Any]:
+    ok, message = send_telegram_access_request()
+    return {"ok": ok, "message": message}
+
+
+@app.post("/api/access/verify")
+async def verify_access(request: Request) -> dict[str, Any]:
+    pin = ""
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            pin = str(body.get("pin", "")).strip()
+    except Exception:
+        pass
+    if not pin:
+        pin = request.query_params.get("pin", "").strip()
+    ok, message = check_telegram_approval(entered_pin=pin)
+    return {"ok": ok, "message": message}
 
 
 @app.get("/api/status")

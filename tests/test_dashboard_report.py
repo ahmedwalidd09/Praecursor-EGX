@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
@@ -102,7 +103,12 @@ class TestMissionControlEndpoints(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
         from praecursor.cli.dashboard import app
+        self.patcher = patch("praecursor.cli.dashboard.is_machine_whitelisted", return_value=True)
+        self.patcher.start()
         self.client = TestClient(app)
+
+    def tearDown(self):
+        self.patcher.stop()
 
     def test_mission_control_homepage_renders_and_validates(self):
         res = self.client.get("/")

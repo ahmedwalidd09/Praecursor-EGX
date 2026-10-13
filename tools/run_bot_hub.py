@@ -10,12 +10,18 @@ from pathlib import Path
 import sys
 import time
 
+import os
+
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure") and stream is not None:
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 
 from praecursor.notifications.bot_hub import TelegramBotHub
 from praecursor.notifications.telegram import TelegramSettings
@@ -113,13 +119,13 @@ def main() -> int:
     parser.add_argument("--interval", type=float, default=2.0, help="Polling cycle interval in seconds (default: 2.0s).")
     args = parser.parse_args()
 
-    if args.test:
-        return run_test()
+    if args.daemon:
+        return run_daemon(poll_interval=args.interval)
     elif args.broadcast_latest:
         return run_broadcast()
     else:
-        # Default mode is running the daemon
-        return run_daemon(poll_interval=args.interval)
+        # Default mode is diagnostic self-test (non-daemon)
+        return run_test()
 
 
 if __name__ == "__main__":

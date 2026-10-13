@@ -51,7 +51,7 @@ def load_latest_scan_result() -> MinimalRunResult | None:
     """Fetch latest scanner run results directly from database and calculate high-fidelity structural levels."""
     from praecursor.scoring.opportunity_score import OpportunityScore
     from praecursor.consensus.price_consensus import PriceConsensusResult
-    from praecursor.scoring.next_day import calculate_next_day_prediction
+    from praecursor.scoring.next_day import NextDayPrediction
 
     store = SignalHistoryStore()
     try:
@@ -77,8 +77,8 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                 row = dict(r)
                 sym = row.get("symbol", "UNKNOWN")
                 comp = row.get("company", sym)
-                latest_c = row.get("latest_close", 0.0) or 0.0
-                opp_s = row.get("opportunity_score", 0.0) or 0.0
+                latest_c = float(row.get("latest_close", 0.0) or 0.0)
+                opp_s = float(row.get("opportunity_score", 0.0) or 0.0)
 
                 ind_json = row.get("indicator_values_json")
                 ind_values = {}
@@ -97,40 +97,44 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                     latest_close=latest_c
                 )
 
-                consensus = None
-                consensus_conf = row.get("consensus_confidence", 0.0) or 0.0
-                if consensus_conf > 0:
-                    consensus = PriceConsensusResult(
-                        symbol=sym,
-                        trade_date=generated_at.date(),
-                        consensus_close=latest_c,
-                        source_count=3,
-                        agreeing_source_count=3,
-                        target_source_count=3,
-                        tolerance_percent=0.01,
-                        minimum_agreeing_sources=2,
-                        accepted=True,
-                        agreements=[],
-                        warnings=[]
-                    )
+                target_p = float(row.get("next_day_target", 0.0) or 0.0)
+                stop_p = float(row.get("next_day_stop_loss", 0.0) or (row.get("swing_stop_loss", 0.0) or 0.0))
+                if target_p <= 0:
+                    target_p = latest_c * 1.05
+                if stop_p <= 0:
+                    stop_p = latest_c * 0.95
+                nd_s = float(row.get("next_day_score", 0.0) or 0.0)
+                nd_lbl = str(row.get("next_day_label", "") or "")
+                reasons_raw = str(row.get("next_day_reasons", "") or "")
+                reasons_list = [r.strip() for r in reasons_raw.split(";") if r.strip()] if reasons_raw else [f"Score: {nd_s:.1f}% based on technical indicators"]
 
-                next_day_pred = calculate_next_day_prediction(
-                    opportunity_score=opp_score,
-                    consensus_accepted=consensus.accepted if consensus else False,
-                    data_quality_score=row.get("data_quality_score", 100.0) or 100.0,
+                k_fraction = 0.0
+                w_p = max(0.40, min(0.50 + max(0.0, nd_s - 50.0) * 0.005, 0.62))
+                t_pct = (target_p - latest_c) / latest_c if latest_c > 0 else 0.0
+                s_pct = (latest_c - stop_p) / latest_c if latest_c > 0 else 0.0
+                if t_pct > 0 and s_pct > 0:
+                    b = t_pct / s_pct
+                    k_fraction = max(0.0, min((w_p - ((1.0 - w_p) / b)) * 0.5, 0.25))
+
+                next_day_pred = NextDayPrediction(
+                    score=nd_s,
+                    label=nd_lbl,
+                    reasons=reasons_list,
+                    latest_close=latest_c,
+                    target_price=target_p,
+                    stop_loss_price=stop_p,
+                    kelly_fraction=k_fraction,
                 )
 
                 item = MinimalResultRow(
                     symbol=sym,
                     next_day_score=next_day_pred.score,
-                    next_day_label=row.get("next_day_label") or next_day_pred.label,
+                    next_day_label=nd_lbl or next_day_pred.label,
                     opportunity_score=opp_score,
                     next_day_reasons=next_day_pred.reasons_text,
                     next_day_prediction=next_day_pred,
                 )
                 symbol_results.append(item)
-
-            symbol_results = sorted(symbol_results, key=lambda x: x.next_day_score, reverse=True)
 
             # Top Pick badging matching workflow & dashboard
             top_pick_num = 0
@@ -218,19 +222,25 @@ def main() -> int:
         print("python tools/send_telegram_report.py --token YOUR_TOKEN --chat-id YOUR_CHAT_ID")
         return 1
 
-    client = TelegramClient(settings)
-    resp = client.send_message(message, parse_mode="HTML")
-    if resp.get("ok"):
-        print(f"[Telegram] [SUCCESS] Scan report delivered to Chat ID {settings.chat_id}!")
+    from praecursor.notifications.bot_hub import TelegramBotHub
+    hub = TelegramBotHub(settings=settings)
+
+    if args.message:
+        sent_count = hub.broadcast_message(args.message)
+        print(f"[Telegram] [SUCCESS] Message broadcast to {sent_count} terminals.")
     else:
-        print(f"[Telegram] [ERROR] Delivery failed: {resp}")
-        return 1
+        broadcast_res = hub.broadcast_scan_briefing(
+            run_result=result,
+            top_n=args.top,
+            send_charts=not args.no_charts,
+            verbose=True,
+        )
+        if broadcast_res.get("ok"):
+            print(f"[Telegram] [SUCCESS] Broadcast delivered to {broadcast_res.get('sent_count')} terminals ({broadcast_res.get('charts_count')} charts).")
+        else:
+            print(f"[Telegram] [WARNING] Broadcast finished with result: {broadcast_res}")
 
-    if not args.no_charts and result is not None:
-        from praecursor.notifications.telegram import dispatch_candidate_charts
-        charts_sent = dispatch_candidate_charts(client, result=result, max_charts=args.top_charts, verbose=True)
-        print(f"[Telegram] Delivered {charts_sent} visual technical radar charts as photos.")
-
+    client = TelegramClient(settings)
     if args.send_files and result is not None:
         send_report_files(client, result)
 

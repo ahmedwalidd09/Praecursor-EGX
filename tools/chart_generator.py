@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
-from playwright.sync_api import sync_playwright
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -594,16 +593,21 @@ def render_chart_to_png(symbol: str, output_path: Path | None = None) -> Path | 
         
     png_path = output_path or (CHARTS_DIR / f"{symbol}_chart.png")
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
-        page.goto(html_file.as_uri())
-        page.wait_for_timeout(300)  # ensure canvas render
-        page.screenshot(path=str(png_path), type="png")
-        browser.close()
-        
-    print(f"Chart saved: {png_path} ({png_path.stat().st_size} bytes)")
-    return png_path
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
+            page.goto(html_file.as_uri())
+            page.wait_for_timeout(300)  # ensure canvas render
+            page.screenshot(path=str(png_path), type="png")
+            browser.close()
+            
+        print(f"Chart saved: {png_path} ({png_path.stat().st_size} bytes)")
+        return png_path
+    except Exception as e:
+        print(f"Error rendering chart with Playwright for {symbol}: {e}")
+        return None
 
 def generate_top_candidates_charts(top_n: int = 5) -> list[Path]:
     """Generate charts for the top N actionable non-avoid candidates in opportunity_ranking.csv."""

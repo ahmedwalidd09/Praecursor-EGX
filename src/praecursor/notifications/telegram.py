@@ -23,8 +23,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_PATH = PROJECT_ROOT / "config" / "telegram.json"
 DASHBOARD_PATH = PROJECT_ROOT / "reports" / "dashboard.html"
 
-FALLBACK_BOT_TOKEN = "8698596219:AAEl4jwnm3XeBzjwrx9jWBxnNpU7UpdFA3w"
-FALLBACK_CHAT_ID = "8196296723"
+FALLBACK_BOT_TOKEN = ""
+FALLBACK_CHAT_ID = ""
 
 
 @dataclass(frozen=True)
@@ -149,19 +149,29 @@ class TelegramClient:
 
         return chunks
 
-    def send_message(self, text: str, parse_mode: str = "HTML", max_retries: int = 3) -> dict[str, Any]:
+    def send_message(
+        self,
+        text: str,
+        chat_id: str | int | None = None,
+        parse_mode: str = "HTML",
+        reply_to_message_id: int | None = None,
+        max_retries: int = 3,
+    ) -> dict[str, Any]:
         if not self.settings.is_configured:
             logger.warning("Telegram bot credentials not configured.")
             return {"ok": False, "description": "Credentials not configured"}
 
+        target_chat_id = str(chat_id) if chat_id is not None else self.settings.chat_id
         chunks = self.split_message(text, max_length=4000)
         last_resp = {"ok": True}
         for chunk in chunks:
             payload = {
-                "chat_id": self.settings.chat_id,
+                "chat_id": target_chat_id,
                 "text": chunk,
                 "disable_web_page_preview": True,
             }
+            if reply_to_message_id is not None:
+                payload["reply_to_message_id"] = reply_to_message_id
             if parse_mode:
                 payload["parse_mode"] = parse_mode
 
@@ -206,14 +216,20 @@ class TelegramClient:
 
         return last_resp
 
-    def send_document(self, file_path: Path, caption: str = "") -> dict[str, Any]:
+    def send_document(
+        self,
+        file_path: Path,
+        caption: str = "",
+        chat_id: str | int | None = None,
+    ) -> dict[str, Any]:
         if not self.settings.is_configured:
             return {"ok": False, "description": "Credentials not configured"}
 
+        target_chat_id = str(chat_id) if chat_id is not None else self.settings.chat_id
         boundary = "----PraecursorEGXBoundary"
         file_bytes = Path(file_path).read_bytes()
         body_parts = [
-            self._form_field(boundary, "chat_id", self.settings.chat_id),
+            self._form_field(boundary, "chat_id", target_chat_id),
         ]
 
         if caption:
@@ -238,7 +254,14 @@ class TelegramClient:
         )
         return self._send_json_request(request)
 
-    def send_photo(self, photo_path: Path, caption: str = "", parse_mode: str = "HTML") -> dict[str, Any]:
+    def send_photo(
+        self,
+        photo_path: Path,
+        caption: str = "",
+        parse_mode: str = "HTML",
+        chat_id: str | int | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> dict[str, Any]:
         """Send a photo image to Telegram with optional caption and HTML formatting."""
         if not self.settings.is_configured:
             return {"ok": False, "description": "Credentials not configured"}
@@ -247,14 +270,18 @@ class TelegramClient:
         if not p.exists() or not p.is_file():
             return {"ok": False, "description": f"Photo not found: {p}"}
 
+        target_chat_id = str(chat_id) if chat_id is not None else self.settings.chat_id
         boundary = "----PraecursorEGXPhotoBoundary"
         file_bytes = p.read_bytes()
         filename = p.name
         content_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
 
         body_parts = [
-            self._form_field(boundary, "chat_id", self.settings.chat_id),
+            self._form_field(boundary, "chat_id", target_chat_id),
         ]
+
+        if reply_to_message_id is not None:
+            body_parts.append(self._form_field(boundary, "reply_to_message_id", str(reply_to_message_id)))
 
         if caption:
             # Telegram photo caption limit is 1024 characters
@@ -280,6 +307,23 @@ class TelegramClient:
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         )
         return self._send_json_request(request)
+
+    def get_updates(self, offset: int | None = None, timeout: int = 10, limit: int = 100) -> dict[str, Any]:
+        """Fetch incoming bot updates via long polling."""
+        if not self.settings.is_configured:
+            return {"ok": False, "result": []}
+
+        params: dict[str, Any] = {"timeout": timeout, "limit": limit}
+        if offset is not None:
+            params["offset"] = offset
+
+        query_str = urllib.parse.urlencode(params)
+        request = urllib.request.Request(f"{self.base_url}/getUpdates?{query_str}")
+        try:
+            return self._send_json_request(request)
+        except Exception as e:
+            logger.warning(f"Telegram getUpdates failed: {e}")
+            return {"ok": False, "result": [], "error": str(e)}
 
     def _form_field(self, boundary: str, name: str, value: str) -> bytes:
         return (
@@ -660,7 +704,13 @@ class TelegramReportFormatter:
         return "\n\n".join(blocks)
 
 
-def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: int = 5, verbose: bool = True) -> int:
+def dispatch_candidate_charts(
+    client: TelegramClient,
+    result=None,
+    max_charts: int = 5,
+    verbose: bool = True,
+    chat_id: str | int | None = None,
+) -> int:
     """Dispatch high-resolution chart photos for the top actionable candidates to Telegram."""
     charts_dir = PROJECT_ROOT / "reports" / "charts"
     sent_count = 0
@@ -687,6 +737,8 @@ def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: i
     
     # Sort by next_day_score descending
     actionable.sort(key=lambda x: getattr(x, "next_day_score", 0.0), reverse=True)
+
+    target_cid = str(chat_id) if chat_id is not None else client.settings.chat_id
 
     for rank, item in enumerate(actionable[:max_charts], start=1):
         sym = getattr(item, "symbol", "")
@@ -726,8 +778,8 @@ def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: i
 
         try:
             if verbose:
-                print(f"[Telegram] Sending technical radar chart for {sym} to Chat ID {client.settings.chat_id}...")
-            resp = client.send_photo(Path(chart_png), caption=caption, parse_mode="HTML")
+                print(f"[Telegram] Sending technical radar chart for {sym} to Chat ID {target_cid}...")
+            resp = client.send_photo(Path(chart_png), caption=caption, parse_mode="HTML", chat_id=target_cid)
             if resp.get("ok"):
                 sent_count += 1
                 if verbose:
@@ -743,12 +795,21 @@ def dispatch_candidate_charts(client: TelegramClient, result=None, max_charts: i
 
 
 def dispatch_telegram_scan_briefing(result=None, top_n: int = 5, verbose: bool = True, send_charts: bool = True) -> bool:
-    """Send latest scan report and top candidate chart photos to Telegram bot."""
+    """Send latest scan report and top candidate chart photos to Telegram bot and whitelisted terminals."""
     settings = TelegramSettings.load()
     if not settings.is_configured:
         if verbose:
             print("[Telegram] Bot credentials not configured in config/telegram.json or ENV. Skipping Telegram dispatch.")
         return False
+
+    try:
+        from praecursor.notifications.bot_hub import TelegramBotHub
+        hub = TelegramBotHub(settings=settings)
+        res = hub.broadcast_scan_briefing(run_result=result, top_n=top_n, send_charts=send_charts, verbose=verbose)
+        return bool(res.get("ok"))
+    except Exception as e:
+        if verbose:
+            print(f"[Telegram] BotHub broadcast fallback: {e}")
 
     client = TelegramClient(settings)
     formatter = TelegramReportFormatter()

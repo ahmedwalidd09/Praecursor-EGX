@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS scanner_signals (
     next_day_score REAL DEFAULT 0,
     next_day_label TEXT DEFAULT '',
     next_day_target REAL DEFAULT 0,
+    next_day_stop_loss REAL DEFAULT 0,
+    next_day_reasons TEXT DEFAULT '',
     swing_score REAL DEFAULT 0,
     swing_label TEXT DEFAULT '',
     swing_stop_loss REAL DEFAULT 0,
@@ -93,6 +95,8 @@ class SignalHistoryStore:
                 "next_day_score REAL DEFAULT 0",
                 "next_day_label TEXT DEFAULT ''",
                 "next_day_target REAL DEFAULT 0",
+                "next_day_stop_loss REAL DEFAULT 0",
+                "next_day_reasons TEXT DEFAULT ''",
                 "swing_score REAL DEFAULT 0",
                 "swing_label TEXT DEFAULT ''",
                 "swing_stop_loss REAL DEFAULT 0",
@@ -186,7 +190,17 @@ class SignalHistoryStore:
                 # Extract next-day target price from prediction
                 nd_target = 0.0
                 if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
-                    nd_target = float(symbol_result.next_day_prediction.target_price)
+                    nd_target = float(getattr(symbol_result.next_day_prediction, 'target_price', 0.0) or 0.0)
+
+                nd_stop = 0.0
+                if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
+                    nd_stop = float(getattr(symbol_result.next_day_prediction, 'stop_loss_price', 0.0) or 0.0)
+
+                nd_reasons = ""
+                if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
+                    nd_reasons = str(getattr(symbol_result.next_day_prediction, 'reasons_text', '') or '')
+                elif hasattr(symbol_result, 'next_day_reasons') and symbol_result.next_day_reasons:
+                    nd_reasons = str(symbol_result.next_day_reasons)
                     
                 components_json = None
                 if hasattr(score, 'components'):
@@ -224,6 +238,8 @@ class SignalHistoryStore:
                         float(symbol_result.next_day_score),
                         symbol_result.next_day_label,
                         nd_target,
+                        nd_stop,
+                        nd_reasons,
                         swing_score,
                         swing_label,
                         swing_stop_loss,
@@ -251,13 +267,15 @@ class SignalHistoryStore:
                     next_day_score,
                     next_day_label,
                     next_day_target,
+                    next_day_stop_loss,
+                    next_day_reasons,
                     swing_score,
                     swing_label,
                     swing_stop_loss,
                     score_components,
                     indicator_values_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )

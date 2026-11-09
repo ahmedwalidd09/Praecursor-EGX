@@ -86,6 +86,15 @@ jobs:
 
           ls -lh database/
 
+      - name: Restore Accepted Models and Validation Evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view models-latest >/dev/null 2>&1; then
+            gh release download models-latest --pattern model-state.zip --dir data --clobber
+            python tools/model_state.py restore
+          fi
+
       - name: Execute Autonomous Daily Pipeline
         env:
           PYTHONUNBUFFERED: "1"

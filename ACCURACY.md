@@ -65,3 +65,12 @@ The daily shortlist selects five eligible research candidates, with a soft two-p
 GitHub Actions runs Saturday–Wednesday at 18:30 UTC (20:30 Cairo winter / 21:30 summer), using completed prices for the following session. Daily delivery skips expensive model retraining; model evaluation remains an explicit operation. Telegram requires encrypted repository secrets and a successful API response; previews and failures no longer claim delivery. Database release snapshots use SQLite backup, and workflow concurrency prevents overlapping writes.
 
 Validation: 150 tests passed, 10 skipped. Live scan: 176 successful symbols and 59 exclusions, with five ranked candidates and saved reasons. This selection policy is a research shortlist, not a validated increase in trading win rate.
+
+
+## Automatic feedback learning
+
+A separate `model_learning.yml` workflow runs Sunday–Thursday at 19:30 UTC. It refreshes completed prices without publishing a new prediction, resolves saved targets, exports the original saved features, and trains challengers in a separate job. Database writes share the daily scanner concurrency lock; training releases that lock and uses a fixed exported snapshot. Thursday is included so Wednesday candidates are resolved before the weekend.
+
+The live dataset keeps the first prediction per symbol/feature session, requires the current feature and label versions, and excludes predictions recorded on or after their target session date. Missing or conflicting outcomes remain unresolved, never artificial misses. Target touches and executable trade outcomes remain separate. All eligible saved predictions are available for training, rather than only the selected winners or five candidates.
+
+Published-only training requires enough distinct sessions for the existing chronological train/tune/calibration/test split (at least 40 before further maturity and sample checks). Until then, it records insufficient evidence and preserves the incumbent or technical ranking. Legacy predictions with incompatible or missing features are not treated as equivalent training examples. Model state persists separately in the `models-latest` release and is restored by the next daily scan; rejected challengers never replace accepted models.

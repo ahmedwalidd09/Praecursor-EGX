@@ -1,0 +1,117 @@
+name: Praecursor-EGX Outcome Learning
+
+on:
+  schedule:
+    # After each Sunday–Thursday close, including Thursday's final outcomes.
+    - cron: '30 19 * * 0-4'
+  workflow_dispatch:
+
+concurrency:
+  group: egx-model-learning
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  outcomes:
+    name: Validate Published Predictions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: daily-egx-scan
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PYTHONPATH: src
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Restore Published Predictions
+        run: |
+          mkdir -p database data reports logs
+          gh release download db-latest --pattern praecursor.db.gz --dir database --clobber
+          gunzip -f database/praecursor.db.gz
+      - name: Refresh Completed Prices Without Publishing New Predictions
+        run: python tools/run_scanner.py --no-history --no-archive-reports --no-telegram > logs/learning-prices.log 2>&1
+      - name: Resolve Hits and Misses and Export Original Features
+        run: |
+          python tools/track_outcomes.py
+          python tools/export_learning_samples.py
+          echo '### Published prediction feedback' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/learning_feedback.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Persist Verified Outcomes
+        run: |
+          python -c "import sqlite3; src=sqlite3.connect('database/praecursor.db'); dst=sqlite3.connect('database/backup.db'); src.backup(dst); dst.close(); src.close()"
+          gzip -c database/backup.db > database/praecursor.db.gz
+          gh release upload db-latest database/praecursor.db.gz --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: published-learning-samples
+          path: |
+            data/published_samples.csv
+            reports/learning_feedback.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: outcome-audit
+          path: |
+            reports/accuracy_history_archive.csv
+            logs/learning-prices.log
+          retention-days: 30
+
+  train:
+    name: Train and Validate Challenger Models
+    needs: outcomes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install Training Dependencies
+        run: pip install pandas numpy scipy scikit-learn xgboost lightgbm joblib tzdata
+      - uses: actions/download-artifact@v4
+        with:
+          name: published-learning-samples
+      - name: Restore Incumbent Models
+        run: |
+          if gh release view models-latest >/dev/null 2>&1; then
+            gh release download models-latest --pattern model-state.zip --dir data --clobber
+            python tools/model_state.py restore
+          fi
+      - name: Learn From Verified Published Predictions
+        run: |
+          python tools/retrain_models.py --published-only
+          echo '### Model promotion decisions' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/next_day_validation.json reports/swing_validation.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Persist Accepted Models and Validation Evidence
+        run: |
+          python tools/model_state.py pack
+          if gh release view models-latest >/dev/null 2>&1; then
+            gh release upload models-latest data/model-state.zip --clobber
+          else
+            gh release create models-latest data/model-state.zip --title 'Validated scanner models' --notes 'Accepted models and latest evaluation reports. Failed challengers never replace an incumbent.' --latest=false
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-validation
+          path: reports/*validation.json
+          retention-days: 90

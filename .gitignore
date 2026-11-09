@@ -38,3 +38,5 @@ data/research_samples*
 models/validated/
 models/active_*.json
 data/research_checkpoints/
+data/published_samples.csv
+data/model-state.zip

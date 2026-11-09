@@ -140,7 +140,8 @@ def train_validate(frame, horizon, models_root=None):
         metrics=result,constant_baseline=base,technical_baseline=technical,
         probability_definition="Published target touched within horizon; not trade win probability",
         expectancy_definition="Next-open execution, 25 bps round-trip, stop-first bound on ambiguous bars, zero for unfilled",
-        provenance="Retrospective reconstruction; prospective validation required",promoted=False)
+        provenance=", ".join(sorted(frame.provenance.dropna().unique())) if "provenance" in frame else "Retrospective reconstruction",
+        promoted=False)
     reasons=[]
     if result["unresolved_selected"] or result["execution_coverage"] < 1:
         reasons.append("Selected outcomes are incomplete; wait for resolved execution evidence")

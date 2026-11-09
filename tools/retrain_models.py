@@ -10,7 +10,6 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"src"))
 from praecursor.ml.features import FEATURES, INDICATOR_TO_FEATURE, FEATURE_VERSION
 from praecursor.analysis.outcomes import LABEL_VERSION
-from praecursor.ml.research import build_dataset, DATASET
 from praecursor.ml.validation import train_validate
 import pandas as pd
 
@@ -26,18 +25,23 @@ def dataset_is_current(metadata, latest, price_rows, last_collection):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--rebuild",action="store_true")
+    parser.add_argument("--published-only",action="store_true",help="Train only from exported, verified published predictions.")
     args=parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     database=ROOT/"database/praecursor.db"
-    if not database.exists():
+    if args.published_only:
+        frame=pd.read_csv(ROOT/"data/published_samples.csv")
+    elif not database.exists():
         raise SystemExit("Database unavailable; run the scanner first")
-    with closing(sqlite3.connect(database.as_uri()+"?mode=ro",uri=True)) as c:
-        latest=c.execute("SELECT max(date(trade_date)) FROM source_prices WHERE source!='mubasher'").fetchone()[0]
-        price_rows,last_collection=c.execute("SELECT count(*),max(collected_at) FROM source_prices").fetchone()
-    metadata=json.loads(DATASET.with_suffix(".meta.json").read_text()) if DATASET.with_suffix(".meta.json").exists() else {}
-    if args.rebuild or not DATASET.exists() or not dataset_is_current(metadata,latest,price_rows,last_collection):
-        build_dataset(database)
-    frame=pd.read_csv(DATASET)
+    else:
+        from praecursor.ml.research import build_dataset, DATASET
+        with closing(sqlite3.connect(database.as_uri()+"?mode=ro",uri=True)) as c:
+            latest=c.execute("SELECT max(date(trade_date)) FROM source_prices WHERE source!='mubasher'").fetchone()[0]
+            price_rows,last_collection=c.execute("SELECT count(*),max(collected_at) FROM source_prices").fetchone()
+        metadata=json.loads(DATASET.with_suffix(".meta.json").read_text()) if DATASET.with_suffix(".meta.json").exists() else {}
+        if args.rebuild or not DATASET.exists() or not dataset_is_current(metadata,latest,price_rows,last_collection):
+            build_dataset(database)
+        frame=pd.read_csv(DATASET)
     for horizon in ("next_day","swing"):
         report=train_validate(frame,horizon)
         print(json.dumps({k:report.get(k) for k in ("horizon","status","promoted","reason","promotion_reasons","metrics")},indent=2))

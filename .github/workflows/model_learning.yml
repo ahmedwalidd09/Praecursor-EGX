@@ -2,8 +2,8 @@ name: Praecursor-EGX Outcome Learning
 
 on:
   schedule:
-    # After each Sunday–Thursday close, including Thursday's final outcomes.
-    - cron: '30 19 * * 0-4'
+    # After each Sunday–Thursday close, before the 18:30 UTC briefing.
+    - cron: '15 17 * * 0-4'
   workflow_dispatch:
 
 concurrency:

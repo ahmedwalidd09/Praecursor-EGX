@@ -1,6 +1,6 @@
 """Learning examples from features and levels saved before the target session."""
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -28,8 +28,9 @@ def published_samples(database):
             continue
         stamp = datetime.fromisoformat(r["generated_at"].replace("Z", "+00:00"))
         stamp = stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp
-        # The scheduled product publishes the day before the target session.
-        if stamp.astimezone(CAIRO).date() >= next_session(date.fromisoformat(session)):
+        # Conservative pre-market cutoff also admits early manual runs, never intraday hindsight.
+        deadline = datetime.combine(next_session(date.fromisoformat(session)), time(9), CAIRO)
+        if stamp.astimezone(CAIRO) >= deadline:
             continue
         key = (session, r["symbol"])
         if key in seen:

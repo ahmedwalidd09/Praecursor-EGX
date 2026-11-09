@@ -36,6 +36,41 @@ function render() {
   $('rows').replaceChildren(fragment);$('empty').classList.toggle('hidden',list.length>0);$('table').classList.toggle('hidden',!list.length);
   text('list-note',list.length+(list.length===1?' symbol shown · ':' symbols shown · ')+(data.stale?'Saved historical scan':'Current completed session')+' · Select a symbol for details.');
 }
+let historyPage=0;
+function renderHistory(reset=false){
+  if(!data)return;
+  if(reset)historyPage=0;
+  const rows=data.history||[], query=$('history-search').value.trim().toLowerCase();
+  const session=$('history-session').value, result=$('history-result').value;
+  const filtered=rows.filter(r=>(r.symbol+' '+r.company).toLowerCase().includes(query)&&(session==='all'||r.session===session)&&(result==='all'||r.status===result));
+  const counts={hit:0,miss:0,pending:0,unverified:0};for(const r of filtered)counts[r.status]++;
+  text('history-summary',filtered.length+' predictions · '+counts.hit+' hits · '+counts.miss+' misses · '+counts.pending+' pending · '+counts.unverified+' unverified');
+  historyPage=Math.min(historyPage,Math.max(0,Math.ceil(filtered.length/25)-1));
+  const start=historyPage*25, fragment=document.createDocumentFragment();
+  const labels={hit:'✓ Hit',miss:'× Miss',pending:'… Pending',unverified:'? Unverified'};
+  const explanations={missing_or_conflicting_candle:'Missing or conflicting prices',corporate_action_review:'Corporate action needs review',invalid_levels:'Invalid recorded target'};
+  for(const r of filtered.slice(start,start+25)){
+    const tr=document.createElement('tr'), sessionCell=el('td',r.session,'num'), name=el('td','#'+r.candidate_rank+' '+r.symbol);
+    if(!r.session_confirmed)sessionCell.append(el('span','Expected session','company'));
+    name.append(el('span',r.company,'company'),el('span','Published '+r.published_at.slice(0,10),'company'));
+    tr.append(sessionCell,name);
+    for(const key of ['reference','target','actual_high','actual_close'])tr.append(el('td',r[key]>0?number(r[key],3):'—','num'));
+    tr.append(el('td',r.close_change_pct==null?'—':(r.close_change_pct>0?'+':'')+number(r.close_change_pct,2)+'%','num'));
+    const outcome=document.createElement('td');outcome.append(el('span',labels[r.status],'badge outcome-'+r.status));
+    if(r.status==='unverified')outcome.append(el('span',explanations[r.outcome_status]||'Result not verified','company'));
+    tr.append(outcome);fragment.append(tr);
+  }
+  $('history-rows').replaceChildren(fragment);$('history-table-wrap').classList.toggle('hidden',!filtered.length);$('history-empty').classList.toggle('hidden',!!filtered.length);
+  text('history-empty',rows.length?'No matching predictions. Try another session or result filter.':'No dated predictions saved yet. History appears after a market scan is saved.');
+  text('history-page',filtered.length?'Showing '+(start+1)+'–'+Math.min(start+25,filtered.length)+' of '+filtered.length:'0 predictions');
+  $('history-prev').disabled=historyPage===0;$('history-next').disabled=start+25>=filtered.length;
+}
+function loadHistory(){
+  const previous=$('history-session').value, sessions=[...new Set((data.history||[]).map(r=>r.session))].sort().reverse();
+  const all=el('option','All sessions');all.value='all';$('history-session').replaceChildren(all);
+  for(const day of sessions){const option=el('option',day);option.value=day;$('history-session').append(option);}
+  $('history-session').value=previous==='latest'?(sessions[0]||'all'):sessions.includes(previous)?previous:'all';renderHistory();
+}
 function showDetail(r) {
   const h=$('horizon').value;text('detail-title',r.symbol);text('detail-company',r.company);$('levels').replaceChildren();
   const values=[['Reference close',number(r.latest_close)],['Target',price(h==='next_day'?r.next_day_target:r.swing_target)],['Stop',price(r[h+'_stop_loss'])],['Target-touch probability',pct(h==='next_day'?r.next_day_probability:r.swing_probability)],['Data quality',number(r.data_quality_score,0)+' / 100'],['Close consensus',r.consensus_confidence>0?number(r.consensus_confidence,0)+' / 100':'Unverified'],['Feature session',r.feature_session||'Legacy record'],['Evidence',r.legacy?'Legacy · not recalibrated':(h==='next_day'?r.model_version:r.swing_model_version)||'Technical only']];
@@ -60,9 +95,9 @@ async function load(feedback=false) {
     text('session',data.price_session||'—');text('scanned',data.scan?'Scan saved '+data.scan.generated_at.slice(0,10):'No scan saved');text('symbols',data.signals.length);text('hit-rate',pct(data.outcomes.target_hit_rate));text('hits',(data.outcomes.hits||0)+' / '+(data.outcomes.total||0)+' distinct resolved signals');text('trade-count',data.outcomes.executable_trades||0);text('trade-note',data.outcomes.executable_trades?'Trade win rate '+pct(data.outcomes.trade_win_rate):'Historical stops unavailable or outcomes pending');
     text('notice',data.stale?'Saved data or features need refreshing. Run a market scan for the latest completed session.':'Prices and saved features match the latest completed session.');
     if(data.scan&&data.scan.error_count)text('notice',$('notice').textContent+' '+data.scan.error_count+' symbols failed the scan checks.');
-    $('notice').classList.toggle('good',!data.stale);validation('next-validation',data.validation.next_day);validation('swing-validation',data.validation.swing);render();
+    $('notice').classList.toggle('good',!data.stale);validation('next-validation',data.validation.next_day);validation('swing-validation',data.validation.swing);render();loadHistory();
     if(feedback)notifyUser('View refreshed · '+data.signals.length+' saved symbols.');
-  }catch(e){text('notice',e.message+'. Use Refresh view to retry.');$('notice').classList.remove('good');if(feedback)notifyUser('Refresh failed. Your saved view is still available.');}
+  }catch(e){if(!data)text('history-summary','Could not load prediction history. Use Refresh view to retry.');text('notice',e.message+'. Use Refresh view to retry.');$('notice').classList.remove('good');if(feedback)notifyUser('Refresh failed. Your saved view is still available.');}
   finally{loading=false;$('loading').classList.add('hidden');$('refresh').disabled=false;$('refresh').setAttribute('aria-busy','false');}
 }
 function setBusy(value,task=activeTask){
@@ -92,6 +127,9 @@ async function status(){
     if(was&&!busy){notifyUser(s.error?'Task stopped: '+s.error:'Task finished. Saved results updated.');activeTask=null;await load();}
   }catch(e){if(busy){$('progress').classList.remove('hidden');text('progress','Connection interrupted. The task may still be running; reconnecting…');}}
 }
+$('history-search').oninput=()=>renderHistory(true);
+for(const id of ['history-session','history-result'])$(id).onchange=()=>renderHistory(true);
+$('history-prev').onclick=()=>{historyPage--;renderHistory();};$('history-next').onclick=()=>{historyPage++;renderHistory();};
 $('refresh').onclick=()=>load(true);$('scan').onclick=()=>action('/api/scan','scan');$('train').onclick=()=>action('/api/train','train');
 $('search').oninput=render;$('filter').onchange=render;$('horizon').onchange=render;$('close-detail').onclick=()=>$('detail').close();
 $('detail').addEventListener('click',event=>{if(event.target!==$('detail'))return;const r=$('detail').getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)$('detail').close();});

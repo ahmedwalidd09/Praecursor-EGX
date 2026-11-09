@@ -30,3 +30,5 @@ Shared header, primary/secondary buttons, landing instrument, session strip, num
 ## Last updated
 2026-11-05: local desktop research dashboard.
 2026-11-08: UI/UX Pro Max redesign; monochrome palette, landing page, responsive layout and press/task feedback. The skill's generic marketing recommendations were not persisted; this document records the product-specific decisions.
+
+2026-11-09: Added a paginated top-five candidate history table with session/search/result filters, actual high and close, and text-based grayscale Hit/Miss/Pending/Unverified badges. Unresolved results remain blank, and duplicate scans do not inflate history. Only recorded ranks 1–5 (including legacy Top Pick labels) appear, from one shortlist per target session.

@@ -8,6 +8,7 @@ from praecursor.storage.database import DATABASE
 from praecursor.ml.features import FEATURE_VERSION
 from praecursor.core.sessions import completed_session, next_session
 from datetime import date
+from praecursor.reporting.prediction_history import prediction_history
 
 ROOT=Path(__file__).resolve().parents[3]
 
@@ -22,7 +23,7 @@ def clean(value):
 
 def overview(database=DATABASE):
     result=dict(signals=[],scan=None,price_session=None,expected_session=completed_session().isoformat(),
-                outcomes={},validation={},model_status="Technical scoring",stale=True)
+                outcomes={},validation={},model_status="Technical scoring",stale=True,history=[])
     for horizon in ("next_day","swing"):
         path=ROOT/"reports"/f"{horizon}_validation.json"
         if path.exists():
@@ -31,6 +32,7 @@ def overview(database=DATABASE):
         return clean(result)
     with closing(sqlite3.connect(Path(database).resolve().as_uri()+"?mode=ro",uri=True)) as conn:
         conn.row_factory=sqlite3.Row
+        result["history"] = prediction_history(conn)
         tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "source_prices" in tables:
             result["price_session"]=conn.execute("SELECT max(date(trade_date)) FROM source_prices WHERE source!='mubasher'").fetchone()[0]

@@ -27,19 +27,23 @@ def test_saved_features_and_outcomes_are_joined_without_rerun_or_future_leakage(
             (5,"LATE","2026-11-08T18:00:00Z",FEATURE_VERSION,1),
             (6,"LEGACY","2026-11-07T18:00:00Z","old",1),
             (7,"EARLY","2026-11-08T04:00:00Z",FEATURE_VERSION,None),
-            (8,"CUTOFF","2026-11-08T07:00:00Z",FEATURE_VERSION,1)]:
+            (8,"CUTOFF","2026-11-08T07:00:00Z",FEATURE_VERSION,1),
+            (9,"NEW","2026-11-08T04:00:00Z",FEATURE_VERSION,None)]:
             c.execute('INSERT INTO scanner_signals VALUES (?,?,?,?,?,?,?,?,?,?)',
                       (run,symbol,stamp,"2026-11-05",version,json.dumps(values),70,100,100,1))
+            if symbol == "NEW":
+                continue  # Not yet visited by the after-close outcome tracker.
             c.execute('INSERT INTO verified_outcomes VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                       (run,symbol,LABEL_VERSION,hit,2 if hit else None,"target" if hit else "pending",
                        "2026-11-08" if hit is not None else None,None,None,"pending",None))
     frame = published_samples(db).set_index("symbol", drop=False)
-    assert set(frame.index) == {"HIT","MISS","UNKNOWN","EARLY"}
+    assert set(frame.index) == {"HIT","MISS","UNKNOWN","EARLY","NEW"}
     assert frame.loc["HIT", "next_day_target_hit"] == 1
     assert frame.loc["HIT", "rsi14"] == 42
     assert frame.loc["MISS", "next_day_target_hit"] == 0
     assert pd.isna(frame.loc["UNKNOWN", "next_day_target_hit"])
-    assert feedback_summary(frame) == dict(examples=4,sessions=1,candidates=4,hits=1,misses=1,unresolved=2,
+    assert frame.loc["NEW", "next_day_status"] == "pending"
+    assert feedback_summary(frame) == dict(examples=5,sessions=1,candidates=5,hits=1,misses=1,unresolved=3,
         provenance="Original published features; first prediction per symbol/session; incompatible legacy features excluded")
 
 

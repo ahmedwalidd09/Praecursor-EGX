@@ -16,9 +16,9 @@ def published_samples(database):
         rows = conn.execute("""SELECT s.*, v.next_day_hit, v.next_day_net_return,
             v.next_day_status, v.resolved_session, v.swing_hit, v.swing_net_return,
             v.swing_status, v.swing_resolved_session
-            FROM scanner_signals s JOIN verified_outcomes v
+            FROM scanner_signals s LEFT JOIN verified_outcomes v
             ON s.run_id=v.run_id AND s.symbol=v.symbol
-            WHERE s.feature_version=? AND v.label_version=?
+            WHERE s.feature_version=? AND (v.label_version=? OR v.run_id IS NULL)
             ORDER BY s.generated_at,s.run_id""", (FEATURE_VERSION, LABEL_VERSION)).fetchall()
     records, seen = [], set()
     for row in rows:
@@ -47,7 +47,7 @@ def published_samples(database):
                       label_version=LABEL_VERSION, provenance="published_prediction", **features)
         for h, maturity in (("next_day", "resolved_session"), ("swing", "swing_resolved_session")):
             record.update({h+"_target_hit": r[h+"_hit"], h+"_resolved_session": r[maturity],
-                           h+"_net_return_pct": r[h+"_net_return"], h+"_status": r[h+"_status"]})
+                           h+"_net_return_pct": r[h+"_net_return"], h+"_status": r[h+"_status"] or "pending"})
         records.append(record)
     columns = ["symbol", "session", "opportunity_score", "candidate_rank", "feature_version",
                "label_version", "provenance", *FEATURES]

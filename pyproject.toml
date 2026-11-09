@@ -12,6 +12,12 @@ dependencies = [
     "tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git",
     "xgboost>=2.0.0",
     "scikit-learn>=1.3.0",
+    "numpy>=1.24",
+    "lightgbm>=4.0",
+    "joblib>=1.3",
+    "yfinance>=0.2",
+    "hmmlearn>=0.3",
+    "tzdata>=2024.1",
     "einops>=0.8.0",
     "huggingface_hub>=0.20.0",
     "safetensors>=0.4.0",
@@ -34,6 +40,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"praecursor.reporting" = ["templates/*.html", "templates/*.css", "templates/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

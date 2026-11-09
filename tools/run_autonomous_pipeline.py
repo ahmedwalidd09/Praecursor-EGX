@@ -5,7 +5,8 @@ Executes Scanner, Outcome Tracking, Retraining, Dashboard Generation, and Telegr
 """
 
 import argparse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import sys
 import time
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 LOGS_DIR = PROJECT_ROOT / "logs"
 
 
@@ -64,8 +66,9 @@ def update_scan_status(stage: float, stage_name: str, project_root: Path | None 
 
 
 def is_egx_scan_day(target_date: date) -> bool:
-    """Check if given date is an EGX scan day: Saturday through Wednesday (Sat=5, Sun=6, Mon=0, Tue=1, Wed=2)."""
-    return target_date.weekday() in (5, 6, 0, 1, 2)
+    """Run on the evening before each exchange session (Saturday–Wednesday)."""
+    from praecursor.core.sessions import is_session
+    return is_session(target_date + timedelta(days=1))
 
 is_egx_trading_day = is_egx_scan_day
 
@@ -172,21 +175,15 @@ def run_pipeline(
     dry_run_telegram: bool = False,
     run_date: date | None = None,
     force: bool = False,
+    retrain: bool = False,
 ) -> int:
     """Execute the 5-stage autonomous daily pipeline."""
     root = project_root or PROJECT_ROOT
-    effective_date = run_date or datetime.now().date()
+    effective_date = run_date or datetime.now(ZoneInfo("Africa/Cairo")).date()
     date_str = effective_date.strftime("%Y-%m-%d")
     
-    from datetime import timedelta
-    from zoneinfo import ZoneInfo
-    now_cairo = datetime.now(ZoneInfo("Africa/Cairo"))
-    if now_cairo.weekday() not in (4, 5) and now_cairo.hour < 10:
-        next_trading_day = now_cairo.date()
-    else:
-        next_trading_day = effective_date + timedelta(days=1)
-        while next_trading_day.weekday() in (4, 5):  # Friday, Saturday
-            next_trading_day += timedelta(days=1)
+    from praecursor.core.sessions import next_session
+    next_trading_day = next_session(effective_date)
     next_trading_day_str = next_trading_day.strftime("%Y-%m-%d")
     
     # Ensure reports output directories are prepared for next-day scan output files
@@ -195,6 +192,9 @@ def run_pipeline(
     archive_dir = reports_dir / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
 
+    current_stage = 0
+    completed_successfully = False
+    pipeline_error = None
     logger = None
     log_file = None
     try:
@@ -212,7 +212,7 @@ def run_pipeline(
 
         trading_day = is_egx_scan_day(effective_date)
         if not trading_day and not force:
-            logger.info(f"SKIPPED: Non-scan day ({date_str}) - skipping automated scan.")
+            logger.info(f"SKIPPED: Non-trading day ({date_str}) - skipping automated scan.")
             return 0
 
         current_stage = 1.0
@@ -233,7 +233,7 @@ def run_pipeline(
         )
 
         if trading_day:
-            logger.info(f"PROCESSING: EGX Scan Day ({date_str}) - executing autonomous scan pipeline.")
+            logger.info(f"PROCESSING: EGX Trading Day ({date_str}) - executing autonomous scan pipeline.")
         else:
             logger.info(f"PROCESSING: Forced execution on non-trading day ({date_str}) - executing autonomous scan pipeline.")
 
@@ -242,7 +242,7 @@ def run_pipeline(
         total_stages = 6
 
         # Stage 1: Daily Scanner
-        s1_cmd = [python_exe, "tools/run_scanner.py"]
+        s1_cmd = [python_exe, "tools/run_scanner.py", "--no-telegram"]
         if run_date:
             s1_cmd.extend(["--date", date_str])
             
@@ -287,14 +287,17 @@ def run_pipeline(
             current_symbol=None,
             project_root=root,
         )
-        s2_ok = run_stage(
+        s2_ok = not retrain or run_stage(
             logger,
             2,
             "Model Retraining",
             [python_exe, "tools/retrain_models.py"],
             root,
-            timeout_seconds=600.0,
+            timeout_seconds=7200.0,
+            max_attempts=1,
         )
+        if not retrain:
+            logger.info("Daily briefing uses existing validated models; retraining is explicit via --retrain.")
         if s2_ok:
             stages_passed += 1
         else:
@@ -357,14 +360,9 @@ def run_pipeline(
             current_symbol=None,
             project_root=root,
         )
-        from praecursor.notifications.telegram import TelegramSettings
-        tg_settings = TelegramSettings.load()
-        has_telegram_credentials = tg_settings.is_configured
         
         telegram_cmd = [python_exe, "tools/send_telegram_report.py", "--use-latest"]
-        if dry_run_telegram or not has_telegram_credentials:
-            if not has_telegram_credentials:
-                logger.info("Telegram credentials not configured in config/telegram.json. Operating in --dry-run mode.")
+        if dry_run_telegram:
             telegram_cmd.append("--dry-run")
 
         s4_ok = run_stage(
@@ -374,6 +372,7 @@ def run_pipeline(
             telegram_cmd,
             root,
             timeout_seconds=180.0,
+            max_attempts=1,
         )
 
         if s4_ok:
@@ -381,7 +380,7 @@ def run_pipeline(
         else:
             logger.warning("Stage 4 (Telegram Broadcast) completed with errors.")
 
-        overall_success = s1_ok and s2_ok and s3_ok
+        overall_success = s1_ok and s2_ok and s3_ok and s4_ok
         if overall_success:
             completed_successfully = True
             update_scan_status(
@@ -390,7 +389,7 @@ def run_pipeline(
                 running=False,
                 completed=True,
                 percent=100.0,
-                telegram_status="Delivered ✅",
+                telegram_status="Preview only" if dry_run_telegram else "Delivered ✅",
                 eta_seconds=0,
                 current_symbol=None,
                 project_root=root,
@@ -400,6 +399,8 @@ def run_pipeline(
         else:
             pipeline_error = f"Pipeline finished with warnings/errors. ({stages_passed}/{total_stages} stages passed)"
             logger.error(pipeline_error)
+            update_scan_status(4, current_stage_name, project_root=root,
+                               telegram_status="Delivered" if s4_ok else "Delivery failed")
             return 1
     except Exception as err:
         pipeline_error = str(err)
@@ -439,6 +440,7 @@ def main() -> int:
         default=None,
         help="Target date in YYYY-MM-DD format (for backtesting / manual triggers).",
     )
+    parser.add_argument("--retrain", action="store_true", help="Evaluate new models; omitted from the daily delivery path.")
     args = parser.parse_args()
 
     parsed_date = None
@@ -453,6 +455,7 @@ def main() -> int:
         dry_run_telegram=args.dry_run_telegram,
         run_date=parsed_date,
         force=args.force,
+        retrain=args.retrain,
     )
 
 

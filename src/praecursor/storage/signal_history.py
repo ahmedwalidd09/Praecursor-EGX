@@ -101,6 +101,17 @@ class SignalHistoryStore:
                 "swing_label TEXT DEFAULT ''",
                 "swing_stop_loss REAL DEFAULT 0",
                 "indicator_values_json TEXT DEFAULT NULL",
+                "feature_version TEXT",
+                "feature_session TEXT",
+                "model_version TEXT",
+                "next_day_probability REAL",
+                "swing_target REAL",
+                "swing_probability REAL",
+                "swing_model_version TEXT",
+                "candidate_rank INTEGER",
+                "selection_reasons TEXT",
+                "source_status TEXT",
+
             ]
             for col in new_columns:
                 try:
@@ -279,6 +290,19 @@ class SignalHistoryStore:
                 """,
                 rows,
             )
+            from praecursor.ml.features import FEATURE_VERSION
+            for item in result.symbol_results:
+                stock = item.opportunity_score.stock
+                nd = item.next_day_prediction
+                connection.execute("""UPDATE scanner_signals SET feature_version=?, feature_session=?,
+                    model_version=?, next_day_probability=?, swing_target=?, swing_probability=?,
+                    swing_model_version=? WHERE run_id=? AND symbol=?""",
+                    (FEATURE_VERSION, stock.history[-1].date.date().isoformat() if stock and stock.history else None,
+                     nd.model_version, nd.probability, item.swing_prediction.target_price,
+                     item.swing_prediction.probability, item.swing_prediction.model_version, run_id, item.symbol))
+                connection.execute("UPDATE scanner_signals SET candidate_rank=?, selection_reasons=?, source_status=? WHERE run_id=? AND symbol=?",
+                    (getattr(item,"candidate_rank",None), json.dumps(getattr(item,"selection_reasons",())),
+                     getattr(item,"source_status","Unknown"),run_id,item.symbol))
             connection.commit()
 
         return run_id

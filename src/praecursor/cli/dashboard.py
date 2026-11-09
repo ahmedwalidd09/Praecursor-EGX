@@ -11,9 +11,10 @@ import time
 import socket
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 import uvicorn
 
 for stream in (sys.stdout, sys.stderr):
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Praecursor-EGX Mission Control & Dashboard", lifespan=lifespan)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"])
 
 
 def read_status_file() -> dict[str, Any]:
@@ -160,13 +162,37 @@ def run_scanner_sync() -> None:
         def progress_callback(processed: int, total: int) -> None:
             scan_status["processed"] = processed
             
-        workflow.run(symbols=symbols, progress_callback=progress_callback)
+        result = workflow.run(symbols=symbols, progress_callback=progress_callback)
+        if result.success_count == 0:
+            raise RuntimeError("No symbols passed the data checks. See scan errors and source availability.")
+        from praecursor.analysis.accuracy_tracker import AccuracyTracker
+        AccuracyTracker().evaluate_outcomes()
         
         scan_status["last_completed"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     except Exception as error:
         scan_status["error"] = str(error)
     finally:
         scan_status["running"] = False
+
+
+def run_training_sync() -> None:
+    global scan_status, pipeline_proc
+    try:
+        logs = PROJECT_ROOT / "logs"
+        logs.mkdir(exist_ok=True)
+        with (logs / "model_evaluation.log").open("w", encoding="utf-8") as log:
+            pipeline_proc = subprocess.Popen([sys.executable, str(PROJECT_ROOT / "tools/retrain_models.py")],
+                cwd=str(PROJECT_ROOT), stdout=log, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            code = pipeline_proc.wait()
+        if code:
+            scan_status["error"] = "Model evaluation failed. See logs/model_evaluation.log."
+    except Exception as exc:
+        scan_status["error"] = str(exc)
+    finally:
+        pipeline_proc = None
+        scan_status["running"] = False
+        scan_status["last_completed"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 MISSION_CONTROL_HTML = """<!doctype html>
@@ -1494,11 +1520,12 @@ def render_access_gate_html() -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def get_mission_control() -> HTMLResponse:
-    """Serve the dedicated Cyberpunk Mission Control Launch Screen or Access Gate."""
+    """Open the research landing page, retaining the existing access gate."""
     if not is_machine_whitelisted():
         response = HTMLResponse(render_access_gate_html())
     else:
-        response = HTMLResponse(MISSION_CONTROL_HTML)
+        from praecursor.reporting.pages import render_page
+        response = HTMLResponse(render_page("landing.html"))
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -1507,7 +1534,7 @@ async def get_mission_control() -> HTMLResponse:
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard_terminal() -> Any:
-    """Serve the full terminal dashboard (reports/dashboard.html) or Access Gate."""
+    """Serve the research dashboard or the existing access gate."""
     if not is_machine_whitelisted():
         response = HTMLResponse(render_access_gate_html())
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -1515,55 +1542,8 @@ async def get_dashboard_terminal() -> Any:
         response.headers["Expires"] = "0"
         return response
 
-    if not DEFAULT_DASHBOARD_REPORT.exists():
-        return RedirectResponse(url="/", status_code=303)
-
-    try:
-        html = DEFAULT_DASHBOARD_REPORT.read_text(encoding="utf-8", errors="replace")
-    except (FileNotFoundError, OSError):
-        return RedirectResponse(url="/", status_code=303)
-
-    # Inject auto-refresh every 300s
-    if "<head>" in html and "http-equiv=\"refresh\"" not in html:
-        html = html.replace("<head>", "<head>\n  <meta http-equiv=\"refresh\" content=\"300\" />")
-
-    # Seamless bottom-right Mission Control navigation bar
-    fab_html = """
-    <div style="position:fixed;bottom:24px;right:24px;display:flex;gap:12px;z-index:9999;">
-        <a href="/" style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;background:rgba(15,23,42,0.9);backdrop-filter:blur(10px);border:1px solid rgba(56,189,248,0.4);border-radius:30px;color:#38bdf8;text-decoration:none;font-weight:700;font-size:13px;letter-spacing:0.5px;box-shadow:0 8px 24px rgba(0,0,0,0.6);transition:all 0.2s ease;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            MISSION CONTROL
-        </a>
-        <button id="scan-btn" onclick="triggerScanFab()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 22px;background:linear-gradient(135deg,#0284c7,#2563eb);border:1px solid rgba(56,189,248,0.5);border-radius:30px;color:#fff;font-weight:700;font-size:13px;letter-spacing:0.5px;cursor:pointer;box-shadow:0 8px 24px rgba(2,132,199,0.4);transition:all 0.2s ease;">
-            ▶ RUN SCAN
-        </button>
-    </div>
-    <script>
-    function triggerScanFab() {
-        const btn = document.getElementById('scan-btn');
-        btn.innerText = 'STARTING...';
-        btn.disabled = true;
-        fetch('/api/scan', {method: 'POST'})
-            .then(r => r.json())
-            .then(d => {
-                window.location.href = '/';
-            })
-            .catch(e => {
-                alert('Error: ' + e);
-                btn.innerText = '▶ RUN SCAN';
-                btn.disabled = false;
-            });
-    }
-    </script>
-    </body>
-    """
-    html = html.replace("</body>", fab_html)
-
-    response = HTMLResponse(html)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    from praecursor.reporting.pages import render_page
+    return HTMLResponse(render_page("home.html"), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/access/status")
@@ -1622,20 +1602,61 @@ async def get_status() -> dict[str, Any]:
     if scan_status.get("error"):
         status["error"] = scan_status["error"]
 
+    # Persisted progress is not evidence that its former process is still alive.
+    status["running"] = bool(scan_status.get("running"))
+    if scan_status.get("task") == "training" and status["running"]:
+        status["stage_name"] = "Evaluating models on unseen sessions"
+    if not status["running"]:
+        status["error"] = scan_status.get("error")
+
     return status
 
 
 @app.post("/api/scan")
-async def trigger_scan(background_tasks: BackgroundTasks) -> dict[str, str]:
+async def trigger_scan(background_tasks: BackgroundTasks, request: Request) -> dict[str, str]:
     """Launch full autonomous pipeline via background subprocess."""
+    require_local_action(request)
     current_stat = await get_status()
     if current_stat.get("running"):
         return {"status": "already running"}
 
     scan_status["running"] = True
     scan_status["error"] = None
-    background_tasks.add_task(run_pipeline_subprocess)
+    scan_status["task"] = "scan"
+    background_tasks.add_task(run_scanner_sync)
     return {"status": "started"}
+
+
+def require_local_action(request: Request) -> None:
+    if not is_machine_whitelisted():
+        raise HTTPException(403, "This machine has not been authorized")
+    if request.headers.get("X-Praecursor") != "local":
+        raise HTTPException(403, "Use the local dashboard controls")
+    if request.client and request.client.host not in ("127.0.0.1", "::1", "testclient"):
+        raise HTTPException(403, "Desktop actions are available only on this laptop")
+
+
+@app.get("/api/health")
+async def health() -> dict:
+    return {"application": "praecursor-desktop", "root": str(PROJECT_ROOT)}
+
+
+@app.get("/api/overview")
+async def get_overview() -> dict:
+    if not is_machine_whitelisted():
+        raise HTTPException(403, "This machine has not been authorized")
+    from praecursor.reporting.overview import overview
+    return overview()
+
+
+@app.post("/api/train")
+async def trigger_training(background_tasks: BackgroundTasks, request: Request) -> dict:
+    require_local_action(request)
+    if scan_status.get("running"):
+        return {"status": "already running"}
+    scan_status.update(running=True, error=None, task="training")
+    background_tasks.add_task(run_training_sync)
+    return {"status": "Model evaluation started"}
 
 
 @app.get("/api/reports")
@@ -1676,8 +1697,7 @@ def main() -> int:
         host=args.host,
         port=args.port,
         log_level="info",
-        reload=True,
-        reload_dirs=["src"],
+        reload=False,
     )
     return 0
 

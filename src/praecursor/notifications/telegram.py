@@ -367,6 +367,27 @@ import html as html_lib
 class TelegramReportFormatter:
     """Format scanner results for rich HTML Telegram messages."""
 
+    def format_snapshot(self, saved, top_n=5):
+        lines = ["<b>PRAECURSOR-EGX · Daily research shortlist</b>",
+                 "For session: " + html_lib.escape(str(saved.get("target_session") or "Not recorded")),
+                 "Price session: " + html_lib.escape(str(saved.get("price_session") or "Not recorded")),
+                 "Technical scores are not success probabilities."]
+        signals = sorted((r for r in saved.get("signals", []) if r.get("candidate_rank")),
+                         key=lambda r: r["candidate_rank"])[:top_n]
+        for row in signals:
+            lines.append(f"\n<b>#{row['candidate_rank']} {html_lib.escape(row['symbol'])}</b> · Score {row['next_day_score']:.1f}/100")
+            lines.append("Close / target / stop: " + " / ".join(
+                f"{row[k]:.3f}" if row.get(k) and row[k] > 0 else "Not recorded"
+                for k in ("latest_close", "next_day_target", "next_day_stop_loss")))
+            for reason in row.get("selection_reasons", []):
+                lines.append("• " + html_lib.escape(reason))
+            lines.append(html_lib.escape(row.get("source_status") or "Source confirmation unavailable"))
+            if row.get("next_day_probability") is not None:
+                lines.append(f"Validated target-touch probability: {row['next_day_probability']:.1%}")
+        if len(signals) < top_n:
+            lines.append(f"\nOnly {len(signals)}/{top_n} candidates passed price, history, liquidity and risk checks.")
+        return "\n".join(lines)
+
     def format_from_dashboard_html(self, dashboard_path: Path | str | None = None, top_n: int = 5) -> str | None:
         """Parse the generated dashboard HTML to guarantee 100% exact parity with the web dashboard."""
         target_path = Path(dashboard_path) if dashboard_path else DASHBOARD_PATH
@@ -387,8 +408,12 @@ class TelegramReportFormatter:
             logger.warning(f"Could not read dashboard HTML from {target_path}: {exc}")
             return None
 
+        snapshot = re.search(r'<script id="saved-snapshot" type="application/json">(.*?)</script>', html, re.S)
+        if snapshot:
+            return self.format_snapshot(json.loads(snapshot.group(1)), top_n)
+
         reg_m = re.search(r'class="pill-val regime-[^>]*>([^<]+)</span>', html)
-        regime = reg_m.group(1).strip() if reg_m else "BULL TREND"
+        regime = reg_m.group(1).strip() if reg_m else "UNKNOWN"
 
         time_m = re.search(r'<span class="pill-label">LAST RAN AT:</span>\s*<span class="pill-val highlight">([^<]+)</span>', html)
         scan_time_str = time_m.group(1).strip() if time_m else datetime.now().strftime("%Y-%m-%d %I:%M %p Cairo")
@@ -562,8 +587,12 @@ class TelegramReportFormatter:
             except Exception as exc:
                 logger.warning(f"Failed to format from dashboard HTML: {exc}")
 
-        from praecursor.scoring.regime import MarketRegimeModel
-        regime = MarketRegimeModel().get_latest_regime().get("regime", "Bull Trend")
+        regime = "Unknown"
+        for item in getattr(result, "symbol_results", []) or []:
+            stock = getattr(item.opportunity_score, "stock", None)
+            if stock and stock.market_context.get("regime"):
+                regime = stock.market_context["regime"]
+                break
         
         gen_dt = getattr(result, "generated_at", datetime.now()) if result is not None else datetime.now()
         if isinstance(gen_dt, str):
@@ -730,13 +759,10 @@ def dispatch_candidate_charts(
         return 0
 
     # Filter out Avoid candidates
-    actionable = [
-        c for c in candidates 
-        if "Avoid" not in getattr(c, "next_day_label", "")
-    ]
+    actionable = [c for c in candidates if getattr(c, "candidate_rank", None)]
     
     # Sort by next_day_score descending
-    actionable.sort(key=lambda x: getattr(x, "next_day_score", 0.0), reverse=True)
+    actionable.sort(key=lambda x: x.candidate_rank)
 
     target_cid = str(chat_id) if chat_id is not None else client.settings.chat_id
 

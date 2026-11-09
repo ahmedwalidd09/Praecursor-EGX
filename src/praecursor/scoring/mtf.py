@@ -1,7 +1,7 @@
 from praecursor.core.stock import Stock
 from praecursor.scoring.indicator import Indicator
 from praecursor.scoring.result import IndicatorResult
-import pandas as pd
+from datetime import timedelta
 
 
 class MultiTimeframeIndicator(Indicator):
@@ -20,13 +20,14 @@ class MultiTimeframeIndicator(Indicator):
         if len(stock.history) < 350: # Need ~50 weeks of data
             return IndicatorResult("MTF_Trend", float("nan"))
             
-        dates = [bar.date for bar in stock.history]
-        closes = [bar.close for bar in stock.history]
-        
-        # Build pandas series for easy resampling
-        series = pd.Series(closes, index=pd.to_datetime(dates))
-        weekly_closes = series.resample('W').last().dropna().values
-        
+        # EGX weeks end Thursday. Only bars present in this snapshot contribute.
+        weekly = {}
+        for bar in stock.history:
+            day = bar.date.date()
+            week_end = day + timedelta(days=(3 - day.weekday()) % 7)
+            weekly[week_end] = bar.close
+        weekly_closes = list(weekly.values())
+
         if len(weekly_closes) < 50:
             return IndicatorResult("MTF_Trend", float("nan"))
             

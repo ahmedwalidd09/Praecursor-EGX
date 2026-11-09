@@ -163,7 +163,7 @@ class YahooFinanceSource(MarketDataSource):
 
         if normalized_high != float(high_price) or normalized_low != float(low_price):
             warnings.append(
-                f"{symbol} {trade_date}: adjusted high/low range to include "
+                f"{symbol} {trade_date}: invalid high/low range conflicts with "
                 "open and close values."
             )
 
@@ -174,8 +174,8 @@ class YahooFinanceSource(MarketDataSource):
         return PriceBar(
             date=datetime.combine(trade_date, time.min),
             open=float(open_price),
-            high=normalized_high,
-            low=normalized_low,
+            high=float(high_price),
+            low=float(low_price),
             close=float(close_price),
             volume=int(volume),
         )

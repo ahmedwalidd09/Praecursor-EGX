@@ -120,7 +120,7 @@ class TradingViewSource(MarketDataSource):
 
                             if norm_high != high_p or norm_low != low_p:
                                 warnings.append(
-                                    f"{symbol} {bar_dt}: adjusted high/low range to include open/close values."
+                                    f"{symbol} {bar_dt}: invalid high/low range conflicts with open/close values."
                                 )
 
                             final_date = (
@@ -131,8 +131,8 @@ class TradingViewSource(MarketDataSource):
                                 PriceBar(
                                     date=final_date,
                                     open=open_p,
-                                    high=norm_high,
-                                    low=norm_low,
+                                    high=high_p,
+                                    low=low_p,
                                     close=close_p,
                                     volume=vol,
                                 )

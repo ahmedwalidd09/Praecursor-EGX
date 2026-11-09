@@ -106,7 +106,8 @@ class TelegramBotHub:
             except Exception:
                 pass
         if not message and run_result:
-            message = self.formatter.format_scanner_result(run_result, top_n=top_n)
+            from praecursor.reporting.overview import overview
+            message = self.formatter.format_snapshot(overview(), top_n=top_n)
 
         if not message:
             logger.warning("No scan message could be generated for broadcast.")
@@ -140,7 +141,7 @@ class TelegramBotHub:
             print(f"[BotHub] Broadcast complete: {sent_messages}/{len(recipients)} terminals delivered.")
 
         return {
-            "ok": True,
+            "ok": bool(recipients) and sent_messages == len(recipients),
             "recipients_count": len(recipients),
             "sent_count": sent_messages,
             "charts_count": total_charts,

@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 from datetime import datetime, timezone
 from pathlib import Path
 import csv
@@ -23,6 +24,8 @@ class TestAccuracyTracker(unittest.TestCase):
         self.store = SignalHistoryStore(self.db_path)
         self.cache = PriceCache(self.db_path)
         self.cache.initialize()  # Create source_prices table
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executescript(SCHEMA)
         self.tracker = AccuracyTracker(self.db_path)
 
     def tearDown(self):
@@ -50,7 +53,7 @@ class TestAccuracyTracker(unittest.TestCase):
     def _create_source_price(self, conn, symbol, trade_date, high, close):
         conn.execute("""
             INSERT INTO source_prices (ticker, trade_date, source, open, high, low, close, volume, confidence, collected_at)
-            VALUES (?, ?, 'mubasher', ?, ?, ?, ?, 10000, 1.0, '2026-08-01T12:00:00Z')
+            VALUES (?, ?, 'tradingview', ?, ?, ?, ?, 10000, 1.0, '2026-08-01T12:00:00Z')
         """, (symbol, trade_date, close, high, min(close, high), close))
 
     def test_intraday_high_hits_target_even_when_close_is_lower(self):
@@ -61,13 +64,14 @@ class TestAccuracyTracker(unittest.TestCase):
             self._create_scanner_signal(conn, run_id=1, generated_at="2026-08-01T12:00:00Z", rank=1, symbol="TEST_HIT", latest_close=100.0, target_price=107.5)
             # Next day candle: high = 108.0 (>= 107.5 target), but close = 101.0 (< 107.5 target)
             self._create_source_price(conn, symbol="TEST_HIT", trade_date="2026-08-02", high=108.0, close=101.0)
+            conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
             conn.commit()
 
         self.tracker.update_historical_outcomes()
 
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            outcome = conn.execute("SELECT * FROM scanner_signal_outcomes WHERE run_id = 1 AND symbol = 'TEST_HIT'").fetchone()
+            outcome = conn.execute("SELECT * FROM verified_outcomes WHERE run_id = 1 AND symbol = 'TEST_HIT'").fetchone()
 
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome["next_day_hit"], 1, "Intraday high >= target price must log as HIT even when close is lower")
@@ -80,13 +84,14 @@ class TestAccuracyTracker(unittest.TestCase):
             self._create_scanner_signal(conn, run_id=1, generated_at="2026-08-01T12:00:00Z", rank=1, symbol="TEST_MISS", latest_close=100.0, target_price=107.5)
             # Next day candle: high = 104.0 (+4.0% gain > 2.5%, but < 107.5 target), close = 103.0
             self._create_source_price(conn, symbol="TEST_MISS", trade_date="2026-08-02", high=104.0, close=103.0)
+            conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
             conn.commit()
 
         self.tracker.update_historical_outcomes()
 
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            outcome = conn.execute("SELECT * FROM scanner_signal_outcomes WHERE run_id = 1 AND symbol = 'TEST_MISS'").fetchone()
+            outcome = conn.execute("SELECT * FROM verified_outcomes WHERE run_id = 1 AND symbol = 'TEST_MISS'").fetchone()
 
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome["next_day_hit"], 0, "Intraday high < target price must log as MISS even if high is > 2.5% above close")
@@ -111,6 +116,7 @@ class TestAccuracyTracker(unittest.TestCase):
                 high_val = 54.0 if r <= 4 else 51.0
                 self._create_source_price(conn, symbol=sym, trade_date="2026-08-03", high=high_val, close=50.5)
 
+            conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
             conn.commit()
 
         # Execute tracker update first time
@@ -118,7 +124,7 @@ class TestAccuracyTracker(unittest.TestCase):
         self.tracker.export_accuracy_history_archive(self.archive_csv_path)
 
         with sqlite3.connect(self.db_path) as conn:
-            count1 = conn.execute("SELECT COUNT(*) FROM scanner_signal_outcomes").fetchone()[0]
+            count1 = conn.execute("SELECT COUNT(*) FROM verified_outcomes").fetchone()[0]
 
         self.assertEqual(count1, 16, f"Expected 16 outcomes across 2 runs (8 each), got {count1}")
 
@@ -127,7 +133,7 @@ class TestAccuracyTracker(unittest.TestCase):
         self.tracker.export_accuracy_history_archive(self.archive_csv_path)
 
         with sqlite3.connect(self.db_path) as conn:
-            count2 = conn.execute("SELECT COUNT(*) FROM scanner_signal_outcomes").fetchone()[0]
+            count2 = conn.execute("SELECT COUNT(*) FROM verified_outcomes").fetchone()[0]
 
         self.assertEqual(count2, 16, "Re-running updater must maintain baseline count without creating duplicates")
 

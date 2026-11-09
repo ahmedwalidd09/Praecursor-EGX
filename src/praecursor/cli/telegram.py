@@ -3,6 +3,9 @@ from datetime import datetime, timezone
 from typing import Any
 import argparse
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 import sqlite3
 import sys
 from pathlib import Path
@@ -33,6 +36,9 @@ class MinimalResultRow:
     opportunity_score: MinimalOppScore
     next_day_reasons: str = ""
     next_day_prediction: Any = None
+    candidate_rank: int | None = None
+    selection_reasons: tuple = ()
+    source_status: str = ""
 
 
 @dataclass
@@ -99,22 +105,10 @@ def load_latest_scan_result() -> MinimalRunResult | None:
 
                 target_p = float(row.get("next_day_target", 0.0) or 0.0)
                 stop_p = float(row.get("next_day_stop_loss", 0.0) or (row.get("swing_stop_loss", 0.0) or 0.0))
-                if target_p <= 0:
-                    target_p = latest_c * 1.05
-                if stop_p <= 0:
-                    stop_p = latest_c * 0.95
                 nd_s = float(row.get("next_day_score", 0.0) or 0.0)
                 nd_lbl = str(row.get("next_day_label", "") or "")
                 reasons_raw = str(row.get("next_day_reasons", "") or "")
                 reasons_list = [r.strip() for r in reasons_raw.split(";") if r.strip()] if reasons_raw else [f"Score: {nd_s:.1f}% based on technical indicators"]
-
-                k_fraction = 0.0
-                w_p = max(0.40, min(0.50 + max(0.0, nd_s - 50.0) * 0.005, 0.62))
-                t_pct = (target_p - latest_c) / latest_c if latest_c > 0 else 0.0
-                s_pct = (latest_c - stop_p) / latest_c if latest_c > 0 else 0.0
-                if t_pct > 0 and s_pct > 0:
-                    b = t_pct / s_pct
-                    k_fraction = max(0.0, min((w_p - ((1.0 - w_p) / b)) * 0.5, 0.25))
 
                 next_day_pred = NextDayPrediction(
                     score=nd_s,
@@ -123,7 +117,7 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                     latest_close=latest_c,
                     target_price=target_p,
                     stop_loss_price=stop_p,
-                    kelly_fraction=k_fraction,
+                    kelly_fraction=0.0,
                 )
 
                 item = MinimalResultRow(
@@ -133,21 +127,13 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                     opportunity_score=opp_score,
                     next_day_reasons=next_day_pred.reasons_text,
                     next_day_prediction=next_day_pred,
+                    candidate_rank=row.get("candidate_rank"),
+                    selection_reasons=tuple(json.loads(row.get("selection_reasons") or "[]")),
+                    source_status=row.get("source_status") or "",
                 )
                 symbol_results.append(item)
 
-            # Top Pick badging matching workflow & dashboard
-            top_pick_num = 0
-            for i, res in enumerate(symbol_results):
-                nd_pred = res.next_day_prediction
-                label = res.next_day_label
-                new_label = label
-                is_eligible = ("Low Confidence" not in label) and ("Avoid" not in label)
-                if nd_pred.score >= 68.0 and is_eligible and ("Candidate" in label) and top_pick_num < 5:
-                    top_pick_num += 1
-                    new_label = f"⭐ Top Pick #{top_pick_num} ({label})"
-                if new_label != label:
-                    res.next_day_label = new_label
+            symbol_results.sort(key=lambda r: (r.candidate_rank is None, r.candidate_rank or 999, -r.next_day_score))
 
             return MinimalRunResult(
                 generated_at=generated_at,
@@ -186,9 +172,10 @@ def main() -> int:
         if not message:
             result = load_latest_scan_result()
             if result is None:
-                print("Warning: No scanner runs found in database. Exiting cleanly.")
-                return 0
-            message = formatter.format_scanner_result(result, top_n=args.top)
+                print("Error: No scanner runs found in database.")
+                return 1
+            from praecursor.reporting.overview import overview
+            message = formatter.format_snapshot(overview(), top_n=args.top)
     elif args.run_scanner:
         result = ScannerWorkflow().run(symbols=parse_symbols(args.symbols))
         message = formatter.format_scanner_result(result, top_n=args.top)
@@ -204,8 +191,8 @@ def main() -> int:
         print("--------------------------------\n")
         if not args.no_charts and result:
             charts_dir = Path("reports/charts")
-            candidates = [c for c in getattr(result, "next_day_results", []) if "Avoid" not in getattr(c, "next_day_label", "")]
-            candidates.sort(key=lambda x: getattr(x, "next_day_score", 0.0), reverse=True)
+            candidates = [c for c in getattr(result, "next_day_results", []) if c.candidate_rank]
+            candidates.sort(key=lambda x: x.candidate_rank)
             top_actionable = candidates[:args.top_charts]
             print(f"--- CANDIDATE CHARTS QUEUED FOR PHOTO DISPATCH ({len(top_actionable)}) ---")
             for rank, item in enumerate(top_actionable, start=1):
@@ -227,7 +214,9 @@ def main() -> int:
 
     if args.message:
         sent_count = hub.broadcast_message(args.message)
-        print(f"[Telegram] [SUCCESS] Message broadcast to {sent_count} terminals.")
+        print(f"[Telegram] Message delivered to {sent_count} terminals.")
+        if not sent_count:
+            return 1
     else:
         broadcast_res = hub.broadcast_scan_briefing(
             run_result=result,
@@ -238,7 +227,8 @@ def main() -> int:
         if broadcast_res.get("ok"):
             print(f"[Telegram] [SUCCESS] Broadcast delivered to {broadcast_res.get('sent_count')} terminals ({broadcast_res.get('charts_count')} charts).")
         else:
-            print(f"[Telegram] [WARNING] Broadcast finished with result: {broadcast_res}")
+            print(f"[Telegram] [ERROR] Broadcast failed: {broadcast_res}")
+            return 1
 
     client = TelegramClient(settings)
     if args.send_files and result is not None:

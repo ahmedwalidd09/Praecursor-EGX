@@ -28,9 +28,11 @@ class IndicatorAttributionAnalyzer:
             query = """
             SELECT o.symbol, o.signal_date, o.next_day_hit, o.next_day_return,
                    s.score_components
-            FROM scanner_signal_outcomes o
+            FROM verified_outcomes o
             JOIN scanner_signals s ON s.run_id = o.run_id AND s.symbol = o.symbol
-            WHERE o.next_day_hit IS NOT NULL
+            WHERE o.next_day_hit IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM verified_outcomes prior WHERE prior.symbol=o.symbol
+                AND prior.signal_date=o.signal_date AND prior.run_id<o.run_id)
             """
             rows = conn.execute(query).fetchall()
 

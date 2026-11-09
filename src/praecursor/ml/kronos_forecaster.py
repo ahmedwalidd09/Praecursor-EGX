@@ -1967,7 +1967,8 @@ def predict_next_candle(symbol: str, history_df: Optional[pd.DataFrame] = None) 
         x_df = recent_df[["open", "high", "low", "close", "volume"]]
         x_timestamp = recent_df["timestamps"]
         last_dt = x_timestamp.iloc[-1]
-        next_dt = last_dt + pd.Timedelta(days=1)
+        from praecursor.core.sessions import next_session
+        next_dt = pd.Timestamp(next_session(last_dt.date()))
         y_timestamp = pd.Series([next_dt])
 
         # 2. Run Kronos inference

@@ -1,40 +1,6 @@
 from dataclasses import dataclass
 from math import isnan
-from pathlib import Path
-import logging
-
-try:
-    import pandas as pd
-    import numpy as np
-    import xgboost as xgb
-    HAS_ML = True
-except ImportError:
-    HAS_ML = False
-    np = None
-
 from praecursor.scoring.opportunity_score import OpportunityScore
-from praecursor.scoring.position_sizing import calculate_position_size
-
-_SWING_MODEL = None
-
-def _get_swing_model():
-    global _SWING_MODEL
-    if not HAS_ML:
-        return None
-        
-    if _SWING_MODEL is None:
-        try:
-            model_path = Path(__file__).resolve().parents[3] / "models" / "xgboost_swing.json"
-            if model_path.exists():
-                _SWING_MODEL = xgb.XGBClassifier()
-                _SWING_MODEL.load_model(str(model_path))
-            else:
-                _SWING_MODEL = False
-        except Exception as e:
-            logger.error(f"Failed to load swing ML model: {e}")
-            _SWING_MODEL = False
-            
-    return _SWING_MODEL if _SWING_MODEL is not False else None
 
 
 @dataclass(frozen=True)
@@ -49,6 +15,8 @@ class SwingPrediction:
     stop_loss_price: float = 0.0
     position_size: float = 0.0
     max_risk: float = 0.0
+    probability: float | None = None
+    model_version: str = "technical-only"
     dynamic_stop: bool = False
 
     @property
@@ -58,68 +26,22 @@ class SwingPrediction:
 
 def calculate_swing_prediction(
     opportunity_score: OpportunityScore,
-    consensus_accepted: bool = True,
-    consensus_confidence: float = 40.0,
-    data_quality_score: float = 100.0,
+    consensus_accepted: bool = False,
+    consensus_confidence: float = 0.0,
+    data_quality_score: float = 0.0,
 ) -> SwingPrediction:
     values = opportunity_score.indicator_values
     
-    model = _get_swing_model()
-    
-    if model is not None:
-        features = [
-            "RSI14", "RelVolume20", "MACDHistogram", "Momentum20", 
-            "Breakout20", "Breakout50", "RSIRebound", "EMA20Reclaim", 
-            "MACDHistogramImprovement", "VolumeSpikeFromWeakness", "Momentum5", "BBW20",
-            "MTF_Trend", "VPOC_Distance", "ADX14", "ROC10", "StochRSI", "VWAPMom10"
-        ]
-        
-        csv_features = [
-            "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
-            "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
-            "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10"
-        ]
-        flat_values = {}
-        for k, v in values.items():
-            if isinstance(v, dict):
-                for sub_k, sub_v in v.items():
-                    flat_values[sub_k] = sub_v
-            else:
-                flat_values[k] = v
-
-        row_data = {csv_name: flat_values.get(orig_name, 0.0) for csv_name, orig_name in zip(csv_features, features)}
-        for k, v in row_data.items():
-            if v != v:
-                row_data[k] = 0.0
-        df = pd.DataFrame([row_data])
-        
-        old_features = [
-            "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
-            "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
-            "mtf_trend", "vpoc_distance"
-        ]
-        try:
-            prob = model.predict_proba(df[old_features])[0][1]
-        except Exception:
-            prob = 0.0
-        
-        score = prob * 100.0
-        
-        reasons = [f"AI Probability: {score:.1f}%"]
-        if score >= 50:
-            reasons.append("ML model predicts a positive 20-day return")
-            
-        if not consensus_accepted:
-            score -= 20.0
-            reasons.append("latest close consensus is not accepted")
-
-        if data_quality_score < 60:
-            score -= 10.0
-            reasons.append("data quality is low")
-            
-        score = max(0.0, min(score, 100.0))
-        label = _label(score, 0.0, 0.0, consensus_accepted, using_ml=True, opp_score=opportunity_score.score_percent)
-            
+    from praecursor.ml.prediction import predict_validated
+    stock = opportunity_score.stock
+    session = stock.history[-1].date.date().isoformat() if stock and stock.history else None
+    probability, metadata = predict_validated(values, opportunity_score.score_percent, "swing", session)
+    if probability is not None:
+        score = probability * 100
+        reasons = [f"Estimated 20-session target-touch probability: {probability:.1%}"]
+        label = "Swing Candidate" if probability >= metadata["threshold"] else "Swing Watchlist"
+        if not consensus_accepted or data_quality_score < 80:
+            label = "Unconfirmed Swing Watch"
     else:
         trend_score, trend_reasons = _trend_continuation_score(values)
         reversal_score, reversal_reasons = _swing_reversal_score(values)
@@ -141,6 +63,12 @@ def calculate_swing_prediction(
         if not reasons:
             reasons.append("no strong swing pattern detected")
 
+    if not consensus_accepted:
+        label = "Unconfirmed Swing Watch"
+        reasons.append("Latest candle lacks independent source confirmation")
+    if data_quality_score < 80:
+        label = "Insufficient History Quality"
+        reasons.append("Insufficient validated history quality")
     atr14 = values.get("ATR14", float("nan"))
     latest_close = opportunity_score.latest_close
     
@@ -150,18 +78,13 @@ def calculate_swing_prediction(
             
     position_size = 0.0
     max_risk = 0.0
-    if score >= 50 and not _missing(atr14) and latest_close > 0:
-        size_suggestion = calculate_position_size(
-            win_probability_percent=score,
-            entry_price=latest_close,
-            stop_loss_price=stop_loss_price,
-            target_price=target_price
-        )
-        position_size = size_suggestion.recommended_weight_percent
-        max_risk = size_suggestion.max_risk_percent
-        reasons.extend(size_suggestion.reasoning)
+    reasons.append("Position sizing requires an independently validated trade payoff model")
+    if probability is None:
+        reasons.append("Technical setup only; swing probability is unavailable")
 
     return SwingPrediction(
+        probability=probability,
+        model_version=metadata.get("model_version", "technical-only"),
         score=score,
         label=label,
         reasons=reasons,
@@ -324,7 +247,7 @@ def _quality_adjustment(
 
 def _label(score: float, trend_score: float, reversal_score: float, consensus_accepted: bool, using_ml: bool = False, opp_score: float = 100.0) -> str:
     if not consensus_accepted:
-        return "Low Confidence"
+        return "Unconfirmed Swing Watch"
 
     if opp_score < 40:
         return "Avoid Swing"

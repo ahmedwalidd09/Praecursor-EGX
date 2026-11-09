@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 from datetime import date, timedelta
 import sqlite3
 import subprocess
@@ -49,6 +50,7 @@ class TestTier4Scenarios:
             INSERT INTO source_prices (ticker, trade_date, open, high, low, close, volume, source, collected_at)
             VALUES ('COMI', '2026-08-02', 80.0, 83.5, 79.5, 81.0, 5000, 'consensus', '2026-08-02T17:00:00')
         """)
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL AND run_id>8")
         conn.commit()
         conn.close()
 
@@ -79,10 +81,11 @@ class TestTier4Scenarios:
                 VALUES (?, ?, 1, ?, 'Simulated Corp', 85.0, 85.0, 'BULLISH', 10.0, 100.0, 1.0, 85.0, 'BULLISH', 10.5)
             """, (run_id, f"{d}T17:00:00", sym))
             cursor.execute("""
-                INSERT INTO scanner_signal_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label)
+                INSERT INTO verified_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label)
                 VALUES (?, ?, ?, 'BULLISH', 1, 4.0, '')
             """, (run_id, sym, d))
 
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL AND run_id>8")
         conn.commit()
         conn.close()
 

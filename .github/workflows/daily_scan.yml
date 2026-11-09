@@ -2,9 +2,9 @@ name: Praecursor-EGX Autonomous Scanner
 
 on:
   schedule:
-    # Run Saturday through Wednesday at 12:30 UTC (15:30 / 3:30 PM Cairo Time)
+    # Saturday–Wednesday at 18:30 UTC (20:30 Cairo winter / 21:30 summer).
     # Generates next-day target briefing before each trading day
-    - cron: '30 12 * * 6,0,1,2,3'
+    - cron: '30 18 * * 6,0,1,2,3'
   workflow_dispatch:
     inputs:
       force:
@@ -18,12 +18,16 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: daily-egx-scan
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
   run-scanner:
-    name: Run Autonomous Daily Scan & Models
+    name: Scan & Deliver Next-Session Candidates
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -82,28 +86,12 @@ jobs:
 
           ls -lh database/
 
-      - name: Configure Telegram Secrets
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          mkdir -p config
-          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-            echo "Writing configured Telegram secrets from GitHub Secrets..."
-            cat <<EOF > config/telegram.json
-          {
-            "bot_token": "$TELEGRAM_BOT_TOKEN",
-            "chat_id": "$TELEGRAM_CHAT_ID"
-          }
-          EOF
-          else
-            echo "Using default/fallback Telegram credentials embedded in Praecursor settings."
-          fi
-
       - name: Execute Autonomous Daily Pipeline
         env:
           PYTHONUNBUFFERED: "1"
           PYTHONPATH: "src"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           FLAGS=""
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
@@ -114,6 +102,9 @@ jobs:
           fi
 
           echo "Running command: python tools/run_autonomous_pipeline.py $FLAGS"
+          if [ "${{ github.event.inputs.dry_run_telegram }}" != "true" ]; then
+            test -n "$TELEGRAM_BOT_TOKEN" && test -n "$TELEGRAM_CHAT_ID" || { echo "Telegram Actions secrets are missing"; exit 1; }
+          fi
           python tools/run_autonomous_pipeline.py $FLAGS
 
       - name: Persist Updated Database to GitHub Release
@@ -123,7 +114,8 @@ jobs:
         run: |
           if [ -f "database/praecursor.db" ]; then
             echo "Compressing updated database..."
-            gzip -c database/praecursor.db > database/praecursor.db.gz
+            python -c "import sqlite3; src=sqlite3.connect('database/praecursor.db'); dst=sqlite3.connect('database/backup.db'); src.backup(dst); dst.close(); src.close()"
+            gzip -c database/backup.db > database/praecursor.db.gz
             echo "Compressed DB size: $(ls -lh database/praecursor.db.gz | awk '{print $5}')"
 
             echo "Uploading updated snapshot to GitHub Release 'db-latest'..."

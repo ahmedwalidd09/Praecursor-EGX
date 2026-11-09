@@ -1,70 +1,36 @@
-import pandas as pd
 import numpy as np
-
-from praecursor.core.stock import Stock
-from praecursor.scoring.indicator import Indicator as BaseIndicator
+from praecursor.scoring.indicator import Indicator
 from praecursor.scoring.result import IndicatorResult
 
 
-class RollingZScoreIndicator(BaseIndicator):
-
-    def calculate(self, stock: Stock) -> IndicatorResult:
-        # Implementing the abstract method from Indicator
+class RollingZScoreIndicator(Indicator):
+    def calculate(self, stock):
         return self.analyze(stock)
 
-    def analyze(self, stock: Stock) -> IndicatorResult:
-        """
-        Returns a dictionary with Z-Scores for RSI and Momentum.
-        (Note: the type hint says IndicatorResult per instructions, but returns a dict)
-        """
-        closes = [bar.close for bar in stock.history]
-        
-        if len(closes) < 2:
-            return {
-                "RSI14_ZScore": float("nan"),
-                "Momentum20_ZScore": float("nan")
-            }
+    def analyze(self, stock):
+        closes = np.asarray([bar.close for bar in stock.history], dtype=float)
+        rsi = np.full(len(closes), np.nan)
+        if len(closes) >= 14:
+            delta = np.diff(closes, prepend=closes[0])
+            gains = np.maximum(delta, 0)
+            losses = np.maximum(-delta, 0)
+            avg_gain, avg_loss = gains[:14].mean(), losses[:14].mean()
+            for i in range(13, len(closes)):
+                if i >= 14:
+                    avg_gain = (avg_gain * 13 + gains[i]) / 14
+                    avg_loss = (avg_loss * 13 + losses[i]) / 14
+                rsi[i] = 100 * avg_gain / (avg_gain + avg_loss) if avg_gain + avg_loss else np.nan
+        momentum = closes[20:] - closes[:-20]
 
-        df = pd.DataFrame({"close": closes})
-
-        # Calculate 20-day Momentum (Price change over 20 days)
-        df["mom"] = df["close"].diff(20)
-
-        # Calculate 14-day RSI manually
-        delta = df["close"].diff()
-        gain = (delta.where(delta > 0, 0)).fillna(0)
-        loss = (-delta.where(delta < 0, 0)).fillna(0)
-
-        # First averages are simple moving averages
-        avg_gain = gain.rolling(window=14, min_periods=14).mean()
-        avg_loss = loss.rolling(window=14, min_periods=14).mean()
-
-        # For subsequent values, use Wilder's Smoothing (Exponential)
-        # alpha = 1 / 14
-        for i in range(14, len(df)):
-            avg_gain.iloc[i] = (avg_gain.iloc[i - 1] * 13 + gain.iloc[i]) / 14
-            avg_loss.iloc[i] = (avg_loss.iloc[i - 1] * 13 + loss.iloc[i]) / 14
-
-        rs = avg_gain / avg_loss
-        df["rsi"] = 100 - (100 / (1 + rs))
-
-        # Calculate rolling 250-day mean and std
-        df["rsi_mean"] = df["rsi"].rolling(window=250, min_periods=14).mean()
-        df["rsi_std"] = df["rsi"].rolling(window=250, min_periods=14).std()
-
-        df["mom_mean"] = df["mom"].rolling(window=250, min_periods=20).mean()
-        df["mom_std"] = df["mom"].rolling(window=250, min_periods=20).std()
-
-        # Calculate Z-Scores
-        df["rsi_z"] = (df["rsi"] - df["rsi_mean"]) / df["rsi_std"]
-        df["mom_z"] = (df["mom"] - df["mom_mean"]) / df["mom_std"]
-
-        last_row = df.iloc[-1]
-        
-        rsi_z = float(last_row["rsi_z"]) if pd.notna(last_row["rsi_z"]) else float("nan")
-        mom_z = float(last_row["mom_z"]) if pd.notna(last_row["mom_z"]) else float("nan")
+        def latest_z(values, minimum):
+            window = values[-250:]
+            valid = window[np.isfinite(window)]
+            if len(valid) < minimum or not len(window) or not np.isfinite(window[-1]):
+                return float("nan")
+            std = valid.std(ddof=1)
+            return float((window[-1] - valid.mean()) / std) if std > 0 else float("nan")
 
         return IndicatorResult("RollingZScore", {
-            "RSI14_ZScore": rsi_z,
-            "Momentum20_ZScore": mom_z
+            "RSI14_ZScore": latest_z(rsi, 14),
+            "Momentum20_ZScore": latest_z(momentum, 20),
         })

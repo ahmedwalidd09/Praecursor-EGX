@@ -1,4 +1,6 @@
 import json
+from functools import cached_property
+from praecursor.core.sessions import completed_session
 import logging
 import os
 from dataclasses import dataclass, field, replace
@@ -56,6 +58,16 @@ class SymbolScanResult:
     previous_rank: int | None = None
     rank_change: int | None = None
     override_next_day_label: str | None = None
+    candidate_rank: int | None = None
+    selection_reasons: tuple[str, ...] = ()
+
+    @property
+    def source_status(self) -> str:
+        if self.consensus_result is None:
+            return "Single source — latest candle not independently confirmed"
+        if not self.consensus_result.accepted:
+            return "Source disagreement — excluded from daily candidates"
+        return f"Corroborated by {self.consensus_result.agreeing_source_count} sources"
 
     @property
     def warning_count(self) -> int:
@@ -69,6 +81,9 @@ class SymbolScanResult:
     def data_quality_score(self) -> float:
         """Simple warning-rate based quality score from 0 to 100."""
         if self.total_downloaded_bars <= 0:
+            return 0.0
+        stock = self.opportunity_score.stock
+        if stock is not None and len(stock.history) < 251:
             return 0.0
 
         warning_rate_percent = (self.warning_count / self.total_downloaded_bars) * 100
@@ -139,7 +154,7 @@ class SymbolScanResult:
     @property
     def predictor_label(self) -> str:
         if self.consensus_result is None or not self.consensus_result.accepted:
-            return "Low Confidence"
+            return "Source Disagreement" if self.consensus_result else "Single-source Setup"
 
         if self.data_quality_label == "low":
             return "Low Data Quality"
@@ -183,11 +198,11 @@ class SymbolScanResult:
     def predictor_reasons_text(self) -> str:
         return "; ".join(self.predictor_reasons)
 
-    @property
+    @cached_property
     def next_day_prediction(self) -> NextDayPrediction:
         return calculate_next_day_prediction(
             opportunity_score=self.opportunity_score,
-            consensus_accepted=self.consensus_result.accepted if self.consensus_result is not None else True,
+            consensus_accepted=self.consensus_result.accepted if self.consensus_result is not None else False,
             consensus_confidence=self.consensus_score,
             data_quality_score=self.data_quality_score,
         )
@@ -207,11 +222,11 @@ class SymbolScanResult:
     def next_day_reasons_text(self) -> str:
         return self.next_day_prediction.reasons_text
 
-    @property
+    @cached_property
     def swing_prediction(self) -> SwingPrediction:
         return calculate_swing_prediction(
             opportunity_score=self.opportunity_score,
-            consensus_accepted=self.consensus_result.accepted if self.consensus_result is not None else True,
+            consensus_accepted=self.consensus_result.accepted if self.consensus_result is not None else False,
             consensus_confidence=self.consensus_score,
             data_quality_score=self.data_quality_score,
         )
@@ -304,7 +319,7 @@ class ScannerRunResult:
 
     @property
     def next_day_results(self) -> list[SymbolScanResult]:
-        return sorted(self.symbol_results, key=lambda result: result.next_day_score, reverse=True)
+        return sorted(self.symbol_results, key=lambda r: (r.candidate_rank is None, r.candidate_rank or 999, -r.next_day_score, r.symbol))
 
     @property
     def swing_results(self) -> list[SymbolScanResult]:
@@ -365,7 +380,6 @@ class ScannerWorkflow:
             if self.consensus_data_sources is None:
                 self.consensus_data_sources = [
                     StockAnalysisSource(symbol_mapper=self.symbol_mapper),
-                    MubasherSource(),
                     TradingViewSource(symbol_mapper=self.symbol_mapper),
                 ]
             
@@ -409,7 +423,7 @@ class ScannerWorkflow:
         except Exception as e:
             logger.warning(f"[AUTO-OUTCOME] Could not backfill outcomes: {e}")
 
-        selected_end_date = end_date or date.today()
+        selected_end_date = min(end_date or completed_session(), completed_session())
         start_date = selected_end_date - timedelta(days=self.lookback_days)
         consensus_start_date = selected_end_date - timedelta(days=self.consensus_lookback_days)
         selected_symbols = symbols or self.symbol_mapper.get_yahoo_symbols()
@@ -487,16 +501,14 @@ class ScannerWorkflow:
                 )
 
                 # Fix missed data: if primary source is wrong but consensus agrees, override it in cache
-                if consensus_result and not consensus_result.accepted and consensus_result.confidence_percent >= 40.0:
-                    local_cache.override_consensus_prices(
-                        symbol,
-                        self.source_name,
-                        consensus_result.trade_date,
-                        consensus_result.consensus_high,
-                        consensus_result.consensus_close,
-                    )
+                if consensus_result and consensus_result.accepted and any(
+                    a.source_name == self.source_name and not a.agrees for a in consensus_result.agreements
+                ):
+                    raise ValueError("Primary OHLCV conflicts with accepted consensus; candle quarantined")
 
                 stock = local_stock_builder.build(symbol, start_date, selected_end_date)
+                if stock.history[-1].date.date() != selected_end_date:
+                    raise ValueError(f"Stale prices: expected completed session {selected_end_date}, got {stock.history[-1].date.date()}")
                 opportunity_score = self.scorer.score(stock)
                 cached_bars = local_cache.load(
                     symbol,
@@ -617,6 +629,14 @@ class ScannerWorkflow:
         if progress_callback:
             progress_callback(total_symbols, total_symbols)
 
+        # Score cross-sectional features only after all symbols have finished collecting.
+        from praecursor.scoring.market_context import attach_market_context
+        stocks = [r.opportunity_score.stock for r in symbol_results if r.opportunity_score.stock]
+        if stocks:
+            session = max(s.history[-1].date.date() for s in stocks if s.history)
+            attach_market_context(stocks, session)
+            symbol_results = [replace(r, opportunity_score=self.scorer.score(r.opportunity_score.stock)) for r in symbol_results]
+
         ranked_results = sorted(
             symbol_results,
             key=lambda result: result.opportunity_score.total_score,
@@ -634,24 +654,10 @@ class ScannerWorkflow:
         if ranked_results:
             next_day_results = sorted(ranked_results, key=lambda result: result.next_day_score, reverse=True)
             
-            # Dynamic Top-N Ranking: badge genuine elite breakout candidates (max 5) as Top Picks
-            top_pick_num = 0
-            for i, res in enumerate(next_day_results):
-                nd_pred = res.next_day_prediction
-                label = nd_pred.label
-                new_label = label
-                is_consensus_ok = res.consensus_result is None or res.consensus_result.accepted
-                is_eligible = is_consensus_ok and ("Low Confidence" not in label) and ("Avoid" not in label)
-                if nd_pred.score >= 68.0 and is_eligible and ("Candidate" in label) and top_pick_num < 5:
-                    top_pick_num += 1
-                    new_label = f"⭐ Top Pick #{top_pick_num} ({label})"
-                if new_label != label:
-                    next_day_results[i] = replace(res, override_next_day_label=new_label)
-                    
-            # Re-sync ranked_results so the database and dashboard get the updated objects
-            modified_map = {res.symbol: res for res in next_day_results}
-            ranked_results = [modified_map[res.symbol] for res in ranked_results]
-                    
+            from praecursor.scoring.candidates import select_daily_candidates
+            ranked_results = select_daily_candidates(ranked_results)
+            next_day_results = sorted(ranked_results, key=lambda r: (r.candidate_rank is None, r.candidate_rank or 999, -r.next_day_score, r.symbol))
+
             saved_report_path = self.report_writer.write(ranked_results, report_path)
             saved_next_day_report_path = self.report_writer.write(next_day_results, next_day_report_path)
             saved_markdown_report_path = self.markdown_report_writer.write(
@@ -783,7 +789,7 @@ class ScannerWorkflow:
             reverse=True,
         )
 
-        for candidate_date in candidate_dates:
+        for candidate_date in candidate_dates[:1]:
             source_prices = self._build_source_prices(
                 symbol,
                 candidate_date,

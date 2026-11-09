@@ -1,3 +1,4 @@
+from math import isfinite
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -83,6 +84,10 @@ class PriceBarValidator:
     ) -> None:
         for bar in price_bars:
             trade_date = bar.date.date()
+
+            if not all(isfinite(float(v)) for v in (bar.open, bar.high, bar.low, bar.close, bar.volume)):
+                result.add_error(f"{label} {trade_date}: OHLCV contains non-finite values.")
+                continue
 
             if bar.open <= 0:
                 result.add_error(f"{label} {trade_date}: open price must be positive.")

@@ -622,16 +622,16 @@ def generate_top_candidates_charts(top_n: int = 5) -> list[Path]:
         for r in reader:
             sym = r.get("symbol")
             nd_label = r.get("next_day_label", "")
-            if not sym or "Avoid" in nd_label:
+            if not sym or not r.get("candidate_rank"):
                 continue
             try:
                 nd_score = float(r.get("next_day_score", 0.0) or 0.0)
             except (ValueError, TypeError):
                 nd_score = 0.0
-            eligible.append((sym, nd_score))
+            eligible.append((sym, int(r["candidate_rank"])))
 
     # Sort actionable candidates by next_day_score descending
-    eligible.sort(key=lambda x: x[1], reverse=True)
+    eligible.sort(key=lambda x: x[1])
     symbols = [s[0] for s in eligible[:top_n]]
 
     if not symbols:

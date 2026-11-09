@@ -32,3 +32,9 @@ patch.py
 # Generated reports
 reports/*
 !reports/.gitkeep
+
+# Local reconstruction and versioned model training artifacts
+data/research_samples*
+models/validated/
+models/active_*.json
+data/research_checkpoints/

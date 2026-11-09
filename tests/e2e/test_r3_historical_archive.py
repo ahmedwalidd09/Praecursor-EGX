@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 import sqlite3
 import pytest
 from praecursor.analysis.accuracy_tracker import AccuracyTracker
@@ -15,6 +16,7 @@ class TestR3HistoricalArchiveTier1:
 
         # Add a 17th record for a new day
         conn = sqlite3.connect(str(temp_db_path))
+        conn.executescript(SCHEMA)
         cursor = conn.cursor()
 
         cursor.execute(
@@ -32,11 +34,12 @@ class TestR3HistoricalArchiveTier1:
         )
 
         cursor.execute(
-            """INSERT INTO scanner_signal_outcomes (
+            """INSERT INTO verified_outcomes (
                 run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label
             ) VALUES (?, 'NEW1', '2026-07-30', 'BULLISH', 1, 5.0, '')""",
             (run_id,)
         )
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
         conn.close()
 
@@ -78,9 +81,10 @@ class TestR3HistoricalArchiveTier1:
         """Verify each archived record contains required fields (date, symbol, next_day_hit, next_day_return, next_day_label)."""
         conn = sqlite3.connect(str(temp_db_path))
         conn.row_factory = sqlite3.Row
+        conn.executescript(SCHEMA)
         cursor = conn.cursor()
 
-        row = cursor.execute("SELECT * FROM scanner_signal_outcomes LIMIT 1").fetchone()
+        row = cursor.execute("SELECT * FROM verified_outcomes LIMIT 1").fetchone()
         conn.close()
 
         assert row is not None
@@ -110,6 +114,7 @@ class TestR3HistoricalArchiveTier2:
         store.initialize()
 
         conn = sqlite3.connect(str(large_db))
+        conn.executescript(SCHEMA)
         cursor = conn.cursor()
 
         cursor.execute("INSERT INTO scanner_runs (id, generated_at, source_name, symbols, success_count, error_count) VALUES (1, '2026-08-01T17:00:00', 'test', '[]', 1, 0)")
@@ -121,12 +126,13 @@ class TestR3HistoricalArchiveTier2:
             records.append((1, sym, "2026-08-01", "BULLISH", 1 if i % 2 == 0 else 0, 2.5, ''))
 
         cursor.executemany("""
-            INSERT INTO scanner_signal_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label)
+            INSERT INTO verified_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, records)
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
 
-        count = cursor.execute("SELECT COUNT(*) FROM scanner_signal_outcomes").fetchone()[0]
+        count = cursor.execute("SELECT COUNT(*) FROM verified_outcomes").fetchone()[0]
         conn.close()
 
         assert count == 150
@@ -134,18 +140,20 @@ class TestR3HistoricalArchiveTier2:
     def test_r3_duplicate_date_symbol_handling(self, temp_db_path):
         """Verify handling of duplicate evaluation requests for same date and symbol (ON CONFLICT DO UPDATE)."""
         conn = sqlite3.connect(str(temp_db_path))
+        conn.executescript(SCHEMA)
         cursor = conn.cursor()
 
         # Try inserting duplicate outcome for run_id 1, symbol 'COMI'
         cursor.execute("""
-            INSERT INTO scanner_signal_outcomes (
+            INSERT INTO verified_outcomes (
                 run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label
             ) VALUES (1, 'COMI', '2026-07-20', 'BULLISH', 1, 3.2, '')
             ON CONFLICT(run_id, symbol) DO UPDATE SET next_day_return = 4.0
         """)
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
 
-        row = cursor.execute("SELECT next_day_return FROM scanner_signal_outcomes WHERE run_id = 1 AND symbol = 'COMI'").fetchone()
+        row = cursor.execute("SELECT next_day_return FROM verified_outcomes WHERE run_id = 1 AND symbol = 'COMI'").fetchone()
         conn.close()
 
         assert row[0] == 4.0
@@ -167,8 +175,8 @@ class TestR3HistoricalArchiveTier2:
         conn2 = sqlite3.connect(str(temp_db_path), timeout=5.0)
 
         # Both connections read concurrently
-        r1 = conn1.execute("SELECT COUNT(*) FROM scanner_signal_outcomes").fetchone()[0]
-        r2 = conn2.execute("SELECT COUNT(*) FROM scanner_signal_outcomes").fetchone()[0]
+        r1 = conn1.execute("SELECT COUNT(*) FROM verified_outcomes").fetchone()[0]
+        r2 = conn2.execute("SELECT COUNT(*) FROM verified_outcomes").fetchone()[0]
 
         assert r1 == 16
         assert r2 == 16

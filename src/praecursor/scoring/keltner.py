@@ -89,21 +89,16 @@ class KeltnerSqueezeIndicator(Indicator):
         true_ranges = calculate_true_ranges(stock)
 
         channel_widths = []
-        for i in range(self.period, len(closes) + 1):
-            # Calculate EMA for this point
-            ema = self._calculate_ema(closes[:i], self.period)
-            # Calculate ATR for this point
-            atr_values = true_ranges[:i]
-            if len(atr_values) < self.period:
-                continue
-            atr = sum(atr_values[: self.period]) / self.period
-            for tr in atr_values[self.period:]:
-                atr = ((atr * (self.period - 1)) + tr) / self.period
-
-            upper = ema + (self.multiplier * atr)
-            lower = ema - (self.multiplier * atr)
-            width_pct = ((upper - lower) / ema) * 100 if ema > 0 else 0
-            channel_widths.append(width_pct)
+        ema = sum(closes[:self.period]) / self.period
+        atr = sum(true_ranges[:self.period]) / self.period
+        alpha = 2 / (self.period + 1)
+        for i in range(self.period - 1, len(closes)):
+            if i >= self.period:
+                ema = (closes[i] - ema) * alpha + ema
+                atr = (atr * (self.period - 1) + true_ranges[i]) / self.period
+            upper = ema + self.multiplier * atr
+            lower = ema - self.multiplier * atr
+            channel_widths.append((upper - lower) / ema * 100 if ema > 0 else 0)
 
         if len(channel_widths) < self.lookback:
             return IndicatorResult(f"KCSqueeze{self.period}", float("nan"))

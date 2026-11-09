@@ -1,3 +1,4 @@
+from praecursor.ml.features import feature_row
 import csv
 from pathlib import Path
 
@@ -195,7 +196,7 @@ class BacktestCSVReportWriter:
             "momentum5": self._format_number(signal.indicator_values.get("Momentum5", float("nan"))),
             "bbw20": self._format_number(signal.indicator_values.get("BBW20", float("nan"))),
             "mtf_trend": self._format_number(signal.indicator_values.get("MTF_Trend", float("nan"))),
-            "vpoc_distance": self._format_number(signal.indicator_values.get("VPOC_Distance", float("nan"))),
+            "vpoc_distance": self._format_number(feature_row(signal.indicator_values, signal.opportunity_score)["vpoc_distance"]),
             "adx14": self._format_number(signal.indicator_values.get("ADX14", float("nan"))),
             "roc10": self._format_number(signal.indicator_values.get("ROC10", float("nan"))),
             "stoch_rsi": self._format_number(signal.indicator_values.get("StochRSI", float("nan"))),

@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 """
 Adversarial empirical test suite written by challenger_2.
 Verifies network isolation guard, target evaluation logic, and duplicate candidate prevention during CSV export.
@@ -35,6 +36,8 @@ class TestChallenger2Empirical(unittest.TestCase):
         self.archive_csv_path = Path(self.temp_dir.name) / "accuracy_history_archive.csv"
         SignalHistoryStore(self.db_path).initialize()
         PriceCache(self.db_path).initialize()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executescript(SCHEMA)
         self.tracker = AccuracyTracker(self.db_path)
 
     def tearDown(self):
@@ -62,7 +65,7 @@ class TestChallenger2Empirical(unittest.TestCase):
     def _create_source_price(self, conn, symbol, trade_date, high, close):
         conn.execute("""
             INSERT INTO source_prices (ticker, trade_date, source, open, high, low, close, volume, confidence, collected_at)
-            VALUES (?, ?, 'mubasher', ?, ?, ?, ?, 10000, 1.0, '2026-08-01T12:00:00Z')
+            VALUES (?, ?, 'tradingview', ?, ?, ?, ?, 10000, 1.0, '2026-08-01T12:00:00Z')
         """, (symbol, trade_date, close, high, min(close, high), close))
 
     # --- 1. Test Network Isolation Guard ---
@@ -119,13 +122,14 @@ class TestChallenger2Empirical(unittest.TestCase):
             self._create_scanner_run(conn, run_id=1, generated_at="2026-08-01T12:00:00Z")
             self._create_scanner_signal(conn, run_id=1, generated_at="2026-08-01T12:00:00Z", rank=1, symbol="HIGH_HIT", latest_close=100.0, target_price=105.0)
             self._create_source_price(conn, symbol="HIGH_HIT", trade_date="2026-08-02", high=105.0, close=85.0)
+            conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
             conn.commit()
 
         self.tracker.update_historical_outcomes()
 
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            outcome = conn.execute("SELECT * FROM scanner_signal_outcomes WHERE run_id = 1 AND symbol = 'HIGH_HIT'").fetchone()
+            outcome = conn.execute("SELECT * FROM verified_outcomes WHERE run_id = 1 AND symbol = 'HIGH_HIT'").fetchone()
 
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome["next_day_hit"], 1, "Intraday high >= target price MUST be recorded as HIT (1)")
@@ -136,13 +140,14 @@ class TestChallenger2Empirical(unittest.TestCase):
             self._create_scanner_run(conn, run_id=1, generated_at="2026-08-01T12:00:00Z")
             self._create_scanner_signal(conn, run_id=1, generated_at="2026-08-01T12:00:00Z", rank=1, symbol="HIGH_MISS", latest_close=100.0, target_price=105.0)
             self._create_source_price(conn, symbol="HIGH_MISS", trade_date="2026-08-02", high=104.0, close=104.0)
+            conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
             conn.commit()
 
         self.tracker.update_historical_outcomes()
 
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            outcome = conn.execute("SELECT * FROM scanner_signal_outcomes WHERE run_id = 1 AND symbol = 'HIGH_MISS'").fetchone()
+            outcome = conn.execute("SELECT * FROM verified_outcomes WHERE run_id = 1 AND symbol = 'HIGH_MISS'").fetchone()
 
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome["next_day_hit"], 0, "Intraday high < target price MUST be recorded as MISS (0)")
@@ -164,10 +169,11 @@ class TestChallenger2Empirical(unittest.TestCase):
                 ) VALUES (1, '2026-08-01T12:00:00Z', 1, 'DUP_CANDIDATE', 'Dup Co', 80.0, 80.0, 'Strong', 100.0, 100.0, 100.0, 80.0, 'Bullish', 80.0, 'Swing', 0.0, 105.0)
             """)
             conn.execute("""
-                INSERT INTO scanner_signal_outcomes (
+                INSERT INTO verified_outcomes (
                     run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, next_day_max_return, swing_label
                 ) VALUES (1, 'DUP_CANDIDATE', '2026-08-01', 'Bullish', 1, 2.0, 5.0, '')
             """)
+            conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
             conn.commit()
 
         self.tracker.export_accuracy_history_archive(self.archive_csv_path)

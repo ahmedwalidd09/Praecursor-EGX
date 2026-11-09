@@ -225,15 +225,15 @@ class StockAnalysisSource(MarketDataSource):
 
         if normalized_high != high_price or normalized_low != low_price:
             warnings.append(
-                f"{symbol} {trade_date}: adjusted high/low range to include "
+                f"{symbol} {trade_date}: invalid high/low range conflicts with "
                 "open and close values."
             )
 
         return PriceBar(
             date=datetime.combine(trade_date, time.min),
             open=open_price,
-            high=normalized_high,
-            low=normalized_low,
+            high=float(high_price),
+            low=float(low_price),
             close=close_price,
             volume=volume,
         )

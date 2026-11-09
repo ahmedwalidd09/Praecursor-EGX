@@ -274,8 +274,16 @@ class TestDashboardAccessGate(unittest.TestCase):
 
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("Mission Control", resp.text)
+        self.assertIn("EGX research", resp.text)
         self.assertNotIn("INSTITUTIONAL ACCESS GATE", resp.text)
+        self.assertIn("Read the market.", resp.text)
+        self.assertIn('href="/dashboard"', resp.text)
+        self.assertNotIn("<!-- shared-style -->", resp.text)
+        dashboard = self.client.get("/dashboard", follow_redirects=False)
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn("The research desk.", dashboard.text)
+        self.assertIn("function notifyUser", dashboard.text)
+        self.assertNotIn("<!-- dashboard-script -->", dashboard.text)
 
     def test_api_access_status(self):
         resp = self.client.get("/api/access/status")

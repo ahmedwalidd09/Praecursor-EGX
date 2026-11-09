@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 from datetime import date
 import sqlite3
 import pytest
@@ -28,9 +29,10 @@ class TestTier3Combinations:
         """, (run_id,))
 
         cursor.execute("""
-            INSERT INTO scanner_signal_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label)
+            INSERT INTO verified_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label)
             VALUES (?, 'COMI', '2026-07-30', 'BULLISH', 1, 3.5, '')
         """, (run_id,))
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
         conn.close()
 
@@ -80,6 +82,7 @@ class TestTier3Combinations:
         """)
         # Next day price high 83.0 (reaches target 82.5) but close is 79.0 (lower than entry)
         cursor.execute("INSERT INTO source_prices VALUES ('SCHEDULED_SYM', '2026-07-31', 80.0, 83.0, 78.5, 79.0, 1000, 'consensus')")
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
         conn.close()
 
@@ -87,7 +90,7 @@ class TestTier3Combinations:
         tracker.update_historical_outcomes()
 
         conn = sqlite3.connect(str(temp_db_path))
-        hit = conn.execute("SELECT next_day_hit FROM scanner_signal_outcomes WHERE run_id = 100 AND symbol = 'SCHEDULED_SYM'").fetchone()[0]
+        hit = conn.execute("SELECT next_day_hit FROM verified_outcomes WHERE run_id = 100 AND symbol = 'SCHEDULED_SYM'").fetchone()[0]
         conn.close()
 
         assert hit == 1, "Scheduled 5 PM evaluation must evaluate intraday high hit even when close is lower."
@@ -115,6 +118,7 @@ class TestTier3Combinations:
             INSERT INTO scanner_signals (run_id, generated_at, rank, symbol, company, opportunity_score, final_predictor_score, predictor_label, latest_close, consensus_confidence, data_quality_score, next_day_score, next_day_label, next_day_target)
             VALUES (?, ?, 1, 'COMI', 'COMI', 90.0, 90.0, 'BULLISH', ?, ?, 1.0, 90.0, 'BULLISH', ?)
         """, (run_id, f"{today}T17:00:00", consensus_res.consensus_close, consensus_res.confidence_percent, consensus_res.consensus_high))
+        conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
 
         row = cursor.execute("SELECT latest_close, next_day_target, consensus_confidence FROM scanner_signals WHERE run_id = ?", (run_id,)).fetchone()

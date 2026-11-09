@@ -60,168 +60,15 @@ class AccuracyTracker:
         return connect(self.db_path)
 
     def evaluate_outcomes(self, as_of_date: str | None = None) -> int:
-        """Resolve pending signals against subsequent price bars."""
         if not self.db_path.exists():
-            logger.warning(f"[AUTO-OUTCOME] Database not found at {self.db_path}")
             return 0
-
+        from praecursor.analysis.verified_history import resolve_history
         with closing(self._connect()) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-
-            # Check if required tables exist
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('scanner_signals', 'scanner_signal_outcomes', 'source_prices')"
-            )
-            existing_tables = {row["name"] for row in cursor.fetchall()}
-            if not {"scanner_signals", "scanner_signal_outcomes", "source_prices"}.issubset(existing_tables):
+            names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"source_prices", "scanner_signals"}.issubset(names):
                 return 0
-
-            # Ensure columns exist
-            cursor.execute("PRAGMA table_info(scanner_signal_outcomes)")
-            cols = [r["name"] for r in cursor.fetchall()]
-            if "next_day_return" not in cols:
-                cursor.execute("ALTER TABLE scanner_signal_outcomes ADD COLUMN next_day_return REAL")
-            if "next_day_max_return" not in cols:
-                cursor.execute("ALTER TABLE scanner_signal_outcomes ADD COLUMN next_day_max_return REAL")
-            conn.commit()
-
-            query = """
-            SELECT s.run_id, s.symbol, s.next_day_target, s.generated_at, s.next_day_label, s.latest_close
-            FROM scanner_signals s
-            LEFT JOIN scanner_signal_outcomes o ON s.run_id = o.run_id AND s.symbol = o.symbol
-            WHERE (o.next_day_hit IS NULL)
-            """
-            pending = conn.execute(query).fetchall()
-            resolved = 0
-
-            for sig in pending:
-                run_id = sig["run_id"]
-                symbol = sig["symbol"]
-                target = float(sig["next_day_target"]) if sig["next_day_target"] is not None else 0.0
-                label = sig["next_day_label"] or ""
-                entry_price = float(sig["latest_close"]) if sig["latest_close"] else 0.0
-
-                if entry_price <= 0.0 or math.isnan(entry_price):
-                    continue
-
-                signal_dt = _parse_signal_date(sig["generated_at"])
-                run_date = signal_dt.isoformat()
-
-                # Find latest known trade_date on or before signal generation to anchor reference date
-                base_row = conn.execute(
-                    """
-                    SELECT date(trade_date) as base_date
-                    FROM source_prices
-                    WHERE ticker = ? AND date(trade_date) <= ? AND close > 0
-                    ORDER BY date(trade_date) DESC LIMIT 1
-                    """,
-                    (symbol, run_date),
-                ).fetchone()
-                ref_date = base_row["base_date"] if base_row else run_date
-
-                # Find the earliest subsequent trading date strictly after the reference date
-                next_date_row = conn.execute(
-                    """
-                    SELECT date(trade_date) as next_trade_date
-                    FROM source_prices
-                    WHERE ticker = ? AND date(trade_date) > ? AND close > 0 AND high > 0
-                    ORDER BY date(trade_date) ASC LIMIT 1
-                    """,
-                    (symbol, ref_date),
-                ).fetchone()
-
-                if not next_date_row:
-                    continue
-
-                next_date = next_date_row["next_trade_date"]
-
-                # Fetch all available price bars for that ticker on the next trade date
-                price_rows = conn.execute(
-                    """
-                    SELECT open, high, low, close
-                    FROM source_prices
-                    WHERE ticker = ? AND date(trade_date) = ? AND close > 0
-                    """,
-                    (symbol, next_date),
-                ).fetchall()
-
-                if not price_rows:
-                    continue
-
-                valid_highs = []
-                valid_closes = []
-                valid_opens = []
-
-                for pr in price_rows:
-                    try:
-                        c = float(pr["close"]) if pr["close"] is not None else None
-                        h = float(pr["high"]) if pr["high"] is not None else None
-                        o = float(pr["open"]) if pr["open"] is not None else None
-                        if c is not None and not math.isnan(c) and c > 0:
-                            valid_closes.append(c)
-                        if h is not None and not math.isnan(h) and h > 0:
-                            valid_highs.append(h)
-                        if o is not None and not math.isnan(o) and o > 0:
-                            valid_opens.append(o)
-                    except (ValueError, TypeError):
-                        continue
-
-                if not valid_closes or not valid_highs:
-                    continue
-
-                close = median(valid_closes)
-                raw_high = max(valid_highs)
-                raw_open = valid_opens[0] if valid_opens else close
-
-                # High/low bounds normalization: high cannot be lower than close or open
-                high = max(raw_high, close, raw_open)
-
-                # Determine effective target and adjust for corporate actions / stock splits
-                effective_entry = entry_price
-                if target > 0:
-                    effective_target = target
-                else:
-                    effective_target = entry_price * 1.025
-
-                # Detect split-unadjusted high/low bounds:
-                # EGX daily price circuit breaker limit is +-20%.
-                # Moves beyond +-35% indicate stock splits or capital changes.
-                ratio = close / entry_price
-                if ratio < 0.65 and close > 0:
-                    # Forward stock split (2:1, 3:1, 4:1, 5:1, 10:1, 20:1)
-                    inv_ratio = entry_price / close
-                    factor = round(inv_ratio)
-                    if factor in (2, 3, 4, 5, 8, 10, 20) and abs(inv_ratio - factor) / factor < 0.20:
-                        effective_entry = entry_price / factor
-                        effective_target = effective_target / factor
-                elif ratio > 1.50 and entry_price > 0:
-                    # Reverse stock split (1:2, 1:3, 1:4, 1:5, 1:10)
-                    factor = round(ratio)
-                    if factor in (2, 3, 4, 5, 8, 10, 20) and abs(ratio - factor) / factor < 0.20:
-                        effective_entry = entry_price * factor
-                        effective_target = effective_target * factor
-
-                hit = 1 if (effective_target > 0 and high >= effective_target) else 0
-
-                ret = (close - effective_entry) / effective_entry * 100.0 if effective_entry > 0 else 0.0
-                max_ret = (high - effective_entry) / effective_entry * 100.0 if effective_entry > 0 else 0.0
-
-                conn.execute(
-                    """
-                    INSERT INTO scanner_signal_outcomes (run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, next_day_max_return, swing_label)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, '')
-                    ON CONFLICT(run_id, symbol) DO UPDATE SET
-                        next_day_hit = excluded.next_day_hit,
-                        next_day_return = excluded.next_day_return,
-                        next_day_max_return = excluded.next_day_max_return
-                    """,
-                    (run_id, symbol, run_date, label, hit, ret, max_ret),
-                )
-                resolved += 1
-
-            conn.commit()
-            return resolved
+            return resolve_history(conn, as_of_date)
 
     def update_historical_outcomes(self) -> int:
         return self.evaluate_outcomes()
@@ -244,14 +91,14 @@ class AccuracyTracker:
         with closing(self._connect()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scanner_signal_outcomes'")
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='verified_outcomes'")
             if not cursor.fetchone():
                 return default_result
 
             rows = conn.execute(
                 """
                 SELECT run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, next_day_max_return, swing_label
-                FROM scanner_signal_outcomes
+                FROM verified_outcomes
                 WHERE next_day_hit IS NOT NULL
                 ORDER BY signal_date ASC, run_id ASC
                 """
@@ -260,7 +107,8 @@ class AccuracyTracker:
             if not rows:
                 return default_result
 
-            history = [dict(r) for r in rows]
+            history = list({(r["signal_date"], r["symbol"]): dict(r) for r in reversed(rows)}.values())
+            history.sort(key=lambda r: (r["signal_date"], r["symbol"]))
             total = len(history)
             hits = sum(1 for r in history if r.get("next_day_hit") == 1)
             accuracy = (hits / total * 100.0) if total > 0 else 0.0
@@ -292,12 +140,12 @@ class AccuracyTracker:
             rows = conn.execute(
                 """
                 SELECT 
-                    s.run_id, s.symbol, s.company, date(s.generated_at) as signal_date,
+                    s.run_id, s.symbol, s.company, o.signal_date,
                     s.opportunity_score, s.next_day_score, s.next_day_label,
                     s.latest_close, s.next_day_target,
                     o.next_day_hit
                 FROM scanner_signals s
-                JOIN scanner_signal_outcomes o ON s.run_id = o.run_id AND s.symbol = o.symbol
+                JOIN verified_outcomes o ON s.run_id = o.run_id AND s.symbol = o.symbol
                 WHERE o.next_day_hit IS NOT NULL
                 ORDER BY s.run_id ASC, s.rank ASC
                 """
@@ -356,7 +204,7 @@ class AccuracyTracker:
         return {
             "total_signals": nd["total"],
             "hits": nd["hits"],
-            "win_rate": nd["accuracy"],
+            "target_touch_rate": nd["accuracy"],
             "avg_return": nd["avg_return"],
             "avg_max_return": nd["avg_max_return"],
         }

@@ -1,191 +1,11 @@
 from dataclasses import dataclass
 from math import isnan
-from pathlib import Path
 from typing import Any
-import logging
-import sqlite3
-
-try:
-    import pandas as pd
-    import xgboost as xgb
-    import numpy as np
-    HAS_ML = True
-except ImportError:
-    HAS_ML = False
-    pd = None
-    xgb = None
-    np = None
-
 from praecursor.scoring.opportunity_score import OpportunityScore
 
-logger = logging.getLogger(__name__)
-
-_DB_PATH = Path(__file__).resolve().parents[3] / "database" / "praecursor.db"
-
-# EGX Circuit Breaker Limits (most stocks are 20%, some are restricted)
-_CIRCUIT_BREAKER_LIMITS = {
-    # Default is 0.20 (20%) for most EGX stocks
-    # Add restricted tickers here as they're identified
-}
+# Conservative target cap; exchange-specific limits require a verified instrument feed.
+_CIRCUIT_BREAKER_LIMITS = {}
 _DEFAULT_CIRCUIT_BREAKER = 0.20
-
-
-def _get_whipsaw_penalty(symbol: str, lookback_days: int = 60, fail_threshold: int = 3) -> float:
-    """
-    Upgrade #3: Whipsaw Memory Filter.
-    Query the last `lookback_days` of scanner_signal_outcomes for this symbol.
-    If the stock has attempted breakouts >= fail_threshold times and failed (next_day_hit=0),
-    apply a score multiplier penalty of 0.5 to kill serial trap stocks.
-    Returns 0.5 (penalty) or 1.0 (no penalty).
-    """
-    try:
-        if not _DB_PATH.exists():
-            return 1.0
-        with sqlite3.connect(str(_DB_PATH)) as conn:
-            rows = conn.execute("""
-                SELECT o.next_day_hit
-                FROM scanner_signal_outcomes o
-                JOIN scanner_signals s ON s.run_id = o.run_id AND s.symbol = o.symbol
-                WHERE o.symbol = ?
-                  AND o.next_day_hit IS NOT NULL
-                  AND date(s.generated_at) >= date('now', ? || ' days')
-                ORDER BY s.generated_at DESC
-            """, (symbol, f"-{lookback_days}")).fetchall()
-        if not rows:
-            return 1.0
-        total_attempts = len(rows)
-        failed = sum(1 for r in rows if r[0] == 0)
-        if total_attempts >= fail_threshold and failed == total_attempts:
-            logger.debug(f"{symbol}: whipsaw penalty triggered ({failed}/{total_attempts} failures in {lookback_days}d)")
-            return 0.5
-        return 1.0
-    except Exception:
-        return 1.0
-
-
-def _get_ticker_win_rate(symbol: str, min_samples: int = 5) -> float:
-    """
-    Historical Ticker Win-Rate.
-    Returns the hit rate float [0.0-1.0].
-    """
-    try:
-        if not _DB_PATH.exists():
-            return 0.5
-        with sqlite3.connect(str(_DB_PATH)) as conn:
-            rows = conn.execute("""
-                SELECT o.next_day_hit
-                FROM scanner_signal_outcomes o
-                WHERE o.symbol = ? AND o.next_day_hit IS NOT NULL
-            """, (symbol,)).fetchall()
-        if not rows:
-            return 0.5
-        win_rate = sum(1 for r in rows if r[0] == 1) / len(rows)
-        return float(win_rate)
-    except Exception:
-        return 0.5
-
-
-def _get_ticker_historical_win_rate(symbol: str, min_samples: int = 5) -> tuple[float, int]:
-    """
-    Historical Ticker Win-Rate with Sample Count.
-    Returns (win_rate, total_samples).
-    """
-    try:
-        if not _DB_PATH.exists():
-            return 0.5, 0
-        with sqlite3.connect(str(_DB_PATH)) as conn:
-            rows = conn.execute("""
-                SELECT o.next_day_hit
-                FROM scanner_signal_outcomes o
-                WHERE o.symbol = ? AND o.next_day_hit IS NOT NULL
-            """, (symbol,)).fetchall()
-        if not rows:
-            return 0.5, 0
-        total = len(rows)
-        win_rate = sum(1 for r in rows if r[0] == 1) / total
-        return float(win_rate), total
-    except Exception:
-        return 0.5, 0
-
-_NEXT_DAY_MODEL = None
-_NEXT_DAY_LGB_MODEL = None
-_NEXT_DAY_META = None
-
-def _get_next_day_model():
-    global _NEXT_DAY_MODEL
-    if not HAS_ML:
-        return None
-        
-    if _NEXT_DAY_MODEL is None:
-        try:
-            model_path = Path(__file__).resolve().parents[3] / "models" / "xgboost_next_day.json"
-            if model_path.is_file() and model_path.stat().st_size > 0:
-                _NEXT_DAY_MODEL = xgb.XGBClassifier()
-                _NEXT_DAY_MODEL.load_model(str(model_path))
-            else:
-                _NEXT_DAY_MODEL = False
-        except Exception as e:
-            logger.error(f"Failed to load next day ML model: {e}")
-            _NEXT_DAY_MODEL = False
-            
-    return _NEXT_DAY_MODEL if _NEXT_DAY_MODEL is not False else None
-
-def _get_next_day_lgb_model():
-    global _NEXT_DAY_LGB_MODEL
-    if _NEXT_DAY_LGB_MODEL is None:
-        try:
-            import lightgbm as lgb
-            model_path = Path(__file__).resolve().parents[3] / "models" / "lightgbm_next_day.txt"
-            if model_path.is_file() and model_path.stat().st_size > 0:
-                _NEXT_DAY_LGB_MODEL = lgb.Booster(model_file=str(model_path))
-            else:
-                _NEXT_DAY_LGB_MODEL = False
-        except Exception:
-            _NEXT_DAY_LGB_MODEL = False
-    return _NEXT_DAY_LGB_MODEL if _NEXT_DAY_LGB_MODEL is not False else None
-
-_get_lightgbm_model = _get_next_day_lgb_model
-
-_HMM_MODEL_FN = None
-def _get_hmm_model():
-    global _HMM_MODEL_FN
-    if _HMM_MODEL_FN is None:
-        try:
-            from praecursor.ml.hmm_phase import predict_hmm_state
-            _HMM_MODEL_FN = predict_hmm_state
-        except Exception as e:
-            _HMM_MODEL_FN = False
-    return _HMM_MODEL_FN if _HMM_MODEL_FN is not False else None
-
-
-_KRONOS_MODEL_FN = None
-def _get_kronos_predictor_fn():
-    global _KRONOS_MODEL_FN
-    if _KRONOS_MODEL_FN is None:
-        try:
-            from praecursor.ml.kronos_forecaster import predict_next_candle
-            _KRONOS_MODEL_FN = predict_next_candle
-        except Exception as e:
-            logger.debug(f"Failed to load Kronos forecaster: {e}")
-            _KRONOS_MODEL_FN = False
-    return _KRONOS_MODEL_FN if _KRONOS_MODEL_FN is not False else None
-
-
-def _get_next_day_meta():
-    global _NEXT_DAY_META
-    if _NEXT_DAY_META is None:
-        try:
-            import json
-            meta_path = Path(__file__).resolve().parents[3] / "models" / "xgboost_next_day_meta.json"
-            if meta_path.exists():
-                with open(meta_path, "r") as f:
-                    _NEXT_DAY_META = json.load(f)
-            else:
-                _NEXT_DAY_META = {"threshold": 0.5}
-        except Exception as e:
-            logger.error(f"Failed to load next day model metadata: {e}")
-            _NEXT_DAY_META = {"threshold": 0.5}
-    return _NEXT_DAY_META
 
 
 def _calculate_structural_levels(
@@ -272,7 +92,8 @@ def _calculate_structural_levels(
             target_candidates.append((upper_band, f"at Upper Volatility Band expansion ({upper_band:.2f})"))
 
     # C. High Volume Node / VPOC Extension (if above close)
-    vpoc_price = values.get("VPOC_Price", float("nan"))
+    vpoc_value = values.get("VPOC_Distance", {})
+    vpoc_price = vpoc_value.get("VPOC_Price", float("nan")) if isinstance(vpoc_value, dict) else float("nan")
     if not _missing(vpoc_price) and vpoc_price > latest_close:
         dist = (vpoc_price - latest_close) / latest_close
         if 0.03 <= dist <= 0.12:
@@ -336,6 +157,8 @@ class NextDayPrediction:
     trailing_stop_price: float = 0.0   # Breakeven stop anchor once TP1 hit
     kelly_fraction: float = 0.0
     liquidity_tier: str = "MODERATE"   # HIGH, MODERATE, THIN
+    probability: float | None = None
+    model_version: str = "technical-only"
     fill_feasibility: str = "Standard Execution"
 
     @property
@@ -345,9 +168,9 @@ class NextDayPrediction:
 
 def calculate_next_day_prediction(
     opportunity_score: OpportunityScore,
-    consensus_accepted: bool = True,
-    consensus_confidence: float = 40.0,
-    data_quality_score: float = 100.0,
+    consensus_accepted: bool = False,
+    consensus_confidence: float = 0.0,
+    data_quality_score: float = 0.0,
 ) -> NextDayPrediction:
     """Calculate next-session breakout/follow-through prediction."""
     values = opportunity_score.indicator_values
@@ -360,23 +183,8 @@ def calculate_next_day_prediction(
 
     stock_obj = getattr(opportunity_score, "stock", None)
     
-    predict_hmm_state = _get_hmm_model()
-    if predict_hmm_state is not None and stock_obj is not None:
-        try:
-            hmm_state = predict_hmm_state(stock_obj)
-            if hmm_state == 'Distribution':
-                score -= 5.0
-                reasons.append(f"[HMM CAUTION] Stock is in Distribution phase. Soft penalty applied.")
-        except Exception:
-            pass
-
-    whipsaw_multiplier = _get_whipsaw_penalty(symbol)
-    if whipsaw_multiplier < 1.0:
-        whipsaw_multiplier = 0.90
-        reasons.append(f"[WHIPSAW] {symbol} has failed recent breakout attempts - soft penalty applied")
-
-    ticker_win_rate = _get_ticker_win_rate(symbol)
-    
+    # Legacy HMM/ticker heuristics have no point-in-time validation contract.
+    whipsaw_multiplier = 1.0
     gap_blackout_penalty = 0.0
     if stock_obj is not None and hasattr(stock_obj, "history") and len(stock_obj.history) >= 2:
         recent_history = stock_obj.history[-2:]
@@ -404,108 +212,19 @@ def calculate_next_day_prediction(
     no_news_penalty = 0.0
     weekend_risk_penalty = 0.0
 
-    ticker_history_penalty = 0.0
-    if ticker_win_rate < 0.3 and ticker_win_rate >= 0.0:
-        reasons.append(f"[BACKTEST REJECTION] Historically poor win-rate ({ticker_win_rate*100:.0f}%).")
-        ticker_history_penalty = 10.0
-
     breakout20 = values.get("Breakout20", float("nan"))
     breakout50 = values.get("Breakout50", float("nan"))
     volume_confirmed_breakout = values.get("VolumeConfirmedBreakout", float("nan"))
     rsi14 = values.get("RSI14", float("nan"))
 
-    # ML Ensemble Inference (using exact 35 trained features)
-    features_orig = [
-        "RSI14", "RelVolume20", "MACDHistogram", "Momentum20", 
-        "Breakout20", "Breakout50", "RSIRebound", "EMA20Reclaim", 
-        "MACDHistogramImprovement", "VolumeSpikeFromWeakness", "Momentum5", "BBW20",
-        "MTF_Trend", "VPOC_Distance", "ADX14", "ROC10", "StochRSI", "VWAPMom10",
-        "AvgTurnover20", "ClosedAtLimitUp", "ATRPercent14",
-        "OpportunityScorePct", "NearCloseHigh250Percent", "CMF20", "MFI14",
-        "RS_vs_EGX30_50", "VolumeConfirmedBreakout", "WilliamsR14",
-        "KCSqueeze20", "Ichimoku_Score", "ElderRay_Score",
-        # v6.1 Next-Day Alpha Features
-        "ClosingAggression", "NR7_Compression", "VSA_Absorption", "SectorSpillover",
-    ]
-    features_csv = [
-        "rsi14", "rel_volume20", "macd_histogram", "momentum20", "breakout20", "breakout50",
-        "rsi_rebound", "ema20_reclaim", "macd_histogram_improvement", "volume_spike_from_weakness", "momentum5", "bbw20",
-        "mtf_trend", "vpoc_distance", "adx14", "roc10", "stoch_rsi", "vwap_mom10",
-        "avg_turnover_20", "closed_at_limit_up", "atr_pct14",
-        "opp_score_pct", "near_high250_pct", "cmf20", "mfi14",
-        "rs_vs_index", "vol_confirmed_breakout", "williams_r14",
-        "kc_squeeze20", "ichimoku_score", "elder_ray_score",
-        # v6.1 Next-Day Alpha Features
-        "closing_aggression", "nr7_compression", "vsa_absorption", "sector_spillover",
-    ]
-    
-    xgb_prob = None
-    lgb_prob = None
-    row_data = {}
-    for csv_name, orig_name in zip(features_csv, features_orig):
-        if orig_name == "OpportunityScorePct":
-            val = base_score
-        else:
-            val = values.get(orig_name, 0.0)
-            
-        if val is None or (isinstance(val, float) and val != val):
-            val = 0.0
-        if isinstance(val, dict):
-            val = val.get("VPOC_Distance_Pct", 0.0) if "VPOC_Distance_Pct" in val else 0.0
-            
-        row_data[csv_name] = float(val)
+    from praecursor.ml.prediction import predict_validated
+    session = stock_obj.history[-1].date.date().isoformat() if stock_obj and stock_obj.history else None
+    calibrated_probability, meta = predict_validated(values, base_score, "next_day", session)
+    compatible_model = calibrated_probability is not None
+    if compatible_model:
+        reasons.append(f"Estimated next-session target-touch probability: {calibrated_probability:.1%}")
 
-    if pd is not None and np is not None:
-        try:
-            df = pd.DataFrame([row_data])
-            X_arr = df[features_csv].values
-            
-            xgb_model = _get_next_day_model()
-            if xgb_model is not None:
-                xgb_prob = float(xgb_model.predict_proba(X_arr)[0][1])
-                
-            lgb_model = _get_next_day_lgb_model()
-            if lgb_model is not None:
-                lgb_prob = float(lgb_model.predict(X_arr)[0])
-        except Exception as e:
-            logger.debug(f"ML inference error: {e}")
-
-    meta = _get_next_day_meta()
-    xgb_w = meta.get("xgb_weight", 0.6)
-    lgb_w = meta.get("lgb_weight", 0.4)
-
-    # Validate probabilities and sanitize NaNs / out-of-bounds
-    if xgb_prob is not None and (isnan(xgb_prob) or not (0.0 <= xgb_prob <= 1.0)):
-        xgb_prob = None
-    if lgb_prob is not None and (isnan(lgb_prob) or not (0.0 <= lgb_prob <= 1.0)):
-        lgb_prob = None
-
-    ensemble_prob = None
-    if xgb_prob is not None and lgb_prob is not None:
-        if abs(xgb_prob - lgb_prob) > 0.30:
-            score -= 5.0
-            reasons.append(f"[MODEL DISAGREEMENT] XGB and LGB differ by {abs(xgb_prob - lgb_prob)*100:.0f}% — reduced confidence")
-        total_w = xgb_w + lgb_w
-        if total_w <= 0:
-            total_w = 1.0
-            xgb_w, lgb_w = 0.5, 0.5
-        c_xgb = max(1e-6, min(xgb_prob, 1.0 - 1e-6))
-        c_lgb = max(1e-6, min(lgb_prob, 1.0 - 1e-6))
-        ensemble_prob = (c_xgb ** xgb_w * c_lgb ** lgb_w) ** (1.0 / total_w)
-        ml_bonus = (ensemble_prob - 0.5) * 20.0
-        score += ml_bonus
-        reasons.append(f"Ensemble Model Probability: {ensemble_prob*100:.1f}% (Bonus: {ml_bonus:+.1f})")
-    elif xgb_prob is not None:
-        ml_bonus = (xgb_prob - 0.5) * 20.0
-        score += ml_bonus
-        reasons.append(f"XGBoost Model Probability: {xgb_prob*100:.1f}% (Bonus: {ml_bonus:+.1f})")
-    elif lgb_prob is not None:
-        ml_bonus = (lgb_prob - 0.5) * 20.0
-        score += ml_bonus
-        reasons.append(f"LightGBM Model Probability: {lgb_prob*100:.1f}% (Bonus: {ml_bonus:+.1f})")
-
-    from praecursor.scoring.regime import MarketRegimeModel
-    regime_info = MarketRegimeModel().get_latest_regime()
+    regime_info = getattr(stock_obj, "market_context", {})
     regime = regime_info.get("regime", "Unknown")
     if "Bear" in regime:
         score *= 0.93
@@ -527,7 +246,7 @@ def calculate_next_day_prediction(
             gap_blackout_penalty = max(gap_blackout_penalty, 10.0)
             reasons.append(f"Corporate action blackout / non-organic gap of {gap_pct:.1f}%")
 
-    turnover20 = values.get("Turnover20", float("nan"))
+    turnover20 = values.get("AvgTurnover20", float("nan"))
     atr_pct = values.get("ATRPercent14", float("nan"))
     if not _missing(atr_pct):
         if atr_pct > 5.0:
@@ -596,41 +315,8 @@ def calculate_next_day_prediction(
     reasons.append(f"Target placed at {target_price:.2f} (+{target_pct:.1f}%) {target_desc}")
     reasons.append(f"Stop Loss placed at {stop_loss_price:.2f} (-{stop_pct:.1f}%) {stop_desc}")
 
-    # Step 2: Kronos Financial Candlestick Foundation Model Alignment (v6.3 Institutional Alpha)
-    is_breakout_setup = (breakout20 == 1.0 or breakout50 == 1.0 or volume_confirmed_breakout == 1.0)
-    is_candidate_setup = (score >= 68.0 and base_score >= 60.0)
-
-    predict_kronos_fn = _get_kronos_predictor_fn()
-    if predict_kronos_fn is not None and (is_breakout_setup and is_candidate_setup):
-        try:
-            history_df = None
-            if stock_obj is not None and hasattr(stock_obj, "history") and len(stock_obj.history) >= 20:
-                history_df = pd.DataFrame([
-                    {
-                        "trade_date": b.date.strftime("%Y-%m-%d") if hasattr(b.date, "strftime") else str(b.date),
-                        "open": float(b.open),
-                        "high": float(b.high),
-                        "low": float(b.low),
-                        "close": float(b.close),
-                        "volume": float(b.volume),
-                    }
-                    for b in stock_obj.history
-                ])
-            kronos_pred = predict_kronos_fn(symbol, history_df=history_df)
-            if kronos_pred is not None and kronos_pred.is_valid:
-                if kronos_pred.predicted_high >= target_price or (kronos_pred.direction == "BULLISH" and kronos_pred.expected_return_pct > 0):
-                    score += 3.0
-                    reasons.append(
-                        f"[KRONOS FOUNDATION AI] Forecasts Bullish candle expansion "
-                        f"(Predicted High: {kronos_pred.predicted_high:.3f}, +{kronos_pred.expected_return_pct:.1f}%)"
-                    )
-                else:
-                    reasons.append(
-                        f"[KRONOS FOUNDATION AI CAUTION] Model forecasts muted/bearish next-day candle "
-                        f"(Predicted Close: {kronos_pred.predicted_close:.3f}, {kronos_pred.expected_return_pct:+.1f}%)"
-                    )
-        except Exception as e:
-            logger.debug(f"Kronos prediction error for {symbol}: {e}")
+    # Kronos remains available through tools/predict_kronos.py for research.
+    # Production ranking requires held-out evidence before adding its forecasts.
 
     # Step 3: EGX Liquidity & Fill Feasibility Analysis
     turnover_val = values.get("AvgTurnover20", 0.0)
@@ -643,7 +329,7 @@ def calculate_next_day_prediction(
     closed_at_limit_up = values.get("ClosedAtLimitUp", 0.0)
     if turnover_val >= 10_000_000:
         liquidity_tier = "HIGH"
-        fill_feasibility = "High Liquidity (>10M EGP/day - Instant Fill)"
+        fill_feasibility = "High historical turnover (>10M EGP/day); fills depend on order size and spread"
     elif turnover_val >= 2_000_000:
         liquidity_tier = "MODERATE"
         fill_feasibility = "Moderate Liquidity (2M-10M EGP/day - Limit Orders)"
@@ -652,44 +338,17 @@ def calculate_next_day_prediction(
         fill_feasibility = "Thin Liquidity (<2M EGP/day - Slippage Risk)"
 
     if closed_at_limit_up == 1.0:
-        reasons.append("[CIRCUIT BREAKER LOCK] Closed at daily ceiling (+10%/+20%). Expect Sunday opening queue.")
+        reasons.append("[CIRCUIT BREAKER LOCK] Closed at daily ceiling (+10%/+20%). Opening fill may be unavailable.")
 
-    from praecursor.scoring.regime import MarketRegimeModel
-    regime_info = MarketRegimeModel().get_latest_regime()
+    regime_info = getattr(stock_obj, "market_context", {})
     regime_name = regime_info.get("regime", "Unknown")
 
-    # Step 4: Half-Kelly Position Sizing with Conservative Constraints
+    # Target-touch probability does not establish executable trade win probability.
+    # Do not fabricate a Kelly fraction from a technical score or target-touch model.
     kelly_fraction = 0.0
-    # Map calibrated score (50-75%) to realistic win probability (50-62%)
-    win_prob = max(0.40, min(0.50 + max(0.0, score - 50.0) * 0.005, 0.62))
-    target_pct = (target_price - latest_close) / latest_close if latest_close > 0 else 0.0
-    stop_pct = (latest_close - stop_loss_price) / latest_close if latest_close > 0 else 0.0
-    if target_pct > 0 and stop_pct > 0:
-        b = target_pct / stop_pct  # Reward-to-risk ratio
-        full_kelly = win_prob - ((1.0 - win_prob) / b)
-        half_kelly = full_kelly * 0.5  # Standard institutional Half-Kelly
-        
-        regime_mult = 1.0
-        if "Bull Trend" in regime_name:
-            regime_mult = 1.2
-        elif "Sideways Chop" in regime_name:
-            regime_mult = 0.8
-        elif "Bear Volatile" in regime_name:
-            regime_mult = 0.5
-        elif "Bear Trend" in regime_name:
-            regime_mult = 0.6
-        elif "Bull Volatile" in regime_name:
-            regime_mult = 0.9
-            
-        adjusted_kelly = half_kelly * regime_mult
-        if adjusted_kelly > 0:
-            kelly_fraction = max(0.02, min(adjusted_kelly, 0.25))
-        else:
-            kelly_fraction = 0.0
-        
-        if regime_mult != 1.0:
-            reasons.append(f"Kelly fraction adjusted by {regime_mult}x due to {regime_name} regime.")
-            
+    if calibrated_probability is not None:
+        score = calibrated_probability * 100.0
+
     rr_ratio = (target_pct / stop_pct) if stop_pct > 0 else 1.5
     label = _label(
         score=score,
@@ -706,30 +365,22 @@ def calculate_next_day_prediction(
         turnover=turnover_val,
     )
 
-    if "Candidate" in label or "Watch" in label:
-        ml_desc = ""
-        prob_val = ensemble_prob if ensemble_prob is not None else (xgb_prob if xgb_prob is not None else lgb_prob)
-        if prob_val is not None:
-            if prob_val >= 0.5:
-                ml_desc = f", ML confirms ({prob_val:.1%})"
-            else:
-                ml_desc = f", ML cautious ({prob_val:.1%})"
-        summary = f"Analysis for {symbol}: Strong setup based on Opportunity Score {base_score:.1f}%{ml_desc}, in {regime_name} regime"
-        reasons.insert(0, summary)
-    elif "Illiquid Micro-Penny" in label:
-        reasons.insert(0, f"Analysis for {symbol}: Filtered out due to micro-penny price (<0.20 EGP) or insufficient daily liquidity (<250k EGP)")
-    elif "Low Confidence" in label:
-        reasons.insert(0, f"Analysis for {symbol}: Data unverified across consensus sources (Low Confidence)")
-    elif "Poor Reward/Risk" in label:
-        reasons.insert(0, f"Analysis for {symbol}: Unfavorable reward-to-risk geometry (Negative Expectancy)")
-    else:
-        reasons.insert(0, f"Analysis for {symbol}: Insufficient technical edge or negative regime conditions")
+    if compatible_model and consensus_accepted and data_quality_score >= 80 and turnover_val >= 250_000 and latest_close >= .2:
+        label = "Next-Day Candidate" if calibrated_probability >= meta["threshold"] else "Watchlist Tomorrow"
+    if data_quality_score < 80:
+        label = "Insufficient History Quality"
+        reasons.insert(0, "Insufficient validated history or session quality")
+    if calibrated_probability is None:
+        reasons.append("Technical setup only; no validated target probability or Kelly allocation available")
+        reasons.append(meta.get("reason", "Model validation unavailable"))
 
     if not reasons or len(reasons) == 1:
         reasons.append("no strong next-day breakout/follow-through pattern detected")
 
     return NextDayPrediction(
-        score=score, 
+        score=max(0.0, min(score, 100.0)),
+        probability=calibrated_probability,
+        model_version=meta.get("model_version", "technical-only") if compatible_model else "technical-only",
         label=label, 
         reasons=reasons,
         latest_close=latest_close,
@@ -757,7 +408,7 @@ def _label(
     turnover: float = 1_000_000.0,
 ) -> str:
     if not consensus_accepted:
-        return "Low Confidence"
+        return "Unconfirmed Watchlist"
     
     if _missing(latest_close) or latest_close < 0.20 or _missing(turnover) or turnover < 250_000:
         return "Avoid Tomorrow (Illiquid Micro-Penny)"
@@ -765,7 +416,7 @@ def _label(
     if opp_score < 30.0:
         return "Avoid Tomorrow"
     
-    if kelly <= 0.0 or rr_ratio < 0.8:
+    if rr_ratio < 0.8:
         return "Avoid Tomorrow (Poor Reward/Risk)"
     
     # Dynamic calibrated thresholds matching post-calibration score distribution (50-75%)

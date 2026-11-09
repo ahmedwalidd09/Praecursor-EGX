@@ -94,7 +94,7 @@ class Analyzer:
                 latest_close = closes[-1] if closes else 0.0
                 if vpoc > 0:
                     vpoc_dist = ((latest_close - vpoc) / vpoc) * 100.0
-        results.append(IndicatorResult("VPOC_Distance", vpoc_dist))
+        results.append(IndicatorResult("IntradayVPOCDistancePct", vpoc_dist if stock.intraday_history else float("nan")))
 
         results.append(IndicatorResult("VWAPDivergence15m", vwap_div))
         results.append(IndicatorResult("EODAccumulation", eod_acc))

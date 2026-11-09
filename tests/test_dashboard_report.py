@@ -114,9 +114,10 @@ class TestMissionControlEndpoints(unittest.TestCase):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
         self.assertIn("PRAECURSOR", res.text)
-        self.assertIn("v6.3 Institutional Alpha", res.text)
-        self.assertIn("RUN SCAN", res.text)
-        self.assertIn("Browse Previous Scan Dashboard", res.text)
+        self.assertIn("EGX research", res.text)
+        self.assertIn("Read the market.", res.text)
+        self.assertIn('href="/dashboard"', res.text)
+        self.assertIn("Enter the workspace", res.text)
 
         validator = StrictHTMLValidator()
         is_valid, errors = validator.validate(res.text)
@@ -131,9 +132,12 @@ class TestMissionControlEndpoints(unittest.TestCase):
 
     def test_dashboard_terminal_route(self):
         res = self.client.get("/dashboard", follow_redirects=False)
-        self.assertIn(res.status_code, (200, 303))
-        if res.status_code == 200:
-            self.assertIn("MISSION CONTROL", res.text)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("The research desk.", res.text)
+        self.assertIn("Run market scan", res.text)
+        self.assertIn("The evidence behind the model.", res.text)
+        is_valid, errors = StrictHTMLValidator().validate(res.text)
+        self.assertTrue(is_valid, f"Dashboard HTML has unclosed tags: {errors}")
 
 
 if __name__ == "__main__":

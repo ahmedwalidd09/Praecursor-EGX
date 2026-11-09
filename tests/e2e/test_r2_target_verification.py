@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 import math
 import sqlite3
 import pytest
@@ -47,6 +48,7 @@ def create_test_db_for_target_eval(tmp_path, latest_close, target_price, next_hi
         VALUES ('TEST', '2026-08-02', ?, ?, ?, ?, 1000, 'test')
     """, (latest_close, next_high, min(latest_close, next_close), next_close))
 
+    conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
     conn.commit()
     conn.close()
 
@@ -55,7 +57,7 @@ def create_test_db_for_target_eval(tmp_path, latest_close, target_price, next_hi
 
     conn = sqlite3.connect(str(db_file))
     cursor = conn.cursor()
-    outcome = cursor.execute("SELECT next_day_hit, next_day_return FROM scanner_signal_outcomes WHERE run_id = 1 AND symbol = 'TEST'").fetchone()
+    outcome = cursor.execute("SELECT next_day_hit, next_day_return FROM verified_outcomes WHERE run_id = 1 AND symbol = 'TEST'").fetchone()
     conn.close()
 
     return outcome
@@ -150,7 +152,7 @@ class TestR2TargetVerificationTier2:
         outcome = create_test_db_for_target_eval(tmp_path, latest_close, target_price, next_high, next_close)
         assert outcome is not None
         hit_status, ret = outcome
-        assert hit_status == 1
+        assert hit_status is None
 
     def test_r2_circuit_breaker_high(self, tmp_path):
         """Verify target verification when intraday high reaches +20% limit up circuit breaker."""
@@ -184,4 +186,4 @@ class TestR2TargetVerificationTier2:
 
         outcome = create_test_db_for_target_eval(tmp_path, latest_close, target_price, next_high, 100.0)
         # Should remain pending (None outcome record or hit_status is None)
-        assert outcome is None
+        assert outcome is not None and outcome[0] is None

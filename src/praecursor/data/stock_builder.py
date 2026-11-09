@@ -26,12 +26,11 @@ class CachedStockBuilder:
     ) -> Stock:
         """Load cached bars and return one Stock object."""
         normalized_symbol = symbol.strip().upper()
-        price_bars = self.price_cache.load(
+        price_bars = self.price_cache.load_canonical(
             normalized_symbol,
-            self.source_name,
             start_date,
             end_date,
-        )
+        )[-350:]
 
         if not price_bars:
             raise ValueError(
@@ -39,6 +38,8 @@ class CachedStockBuilder:
                 f"from {self.source_name} between {start_date} and {end_date}."
             )
 
+        if any(abs(b.close / a.close - 1) > .35 for a, b in zip(price_bars[-251:-1], price_bars[-250:])):
+            raise ValueError("Unverified price discontinuity in feature history; corporate-action review required")
         company_name = self.symbol_mapper.get_company_name(normalized_symbol)
         try:
             sector_name = self.symbol_mapper.get_sector(normalized_symbol)

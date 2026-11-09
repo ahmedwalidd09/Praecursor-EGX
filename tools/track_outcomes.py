@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 """
 Outcome Tracker for Praecursor-EGX
 
@@ -40,7 +43,7 @@ def track_outcomes(db_path: Path | str | None = None, csv_path: Path | str | Non
             summary = tracker.get_summary()
             logger.info(
                 f"Accuracy Summary: total={summary.get('total_signals')}, "
-                f"hits={summary.get('hits')}, win_rate={summary.get('win_rate')}%, "
+                f"hits={summary.get('hits')}, target_touch_rate={summary.get('target_touch_rate')}%, "
                 f"avg_return={summary.get('avg_return')}%"
             )
         except Exception as exc:

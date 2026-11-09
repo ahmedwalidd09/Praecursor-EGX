@@ -65,7 +65,7 @@ class TestV61AlphaIndicators(unittest.TestCase):
     def test_sector_spillover(self):
         ind = SectorSpilloverIndicator()
         res = ind.calculate(self.stock)
-        self.assertGreaterEqual(res.value, 0.0)
+        self.assertTrue(__import__("math").isnan(res.value)) # No peer context: unknown, not own returns.
         print(f"Sector Spillover: {res.value:.2f}")
 
     def test_opportunity_scorer_integration(self):

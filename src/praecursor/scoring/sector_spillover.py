@@ -47,28 +47,5 @@ class SectorSpilloverIndicator(Indicator):
         pass
 
     def calculate(self, stock: Stock) -> IndicatorResult:
-        if not stock.history or len(stock.history) < 5:
-            return IndicatorResult("SectorSpillover", 0.0)
-
-        sym = stock.symbol
-        sector = _get_sector(sym)
-        leaders = _SECTOR_LEADERS.get(sector, [])
-
-        # If this is a leader itself or no leaders mapped, default score is neutral
-        if sym in leaders or not leaders:
-            return IndicatorResult("SectorSpillover", 50.0)
-
-        # In follower stocks, calculate local sympathy responsiveness
-        # Check stock's own recent momentum alignment with its 5-day EMA
-        latest = stock.history[-1]
-        prev = stock.history[-2]
-        ret_1d = (latest.close - prev.close) / prev.close * 100.0 if prev.close > 0 else 0.0
-
-        # Follower is primed if it's consolidating near highs while sector is active
-        score = 50.0
-        if ret_1d >= 1.0:
-            score += 25.0
-        if latest.volume > 0:
-            score += 15.0
-
-        return IndicatorResult("SectorSpillover", float(round(score, 2)))
+        value = stock.market_context.get("sector_spillover", float("nan"))
+        return IndicatorResult("SectorSpillover", value)

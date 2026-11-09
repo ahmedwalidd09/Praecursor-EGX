@@ -197,6 +197,26 @@ class PriceCache:
 
         return [self._row_to_price_bar(row) for row in rows]
 
+    def load_canonical(self, symbol: str, start_date: date, end_date: date) -> list[PriceBar]:
+        from collections import defaultdict
+        from praecursor.data.canonical import select_candle
+        with closing(self._connect()) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT * FROM source_prices WHERE ticker=? AND trade_date BETWEEN ? AND ? ORDER BY trade_date,source",
+                (symbol, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row["trade_date"]].append(row)
+        bars = []
+        for group in grouped.values():
+            candle = select_candle(group)
+            if candle:
+                bars.append(PriceBar(datetime.fromisoformat(candle.session), candle.open,
+                                     candle.high, candle.low, candle.close, int(candle.volume)))
+        return bars
+
     def load_intraday(
         self,
         symbol: str,

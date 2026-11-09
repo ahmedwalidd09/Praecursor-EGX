@@ -1,4 +1,5 @@
 from datetime import date
+from praecursor.core.sessions import completed_session, CAIRO
 
 from praecursor.collectors.collection_result import CollectionResult
 from praecursor.collectors.market_data_source import MarketDataSource
@@ -31,13 +32,7 @@ class DataManager:
         self.price_cache = price_cache
 
     def _latest_egx_trading_day(self, dt) -> date:
-        from datetime import timedelta
-        d = dt.date()
-        if dt.weekday() == 4:  # Friday
-            d -= timedelta(days=1)
-        elif dt.weekday() == 5:  # Saturday
-            d -= timedelta(days=2)
-        return d
+        return completed_session(dt)
 
     def fetch_history(
         self,
@@ -47,30 +42,28 @@ class DataManager:
         source_name: str | None = None,
     ) -> CollectionResult:
         source = self._select_source(source_name)
+        end_date = min(end_date, completed_session())
         
         # Check cache if available
         if self.price_cache is not None:
             last_collected = self.price_cache.get_last_collection_time(symbol, source.name)
             if last_collected is not None:
-                from datetime import datetime, timezone, timedelta
-                now = datetime.now(timezone.utc)
-                # If collected within the last 12 hours, use cache
-                if now - last_collected <= timedelta(hours=12):
-                    bars = self.price_cache.load(symbol, source.name, start_date, end_date)
-                    if bars:
-                        latest_egx_day = self._latest_egx_trading_day(now)
-                        most_recent_bar_date = max(b.date.date() if hasattr(b.date, 'date') else b.date for b in bars)
-                        
-                        if most_recent_bar_date >= latest_egx_day:
-                            return CollectionResult(
-                                symbol=symbol,
-                                source_name=source.name,
-                                price_bars=bars,
-                                warnings=["Loaded from cache (fetched < 12h ago and has latest trading day)"],
-                            )
-                        
+                bars = self.price_cache.load(symbol, source.name, start_date, end_date)
+                if len(bars) >= self.minimum_bars:
+                    most_recent = max(b.date.date() for b in bars)
+                    collected_local = last_collected.astimezone(CAIRO)
+                    finalized = collected_local.date() > most_recent or (
+                        collected_local.date() == most_recent and collected_local.hour >= 16)
+                    if most_recent == end_date and finalized and self.validator.validate(bars, symbol, self.minimum_bars).is_valid:
+                        return CollectionResult(
+                            symbol=symbol, source_name=source.name, price_bars=bars,
+                            collected_at=last_collected,
+                            warnings=["Loaded finalized prices for the requested completed session from cache"],
+                        )
+
         collection_result = source.fetch_history(symbol, start_date, end_date)
 
+        collection_result.price_bars = [b for b in collection_result.price_bars if start_date <= b.date.date() <= end_date]
         validation_result = self.validator.validate(
             collection_result.price_bars,
             symbol=symbol,

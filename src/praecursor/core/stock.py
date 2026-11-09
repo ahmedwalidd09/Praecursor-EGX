@@ -10,6 +10,7 @@ class Stock:
     sector: str = ""
     history: list[PriceBar] = field(default_factory=list)
     intraday_history: list[PriceBar] = field(default_factory=list)
+    market_context: dict = field(default_factory=dict)
 
     def latest(self) -> PriceBar:
         return self.history[-1]

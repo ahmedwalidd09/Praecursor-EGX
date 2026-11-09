@@ -63,35 +63,6 @@ from praecursor.scoring.sector_spillover import SectorSpilloverIndicator
 import csv
 from pathlib import Path
 
-_SECTOR_MAP = {}
-_SECTOR_BREAKOUT_CACHE = {}
-
-def _load_sectors():
-    if _SECTOR_MAP:
-        return
-    try:
-        csv_path = Path(__file__).resolve().parents[3] / "config" / "symbols.csv"
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                _SECTOR_MAP[row["egx_symbol"]] = row["sector"]
-    except Exception:
-        pass
-    _EGX_SECTORS = {
-        'Banks': ['COMI', 'QNBA', 'ADIB', 'HDBK', 'FAIS', 'CIEB', 'EGBE', 'SAIB', 'ASGC'],
-        'Real Estate': ['TMGH', 'PHDC', 'EGSA', 'MNHD', 'EMFD', 'ORHD', 'EGREF'],
-        'Construction': ['OCDI', 'ELEC', 'MBEG', 'HELI'],
-        'Chemicals': ['EFIC', 'KABO', 'SKPC', 'EPCO'],
-        'Food': ['JUFO', 'ISMA', 'EAST', 'DSCW', 'CANA'],
-        'Textiles': ['GTWL', 'ORAS', 'SPIN'],
-        'Pharma': ['AXPH', 'EPHA', 'PHAR'],
-        'Telecom': ['ETEL', 'OTMT'],
-    }
-    for sector, syms in _EGX_SECTORS.items():
-        for sym in syms:
-            if sym not in _SECTOR_MAP:
-                _SECTOR_MAP[sym] = sector
-
 @dataclass(frozen=True)
 class ScoreComponent:
     """One explainable part of the opportunity score."""
@@ -237,6 +208,7 @@ class OpportunityScorer:
             )
         latest_close = stock.latest().close
         indicator_values = self._calculate_indicators(stock)
+        indicator_values["SectorPeerBreakouts"] = stock.market_context.get("sector_breakouts", float("nan"))
         components = self._build_components(stock.symbol, latest_close, indicator_values)
         total_score = sum(component.score for component in components)
 
@@ -417,7 +389,7 @@ class OpportunityScorer:
             self._score_vsa_no_demand(vsa_no_demand),
             self._score_evm(evm),
             self._score_tsi(tsi),
-            self._score_sector_sympathy(symbol, breakout20),
+            self._score_sector_sympathy(indicator_values.get("SectorPeerBreakouts", float("nan"))),
             self._score_avwap(avwap_dist),
             # v6.1 Next-Day Alpha Hunters (20 pts)
             self._score_closing_aggression(closing_aggression),
@@ -455,30 +427,11 @@ class OpportunityScorer:
         pts = round(min(max_score, (sector_spillover / 100.0) * max_score), 2)
         return ScoreComponent("Sector Spillover", pts, max_score, f"Sector lead-lag momentum: {sector_spillover:.1f}%.")
 
-    def _score_sector_sympathy(self, symbol: str, breakout20: float) -> ScoreComponent:
-        max_score = 5.0
-        _load_sectors()
-        
-        # update cache
-        if not self._missing(breakout20) and breakout20 == 1.0:
-            _SECTOR_BREAKOUT_CACHE[symbol] = 1.0
-            
-        sector = _SECTOR_MAP.get(symbol)
-        if not sector:
-            return ScoreComponent("Sector Sympathy", 0.0, max_score, "Sector unknown.")
-            
-        peers_breaking_out = 0
-        for peer, peer_sector in _SECTOR_MAP.items():
-            if peer != symbol and peer_sector == sector:
-                if _SECTOR_BREAKOUT_CACHE.get(peer) == 1.0:
-                    peers_breaking_out += 1
-                    
-        if peers_breaking_out >= 2:
-            return ScoreComponent("Sector Sympathy", 5.0, max_score, "Sector Cluster Breakout: 2+ peers breaking out.")
-        elif peers_breaking_out == 1:
-            return ScoreComponent("Sector Sympathy", 2.0, max_score, "Sector Peer Confirmation: 1 peer breaking out.")
-            
-        return ScoreComponent("Sector Sympathy", 0.0, max_score, "No sector peers breaking out.")
+    def _score_sector_sympathy(self, peer_breakouts: float) -> ScoreComponent:
+        if self._missing(peer_breakouts):
+            return ScoreComponent("Sector Sympathy", 0.0, 5.0, "Sector context unavailable.")
+        points = 5.0 if peer_breakouts >= 2 else 2.0 if peer_breakouts >= 1 else 0.0
+        return ScoreComponent("Sector Sympathy", points, 5.0, f"{int(peer_breakouts)} sector peers breaking out in this session.")
 
     def _score_avwap(self, avwap_dist: float) -> ScoreComponent:
         max_score = 5.0

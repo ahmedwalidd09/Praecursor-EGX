@@ -1,3 +1,4 @@
+from praecursor.analysis.verified_history import SCHEMA
 import os
 import sqlite3
 import subprocess
@@ -44,6 +45,7 @@ def temp_db_path(tmp_path):
 
     # Populate 16 baseline records grouped by run_date
     conn = sqlite3.connect(str(db_file))
+    conn.executescript(SCHEMA)
     cursor = conn.cursor()
 
     # Group baseline records by signal_date to insert runs
@@ -78,7 +80,7 @@ def temp_db_path(tmp_path):
             ),
         )
         cursor.execute(
-            """INSERT INTO scanner_signal_outcomes (
+            """INSERT INTO verified_outcomes (
                 run_id, symbol, signal_date, next_day_label, next_day_hit, next_day_return, swing_label
             ) VALUES (?, ?, ?, ?, ?, ?, '')""",
             (
@@ -114,6 +116,8 @@ def project_root():
 @pytest.fixture
 def run_task_script(project_root):
     def _run(script_name="register_task.ps1", task_name="TestTask", time="17:00", extra_args=None):
+        if os.environ.get("PRAECURSOR_TEST_SCHEDULER") != "1":
+            pytest.skip("Real Windows scheduler mutations require PRAECURSOR_TEST_SCHEDULER=1")
         if script_name.endswith(".ps1"):
             script_path = project_root / script_name if not Path(script_name).is_absolute() else Path(script_name)
             cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script_path), task_name, time]

@@ -380,7 +380,7 @@ def run_pipeline(
         else:
             logger.warning("Stage 4 (Telegram Broadcast) completed with errors.")
 
-        overall_success = s1_ok and s2_ok and s3_ok and s4_ok
+        overall_success = s1_ok and s1_5_ok and s2_ok and s2_5_ok and s3_ok and s4_ok
         if overall_success:
             completed_successfully = True
             update_scan_status(

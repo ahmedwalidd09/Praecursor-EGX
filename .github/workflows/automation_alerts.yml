@@ -1,0 +1,27 @@
+name: Praecursor Automation Alerts
+
+on:
+  workflow_run:
+    workflows: ['Praecursor-EGX Autonomous Scanner', 'Praecursor-EGX Outcome Learning', 'Praecursor Checks']
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: contains(fromJSON('["failure", "timed_out", "action_required"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Notify Owner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FAILED_WORKFLOW: ${{ github.event.workflow_run.name }}
+          FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: python tools/notify_workflow_failure.py

@@ -409,19 +409,10 @@ class ScannerWorkflow:
         dashboard_report_path: Path = DEFAULT_DASHBOARD_REPORT,
         progress_callback: Callable[[int, int], None] | None = None,
         swing_report_path: Path | None = None,
+        prices_only: bool = False,
         **kwargs,
     ) -> ScannerRunResult:
         generated_at = datetime.now(timezone.utc)
-
-        # Auto-backfill outcomes for all prior predictions using freshly available price data
-        try:
-            from praecursor.analysis.accuracy_tracker import track_outcomes_from_db
-            db_target = getattr(self, "price_cache", None) and getattr(self.price_cache, "path", None)
-            backfilled = track_outcomes_from_db(db_path=db_target)
-            if backfilled:
-                logger.info(f"[AUTO-OUTCOME] Backfilled {backfilled} prediction outcomes from prior scans.")
-        except Exception as e:
-            logger.warning(f"[AUTO-OUTCOME] Could not backfill outcomes: {e}")
 
         selected_end_date = min(end_date or completed_session(), completed_session())
         start_date = selected_end_date - timedelta(days=self.lookback_days)
@@ -509,7 +500,11 @@ class ScannerWorkflow:
                 stock = local_stock_builder.build(symbol, start_date, selected_end_date)
                 if stock.history[-1].date.date() != selected_end_date:
                     raise ValueError(f"Stale prices: expected completed session {selected_end_date}, got {stock.history[-1].date.date()}")
-                opportunity_score = self.scorer.score(stock)
+                # Scoring needs the full market context, attached after collection below.
+                opportunity_score = OpportunityScore(
+                    symbol=stock.symbol, company=stock.company, latest_close=stock.history[-1].close,
+                    total_score=0, max_score=100, indicator_values={}, stock=stock,
+                )
                 cached_bars = local_cache.load(
                     symbol,
                     self.source_name,
@@ -629,10 +624,21 @@ class ScannerWorkflow:
         if progress_callback:
             progress_callback(total_symbols, total_symbols)
 
+        if not prices_only and not os.getenv("PRAECURSOR_PIPELINE_RUNNING"):
+            # Standalone scans also refresh outcomes after collecting completed prices.
+            try:
+                from praecursor.analysis.accuracy_tracker import track_outcomes_from_db
+                db_target = getattr(self, "price_cache", None) and getattr(self.price_cache, "path", None)
+                backfilled = track_outcomes_from_db(db_path=db_target)
+                if backfilled:
+                    logger.info(f"[AUTO-OUTCOME] Backfilled {backfilled} prediction outcomes from prior scans.")
+            except Exception as e:
+                logger.warning(f"[AUTO-OUTCOME] Could not backfill outcomes: {e}")
+
         # Score cross-sectional features only after all symbols have finished collecting.
         from praecursor.scoring.market_context import attach_market_context
         stocks = [r.opportunity_score.stock for r in symbol_results if r.opportunity_score.stock]
-        if stocks:
+        if stocks and not prices_only:
             session = max(s.history[-1].date.date() for s in stocks if s.history)
             attach_market_context(stocks, session)
             symbol_results = [replace(r, opportunity_score=self.scorer.score(r.opportunity_score.stock)) for r in symbol_results]
@@ -642,7 +648,8 @@ class ScannerWorkflow:
             key=lambda result: result.opportunity_score.total_score,
             reverse=True,
         )
-        ranked_results = self._attach_rank_changes(ranked_results)
+        if not prices_only:
+            ranked_results = self._attach_rank_changes(ranked_results)
 
         saved_report_path: Path | None = None
         saved_next_day_report_path: Path | None = None
@@ -651,7 +658,7 @@ class ScannerWorkflow:
         archive_report_path: Path | None = None
         archive_markdown_report_path: Path | None = None
 
-        if ranked_results:
+        if ranked_results and not prices_only:
             next_day_results = sorted(ranked_results, key=lambda result: result.next_day_score, reverse=True)
             
             from praecursor.scoring.candidates import select_daily_candidates
@@ -694,11 +701,11 @@ class ScannerWorkflow:
             errors=errors,
         )
 
-        if ranked_results:
+        if ranked_results and not prices_only:
             dashboard_report_path_value = self.dashboard_writer.write(result, dashboard_report_path)
             result = replace(result, dashboard_report_path=dashboard_report_path_value)
 
-        if self.enable_history and self.history_store is not None:
+        if not prices_only and self.enable_history and self.history_store is not None:
             history_run_id = self.history_store.save_run(result)
             result = replace(result, history_run_id=history_run_id)
             logger.info(f"Saved scanner run {history_run_id} to history database.")

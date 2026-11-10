@@ -49,7 +49,13 @@ def main() -> int:
         enable_archive_reports=not args.no_archive_reports,
         symbol_mapper=symbol_mapper,
     )
-    result = workflow.run(symbols=symbols, end_date=target_date)
+    result = workflow.run(symbols=symbols, end_date=target_date, prices_only=args.prices_only)
+
+    if args.prices_only:
+        print(f"Prices refreshed for {result.success_count}/{len(result.symbols)} symbols through {result.end_date}")
+        print_errors(result)
+        # A broad feed outage must fail the learning job, not silently claim verification.
+        return 0 if result.success_count >= max(1, len(result.symbols) // 2) else 1
 
     print_header(result, settings)
     print_update_summary(result)
@@ -131,6 +137,8 @@ def parse_args() -> tuple[argparse.Namespace, ScannerSettings]:
         default=not settings.enable_history,
         help="Do not store this scanner run in SQLite signal history.",
     )
+    parser.add_argument("--prices-only", action="store_true",
+                        help="Refresh and validate prices without scoring, reports, predictions, or Telegram.")
     parser.add_argument(
         "--no-archive-reports",
         action="store_true",

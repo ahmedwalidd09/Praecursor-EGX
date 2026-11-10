@@ -41,11 +41,6 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y gzip
-
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
@@ -59,6 +54,7 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Restore Database State
+        id: database
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -67,33 +63,17 @@ jobs:
           mkdir -p logs
           mkdir -p reports/archive
 
-          # Try downloading latest dynamic snapshot from GitHub Release
-          DOWNLOADED=false
-          if gh release view db-latest >/dev/null 2>&1; then
-            echo "Found existing 'db-latest' release. Downloading database snapshot..."
-            if gh release download db-latest --pattern "praecursor.db.gz" --dir database --clobber; then
-              echo "Decompressing downloaded snapshot..."
-              gunzip -f database/praecursor.db.gz
-              DOWNLOADED=true
-            fi
-          fi
-
-          if [ "$DOWNLOADED" = "true" ]; then
-            echo "Successfully restored database from 'db-latest' release."
-          else
-            echo "No prior release snapshot found. Database will initialize fresh from market sources."
-          fi
-
-          ls -lh database/
+          # Existing history is mandatory; never replace it after a failed download.
+          gh release download db-latest --pattern praecursor.db.gz --dir database --clobber
+          gunzip -f database/praecursor.db.gz
+          python tools/database_state.py check
 
       - name: Restore Accepted Models and Validation Evidence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view models-latest >/dev/null 2>&1; then
-            gh release download models-latest --pattern model-state.zip --dir data --clobber
-            python tools/model_state.py restore
-          fi
+          gh release download models-latest --pattern model-state.zip --dir data --clobber
+          python tools/model_state.py restore
 
       - name: Execute Autonomous Daily Pipeline
         env:
@@ -117,25 +97,18 @@ jobs:
           python tools/run_autonomous_pipeline.py $FLAGS
 
       - name: Persist Updated Database to GitHub Release
-        if: always()
+        if: always() && steps.database.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f "database/praecursor.db" ]; then
             echo "Compressing updated database..."
-            python -c "import sqlite3; src=sqlite3.connect('database/praecursor.db'); dst=sqlite3.connect('database/backup.db'); src.backup(dst); dst.close(); src.close()"
+            python tools/database_state.py backup
             gzip -c database/backup.db > database/praecursor.db.gz
             echo "Compressed DB size: $(ls -lh database/praecursor.db.gz | awk '{print $5}')"
 
             echo "Uploading updated snapshot to GitHub Release 'db-latest'..."
-            if gh release view db-latest >/dev/null 2>&1; then
-              gh release upload db-latest database/praecursor.db.gz --clobber
-            else
-              gh release create db-latest database/praecursor.db.gz \
-                --title "Praecursor Database Storage" \
-                --notes "Automated persistent database snapshot for Praecursor-EGX autonomous scans" \
-                --latest
-            fi
+            gh release upload db-latest database/praecursor.db.gz --clobber
             echo "Database successfully persisted to 'db-latest' release."
           fi
 
@@ -151,3 +124,11 @@ jobs:
             data/scan_status.json
             logs/*.log
           retention-days: 30
+
+      - name: Retain Recovery Snapshot
+        if: always() && steps.database.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-scan-${{ github.run_id }}
+          path: database/praecursor.db.gz
+          retention-days: 7

@@ -260,6 +260,11 @@ docs/timeframe_model.md
 docs/data_sources.md
 ```
 
+## Automatic scanning and learning
+
+GitHub Actions schedules scanning, Telegram briefings, outcome verification, and
+validated retraining. See [automation schedules and recovery](docs/automation.md).
+
 ## Important disclaimer
 
 Praecursor-EGX is a research and decision-support tool. It is not financial advice and does not guarantee future returns.

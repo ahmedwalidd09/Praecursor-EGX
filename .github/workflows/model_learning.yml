@@ -41,8 +41,9 @@ jobs:
           mkdir -p database data reports logs
           gh release download db-latest --pattern praecursor.db.gz --dir database --clobber
           gunzip -f database/praecursor.db.gz
+          python tools/database_state.py check
       - name: Refresh Completed Prices Without Publishing New Predictions
-        run: python tools/run_scanner.py --no-history --no-archive-reports --no-telegram > logs/learning-prices.log 2>&1
+        run: python tools/run_scanner.py --prices-only > logs/learning-prices.log 2>&1
       - name: Resolve Hits and Misses and Export Original Features
         run: |
           python tools/track_outcomes.py
@@ -51,7 +52,7 @@ jobs:
           cat reports/learning_feedback.json >> "$GITHUB_STEP_SUMMARY"
       - name: Persist Verified Outcomes
         run: |
-          python -c "import sqlite3; src=sqlite3.connect('database/praecursor.db'); dst=sqlite3.connect('database/backup.db'); src.backup(dst); dst.close(); src.close()"
+          python tools/database_state.py backup
           gzip -c database/backup.db > database/praecursor.db.gz
           gh release upload db-latest database/praecursor.db.gz --clobber
       - uses: actions/upload-artifact@v4
@@ -62,6 +63,14 @@ jobs:
             reports/learning_feedback.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Retain Recovery Snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-learning-${{ github.run_id }}
+          path: database/praecursor.db.gz
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -92,10 +101,8 @@ jobs:
           name: published-learning-samples
       - name: Restore Incumbent Models
         run: |
-          if gh release view models-latest >/dev/null 2>&1; then
-            gh release download models-latest --pattern model-state.zip --dir data --clobber
-            python tools/model_state.py restore
-          fi
+          gh release download models-latest --pattern model-state.zip --dir data --clobber
+          python tools/model_state.py restore
       - name: Learn From Verified Published Predictions
         run: |
           python tools/retrain_models.py --published-only
@@ -104,11 +111,7 @@ jobs:
       - name: Persist Accepted Models and Validation Evidence
         run: |
           python tools/model_state.py pack
-          if gh release view models-latest >/dev/null 2>&1; then
-            gh release upload models-latest data/model-state.zip --clobber
-          else
-            gh release create models-latest data/model-state.zip --title 'Validated scanner models' --notes 'Accepted models and latest evaluation reports. Failed challengers never replace an incumbent.' --latest=false
-          fi
+          gh release upload models-latest data/model-state.zip --clobber
       - uses: actions/upload-artifact@v4
         if: always()
         with:

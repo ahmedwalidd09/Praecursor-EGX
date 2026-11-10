@@ -15,11 +15,13 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from praecursor.analysis.accuracy_tracker import AccuracyTracker, track_outcomes_from_db
+from praecursor.analysis.accuracy_tracker import AccuracyTracker
+from tools.database_state import check_database
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,7 +35,8 @@ def track_outcomes(db_path: Path | str | None = None, csv_path: Path | str | Non
     resolved_csv = Path(csv_path) if csv_path else DEFAULT_CSV_PATH
 
     logger.info(f"Running Outcome Tracker on {resolved_db}...")
-    backfilled = track_outcomes_from_db(resolved_db)
+    check_database(resolved_db)
+    backfilled = AccuracyTracker(db_path=resolved_db).evaluate_outcomes()
 
     if resolved_db.exists():
         try:

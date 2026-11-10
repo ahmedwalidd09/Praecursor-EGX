@@ -82,7 +82,7 @@ def predict_bundle(bundle, frame):
     return np.interp(raw,cal["x"],cal["y"])
 
 
-def train_validate(frame, horizon, models_root=None):
+def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
     models_root=Path(models_root or ROOT/"models")
     report_path=ROOT/"reports"/(horizon+"_validation.json")
     report_path.parent.mkdir(parents=True,exist_ok=True)
@@ -92,7 +92,7 @@ def train_validate(frame, horizon, models_root=None):
         report=dict(status="insufficient_history",reason=str(exc),horizon=horizon,promoted=False)
         report_path.write_text(json.dumps(report,indent=2),encoding="utf-8")
         return report
-    fingerprint=hashlib.sha256(pd.util.hash_pandas_object(frame,index=False).values.tobytes()).hexdigest()[:12]
+    fingerprint=(input_fingerprint or hashlib.sha256(pd.util.hash_pandas_object(frame,index=False).values.tobytes()).hexdigest())[:12]
     version=f"{horizon}-{FEATURE_VERSION}-labels{LABEL_VERSION}-protocol3-{fingerprint}"
     directory=models_root/"validated"/version
     manifest=directory/"manifest.json"

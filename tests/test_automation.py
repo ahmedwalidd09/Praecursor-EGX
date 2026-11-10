@@ -54,6 +54,25 @@ def test_database_backup_requires_real_history_and_preserves_it(tmp_path):
         check_database(source)
 
 
+def test_scoring_failure_excludes_symbol_without_aborting_scan(tmp_path):
+    workflow = ScannerWorkflow(lookback_days=450, minimum_bars=200,
+        source_name="fake_market_data", market_data_source=FakeMarketDataSource(),
+        price_cache=PriceCache(database_path=tmp_path / "prices.db"),
+        enable_consensus=False, enable_history=False, enable_archive_reports=False)
+    real_score = workflow.scorer.score
+    def score(stock):
+        if stock.symbol == "COMI":
+            raise ValueError("Invalid indicator input")
+        return real_score(stock)
+    with patch.object(workflow.scorer, "score", side_effect=score) as scorer, \
+         patch.object(workflow.report_writer, "write"), \
+         patch.object(workflow.markdown_report_writer, "write"), \
+         patch.object(workflow.dashboard_writer, "write"):
+        result = workflow.run(symbols=["COMI", "HRHO"], end_date=date(2026, 7, 27))
+    assert result.success_count == 1 and result.errors == {"COMI": "Invalid indicator input"}
+    assert scorer.call_count == 2  # One scoring pass after market context is available.
+
+
 def test_outcome_errors_are_not_reported_as_success(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         track_outcomes(tmp_path / "missing.db")

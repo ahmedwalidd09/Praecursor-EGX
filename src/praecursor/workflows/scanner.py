@@ -641,7 +641,13 @@ class ScannerWorkflow:
         if stocks and not prices_only:
             session = max(s.history[-1].date.date() for s in stocks if s.history)
             attach_market_context(stocks, session)
-            symbol_results = [replace(r, opportunity_score=self.scorer.score(r.opportunity_score.stock)) for r in symbol_results]
+            scored_results = []
+            for result in symbol_results:
+                try:
+                    scored_results.append(replace(result, opportunity_score=self.scorer.score(result.opportunity_score.stock)))
+                except Exception as error:
+                    errors[result.symbol] = str(error)
+            symbol_results = scored_results
 
         ranked_results = sorted(
             symbol_results,

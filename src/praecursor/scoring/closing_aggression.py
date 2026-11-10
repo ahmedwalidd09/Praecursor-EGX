@@ -4,12 +4,7 @@ from praecursor.scoring.result import IndicatorResult
 
 
 class ClosingAggressionIndicator(Indicator):
-    """
-    Market-On-Close (MOC) and Closing Bar Aggression Detector.
-    
-    Quantifies whether institutional buyers aggressively swept the offer into the
-    closing bell / closing auction, which is a major leading indicator of an explosive open.
-    """
+    """Daily OHLCV close-location proxy; does not observe auction orders or buyer identity."""
 
     def __init__(self, volume_lookback: int = 20):
         self.volume_lookback = volume_lookback

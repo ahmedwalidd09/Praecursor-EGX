@@ -13,6 +13,9 @@ def pack(root=ROOT, archive=None):
     archive = archive or root / "data/model-state.zip"
     archive.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
+        registry = root / "reports/research_registry.json"
+        if registry.exists():
+            bundle.write(registry, "research_registry.json")
         for horizon in HORIZONS:
             report = root / "reports" / f"{horizon}_validation.json"
             if report.exists():
@@ -31,6 +34,8 @@ def restore(root=ROOT, archive=None):
     archive = archive or root / "data/model-state.zip"
     with ZipFile(archive) as bundle:
         writes = []
+        if "research_registry.json" in bundle.namelist():
+            writes.append((root / "reports/research_registry.json", bundle.read("research_registry.json")))
         for horizon in HORIZONS:
             if f"{horizon}/report.json" in bundle.namelist():
                 writes.append((root / "reports" / f"{horizon}_validation.json", bundle.read(f"{horizon}/report.json")))

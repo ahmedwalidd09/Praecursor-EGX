@@ -37,6 +37,11 @@ def track_outcomes(db_path: Path | str | None = None, csv_path: Path | str | Non
     logger.info(f"Running Outcome Tracker on {resolved_db}...")
     check_database(resolved_db)
     backfilled = AccuracyTracker(db_path=resolved_db).evaluate_outcomes()
+    from contextlib import closing
+    from praecursor.storage.database import connect
+    from praecursor.analysis.paper_portfolio import resolve_paper
+    with closing(connect(resolved_db)) as connection:
+        resolve_paper(connection)
 
     if resolved_db.exists():
         try:

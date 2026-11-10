@@ -30,7 +30,7 @@ def train_published_if_changed(frame, horizon):
     stable = frame[sorted(columns)].sort_values(["session", "symbol"]).reset_index(drop=True)
     digest = hashlib.sha256(stable.to_csv(index=False).encode())
     for name in ("src/praecursor/ml/validation.py", "src/praecursor/ml/features.py",
-                 "src/praecursor/analysis/outcomes.py", "tools/retrain_models.py"):
+                 "src/praecursor/analysis/outcomes.py", "src/praecursor/ml/rolling.py", "tools/retrain_models.py"):
         digest.update((ROOT / name).read_bytes())
     for package in ("pandas", "numpy", "scikit-learn", "xgboost", "lightgbm"):
         digest.update(version(package).encode())
@@ -44,6 +44,14 @@ def train_published_if_changed(frame, horizon):
     report["input_fingerprint"] = fingerprint
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    registry = ROOT / "reports/research_registry.json"
+    trials = json.loads(registry.read_text(encoding="utf-8")) if registry.exists() else []
+    from datetime import datetime, timezone
+    trials.append(dict(horizon=horizon, fingerprint=fingerprint, evaluated_at=datetime.now(timezone.utc).isoformat(),
+                       status=report.get("status"), promoted=report.get("promoted"),
+                       metrics=report.get("metrics"), reasons=report.get("promotion_reasons", [report.get("reason")]),
+                       rolling=report.get("rolling_validation")))
+    registry.write_text(json.dumps(trials, indent=2), encoding="utf-8")
     return report
 
 
@@ -55,7 +63,11 @@ def main():
     logging.basicConfig(level=logging.INFO)
     database=ROOT/"database/praecursor.db"
     if args.published_only:
-        frame=pd.read_csv(ROOT/"data/published_samples.csv")
+        if database.exists():
+            from praecursor.ml.published import published_samples
+            frame=published_samples(database)
+        else:
+            frame=pd.read_csv(ROOT/"data/published_samples.csv")
     elif not database.exists():
         raise SystemExit("Database unavailable; run the scanner first")
     else:

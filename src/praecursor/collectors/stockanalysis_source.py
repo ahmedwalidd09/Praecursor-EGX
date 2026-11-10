@@ -1,4 +1,6 @@
 import logging
+import re
+from bs4 import BeautifulSoup
 import time as time_module
 from datetime import date, datetime, time
 from html.parser import HTMLParser
@@ -13,6 +15,16 @@ from praecursor.core.price_bar import PriceBar
 from praecursor.data.symbol_mapper import SymbolMapper
 
 logger = logging.getLogger(__name__)
+
+
+def quote_currency(html):
+    page = BeautifulSoup(html, "html.parser")
+    for tag in page(["script", "style"]):
+        tag.decompose()
+    text = page.get_text(" ", strip=True)
+    # Some USD-quoted shares also display EGP as the reporting currency.
+    match = re.search(r"Price in\s+([A-Z]{3})\b", text) or re.search(r"Currency is\s+([A-Z]{3})\b", text)
+    return match.group(1) if match else None
 
 
 class StockAnalysisTableParser(HTMLParser):
@@ -110,6 +122,8 @@ class StockAnalysisSource(MarketDataSource):
             price_bars=price_bars,
             warnings=warnings,
             confidence=self.DEFAULT_CONFIDENCE,
+            quote_currency=quote_currency(html_text),
+            reference_url=url,
         )
 
     def _build_url(self, stockanalysis_symbol: str) -> str:

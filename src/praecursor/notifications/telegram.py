@@ -374,6 +374,8 @@ class TelegramReportFormatter:
                  "Technical scores are not success probabilities."]
         signals = sorted((r for r in saved.get("signals", []) if r.get("candidate_rank")),
                          key=lambda r: r["candidate_rank"])[:top_n]
+        paper = saved.get("paper") or {}
+        decisions = {o["symbol"]: o for o in paper.get("orders", [])} if paper.get("session") == saved.get("target_session") else {}
         for row in signals:
             lines.append(f"\n<b>#{row['candidate_rank']} {html_lib.escape(row['symbol'])}</b> · Score {row['next_day_score']:.1f}/100")
             lines.append("Close / target / stop: " + " / ".join(
@@ -382,6 +384,11 @@ class TelegramReportFormatter:
             for reason in row.get("selection_reasons", []):
                 lines.append("• " + html_lib.escape(reason))
             lines.append(html_lib.escape(row.get("source_status") or "Source confirmation unavailable"))
+            decision = decisions.get(row["symbol"])
+            if decision:
+                detail = (f"Paper eligible: {decision['quantity']} hypothetical shares" if decision["decision"] == "paper_eligible"
+                          else "Watch only: " + "; ".join(decision.get("reasons", []))[:160])
+                lines.append(html_lib.escape(detail))
             if row.get("next_day_probability") is not None:
                 lines.append(f"Validated target-touch probability: {row['next_day_probability']:.1%}")
         if len(signals) < top_n:

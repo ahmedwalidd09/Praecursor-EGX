@@ -82,24 +82,7 @@ def predict_bundle(bundle, frame):
     return np.interp(raw,cal["x"],cal["y"])
 
 
-def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
-    models_root=Path(models_root or ROOT/"models")
-    report_path=ROOT/"reports"/(horizon+"_validation.json")
-    report_path.parent.mkdir(parents=True,exist_ok=True)
-    try:
-        train,tune,cal,test=chronological_blocks(frame,horizon)
-    except ValueError as exc:
-        report=dict(status="insufficient_history",reason=str(exc),horizon=horizon,promoted=False)
-        report_path.write_text(json.dumps(report,indent=2),encoding="utf-8")
-        return report
-    fingerprint=(input_fingerprint or hashlib.sha256(pd.util.hash_pandas_object(frame,index=False).values.tobytes()).hexdigest())[:12]
-    version=f"{horizon}-{FEATURE_VERSION}-labels{LABEL_VERSION}-protocol3-{fingerprint}"
-    directory=models_root/"validated"/version
-    manifest=directory/"manifest.json"
-    if manifest.exists():
-        report=json.loads(manifest.read_text(encoding="utf-8"))
-        report_path.write_text(json.dumps(report,indent=2),encoding="utf-8")
-        return report
+def fit_challenger(train, tune, horizon):
     target=horizon+"_target_hit"
     xgb_model=xgb.XGBClassifier(n_estimators=300,max_depth=3,learning_rate=.04,min_child_weight=15,
         subsample=.8,colsample_bytree=.8,reg_lambda=5,eval_metric="logloss",early_stopping_rounds=25,
@@ -112,6 +95,28 @@ def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
     candidates={"xgb":(xp,{"xgb":1.,"lgb":0.}),"lgb":(lp,{"xgb":0.,"lgb":1.}),
                 "ensemble":((xp+lp)/2,{"xgb":.5,"lgb":.5})}
     name,(p,weights)=max(candidates.items(),key=lambda item:average_precision_score(tune[target],item[1][0]))
+    return xgb_model, lgb_model, weights, name
+
+
+def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
+    models_root=Path(models_root or ROOT/"models")
+    report_path=ROOT/"reports"/(horizon+"_validation.json")
+    report_path.parent.mkdir(parents=True,exist_ok=True)
+    try:
+        train,tune,cal,test=chronological_blocks(frame,horizon)
+    except ValueError as exc:
+        report=dict(status="insufficient_history",reason=str(exc),horizon=horizon,promoted=False)
+        report_path.write_text(json.dumps(report,indent=2),encoding="utf-8")
+        return report
+    fingerprint=(input_fingerprint or hashlib.sha256(pd.util.hash_pandas_object(frame,index=False).values.tobytes()).hexdigest())[:12]
+    version=f"{horizon}-{FEATURE_VERSION}-labels{LABEL_VERSION}-protocol4-{fingerprint}"
+    directory=models_root/"validated"/version
+    manifest=directory/"manifest.json"
+    if manifest.exists():
+        report=json.loads(manifest.read_text(encoding="utf-8"))
+        report_path.write_text(json.dumps(report,indent=2),encoding="utf-8")
+        return report
+    xgb_model, lgb_model, weights, name = fit_challenger(train, tune, horizon)
     def raw(df):
         return weights["xgb"]*xgb_model.predict_proba(df[FEATURES])[:,1]+weights["lgb"]*lgb_model.predict_proba(df[FEATURES])[:,1]
     calibrator=IsotonicRegression(out_of_bounds="clip").fit(raw(cal),cal[target])
@@ -130,7 +135,7 @@ def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
     directory.mkdir(parents=True,exist_ok=True)
     xgb_model.save_model(str(directory/"xgb.json")); lgb_model.booster_.save_model(str(directory/"lgb.txt"))
     report=dict(status="evaluated",horizon=horizon,model_version=version,directory=str(directory.resolve()),
-        feature_version=FEATURE_VERSION,label_version=LABEL_VERSION,features=FEATURES,
+        feature_version=FEATURE_VERSION,label_version=LABEL_VERSION,features=FEATURES,validation_protocol=4,
         training_date=datetime.now(timezone.utc).isoformat(),data_cutoff=str(max(frame.session.max(),frame[horizon+"_resolved_session"].dropna().max())),
         training_end=str(train.session.max()),test_start=str(test.session.min()),test_end=str(test.session.max()),
         blocks={name:{"rows":len(b),"sessions":int(b.session.nunique()),"first":str(b.session.min()),"last":str(b.session.max())}
@@ -143,6 +148,8 @@ def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
         provenance=", ".join(sorted(frame.provenance.dropna().unique())) if "provenance" in frame else "Retrospective reconstruction",
         promoted=False)
     reasons=[]
+    if "provenance" not in frame or not frame.provenance.eq("published_prediction").all():
+        reasons.append("Retrospective or mixed-provenance research cannot promote a live model")
     if result["unresolved_selected"] or result["execution_coverage"] < 1:
         reasons.append("Selected outcomes are incomplete; wait for resolved execution evidence")
     if result["sessions"]<10 or result["selected"]<40:
@@ -164,6 +171,12 @@ def train_validate(frame, horizon, models_root=None, input_fingerprint=None):
             if (result["precision_at_5"] or 0)<(old_metrics["precision_at_5"] or 0) or (result["net_expectancy_pct"] or 0)<(old_metrics["net_expectancy_pct"] or 0):
                 reasons.append("Challenger does not improve incumbent on identical unseen sessions")
     report["promotion_reasons"]=reasons
+    from praecursor.ml.rolling import rolling_validation
+    # Avoid extra fitting when the main holdout already rejects the challenger.
+    report["rolling_validation"] = (rolling_validation(frame, horizon) if not reasons else
+        dict(status="not_run", passed=False, reason="Main holdout failed; expensive rolling fits skipped"))
+    if not report["rolling_validation"]["passed"]:
+        reasons.append(report["rolling_validation"]["reason"])
     report["promoted"]=not reasons
     (directory/"manifest.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     report_path.write_text(json.dumps(report,indent=2),encoding="utf-8")

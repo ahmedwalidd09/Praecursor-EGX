@@ -78,3 +78,11 @@ def test_preview_never_claims_delivery(tmp_path):
     with patch("tools.run_autonomous_pipeline.run_stage",return_value=True):
         assert run_pipeline(tmp_path,tmp_path/"logs",dry_run_telegram=True,run_date=date(2026,11,7))==0
     assert json.loads((tmp_path/"data/scan_status.json").read_text())["telegram_status"]=="Preview only"
+
+
+def test_telegram_shows_paper_decisions_only_for_matching_session():
+    saved=dict(target_session="2026-11-11", signals=[dict(symbol="TEST",candidate_rank=1,next_day_score=70)],
+               paper=dict(session="2026-11-11",orders=[dict(symbol="TEST",decision="watch_only",quantity=0,reasons=["Sector limit"])]))
+    assert "Watch only: Sector limit" in TelegramReportFormatter().format_snapshot(saved)
+    saved["paper"]["session"]="2026-11-10"
+    assert "Watch only" not in TelegramReportFormatter().format_snapshot(saved)

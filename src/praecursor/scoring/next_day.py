@@ -264,7 +264,7 @@ def calculate_next_day_prediction(
     if not _missing(closing_agg) and closing_agg >= 75.0:
         moc_bonus = min(8.0, (closing_agg - 70.0) * 0.25)
         score += moc_bonus
-        reasons.append(f"[MOC AGGRESSION] Institutional closing sweep ({closing_agg:.1f}%) into the bell (Bonus: +{moc_bonus:.1f})")
+        reasons.append(f"[DAILY CLOSE PROXY] Close-location strength ({closing_agg:.1f}%) (daily OHLCV, not observed order flow; Bonus: +{moc_bonus:.1f})")
 
     nr7_comp = values.get("NR7_Compression", 0.0)
     if not _missing(nr7_comp) and nr7_comp >= 50.0:
@@ -276,7 +276,7 @@ def calculate_next_day_prediction(
     if not _missing(vsa_abs) and vsa_abs >= 50.0:
         vsa_bonus = min(5.0, (vsa_abs - 40.0) * 0.12)
         score += vsa_bonus
-        reasons.append(f"[VSA ABSORPTION] Institutional supply absorption at resistance (Bonus: +{vsa_bonus:.1f})")
+        reasons.append(f"[VOLUME/RANGE PROXY] High-volume price compression (Bonus: +{vsa_bonus:.1f})")
 
     sec_spill = values.get("SectorSpillover", 0.0)
     if not _missing(sec_spill) and sec_spill >= 75.0:

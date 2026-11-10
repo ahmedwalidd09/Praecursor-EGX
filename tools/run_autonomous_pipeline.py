@@ -291,7 +291,7 @@ def run_pipeline(
             logger,
             2,
             "Model Retraining",
-            [python_exe, "tools/retrain_models.py"],
+            [python_exe, "tools/retrain_models.py", "--published-only"],
             root,
             timeout_seconds=7200.0,
             max_attempts=1,

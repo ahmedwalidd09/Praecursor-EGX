@@ -13,6 +13,12 @@ def main():
     (ROOT / "reports").mkdir(exist_ok=True)
     frame.to_csv(ROOT / "data/published_samples.csv", index=False)
     summary = feedback_summary(frame)
+    from contextlib import closing
+    from praecursor.storage.database import connect
+    from praecursor.analysis.research import save_research
+    with closing(connect(ROOT / "database/praecursor.db")) as conn:
+        research = save_research(conn, frame)
+    (ROOT / "reports/research_evidence.json").write_text(json.dumps(research, indent=2), encoding="utf-8")
     (ROOT / "reports/learning_feedback.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
 

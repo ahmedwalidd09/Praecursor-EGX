@@ -715,6 +715,13 @@ class ScannerWorkflow:
             history_run_id = self.history_store.save_run(result)
             result = replace(result, history_run_id=history_run_id)
             logger.info(f"Saved scanner run {history_run_id} to history database.")
+            from contextlib import closing
+            from praecursor.storage.database import connect
+            from praecursor.analysis.paper_portfolio import resolve_paper, record_plan
+            with closing(connect(self.price_cache.path)) as connection:
+                resolve_paper(connection)
+                sectors = {r.symbol: getattr(r.opportunity_score.stock, "sector", "Unknown") for r in ranked_results}
+                record_plan(connection, history_run_id, sectors=sectors)
         
         return result
 

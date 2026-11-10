@@ -7,6 +7,7 @@ GitHub Actions runs the scanner without the laptop being on. The existing encryp
 | --- | --- | --- |
 | Outcome Learning | Sunday–Thursday, 17:15 | Refresh completed prices, verify saved predictions, export their original features, train and validate next-day and swing challengers. |
 | Autonomous Scanner | Saturday–Wednesday, 18:30 | Collect prices, scan, save five eligible candidates with reasons, generate charts/dashboard, send the next-session Telegram briefing. Saturday prepares Sunday. |
+| Official Disclosures | Sunday–Thursday, hourly at minute 12 from 06:00–17:00 | Archive partial official homepage disclosures and feed health. |
 | Checks | Relevant pushes and pull requests | Run the offline regression suite. |
 | Automation Alerts | Failed scanner, learning, or check run | Send the configured owner a Telegram alert linking to the failed run. |
 
@@ -23,8 +24,9 @@ versions reuse the previous validation decision.
 Only compatible features saved before the target session enter training. Missing
 or unsettled outcomes stay pending. Chronological, maturity-purged validation,
 calibration, and promotion gates remain mandatory; insufficient history or a
-failed challenger keeps the incumbent. The current protocol needs at least 40
-sessions and sufficient examples in each validation block. Collecting feedback
+failed challenger keeps the incumbent. The initial holdout needs at least 40
+sessions; promotion additionally requires three rolling tests, at least 140 mature
+sessions and sufficient examples in every purged block. Collecting feedback
 does not guarantee that a new model will be promoted each day.
 
 The existing `db-latest` and `models-latest` release assets are mandatory state.
@@ -38,3 +40,5 @@ newer predictions.
 The local desktop dashboard still uses its local database. Cloud runs publish
 their generated dashboard and reports as Actions artifacts; this workflow does
 not turn the laptop dashboard into a hosted, automatically synchronized service.
+
+Detailed implementation phases and remaining evidence gates: [institutional research roadmap](institutional_roadmap.md).

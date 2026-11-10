@@ -20,3 +20,5 @@ class CollectionResult:
     collected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     warnings: list[str] = field(default_factory=list)
     confidence: float = 0.0
+    quote_currency: str | None = None
+    reference_url: str | None = None

@@ -181,7 +181,7 @@ def run_training_sync() -> None:
         logs = PROJECT_ROOT / "logs"
         logs.mkdir(exist_ok=True)
         with (logs / "model_evaluation.log").open("w", encoding="utf-8") as log:
-            pipeline_proc = subprocess.Popen([sys.executable, str(PROJECT_ROOT / "tools/retrain_models.py")],
+            pipeline_proc = subprocess.Popen([sys.executable, str(PROJECT_ROOT / "tools/retrain_models.py"), "--published-only"],
                 cwd=str(PROJECT_ROOT), stdout=log, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
             code = pipeline_proc.wait()

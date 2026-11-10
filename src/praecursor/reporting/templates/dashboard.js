@@ -6,6 +6,32 @@ const price = v => v > 0 ? number(v) : '—';
 const pct = v => v == null ? '—' : number(v*100,1)+'%';
 function text(id,value) { $(id).textContent = value; }
 function el(tag,content,cls) { const n=document.createElement(tag); n.textContent=content; if(cls)n.className=cls; return n; }
+function renderResearch(){
+  const p=data.paper||{},r=data.research||{},perf=r.performance||{},feed=data.disclosures||{};
+  text('paper-status',(p.session?'Session '+p.session+' · ':'')+(p.status||'No prospective plan yet. The next pre-open scan starts the ledger.')+(p.sessions?' · '+p.sessions+' resolved sessions; '+p.trades+' scenario fills.':''));
+  text('paper-equity',number(p.equity));text('paper-return',p.net_return_pct==null?'—':number(p.net_return_pct)+'%');text('paper-drawdown',p.max_drawdown_pct==null?'—':number(p.max_drawdown_pct)+'%');text('paper-expectancy',number(p.expectancy_egp));
+  $('paper-rows').replaceChildren();
+  for(const order of p.orders||[]){const tr=el('tr'),o=order.outcome;tr.append(el('td',order.symbol),el('td',order.decision==='paper_eligible'?'Paper eligible':'Watch only'),el('td',number(order.quantity,0),'num'),el('td',o?o.status.replaceAll('_',' ')+(o.pnl!=null?' · '+number(o.pnl)+' EGP':''):'Pending'),el('td',(order.reasons||[]).join('. ')));$('paper-rows').append(tr);}
+  $('paper-table-wrap').classList.toggle('hidden',!(p.orders||[]).length);text('paper-caption','Frozen risk decisions · '+(p.policy_hash||'Policy pending'));
+  text('research-status',(perf.status||'Evidence accumulating')+(r.updated_at?' · Updated '+new Date(r.updated_at).toLocaleString('en-GB'):' · The outcome-learning job will publish the first report.'));
+  text('research-sessions',perf.sessions==null?'—':String(perf.sessions));
+  for(const [id,value] of [['research-return',perf.mean_net_return_pct],['research-baseline',perf.universe_mean_net_return_pct],['research-stress',perf.stressed_net_return_pct]])text(id,value==null?'—':number(value)+'%');
+  const ci=perf.excess_95pct_interval;text('research-interval',ci?'95% session-block interval for mean excess: '+number(ci[0])+'% to '+number(ci[1])+'%. This sample does not establish a durable edge.':'Too few complete sessions for an excess-return confidence interval.');
+  $('data-health').replaceChildren();const health=r.data_health||{};
+  for(const [key,value] of Object.entries(health)){const dt=el('dt',key.replaceAll('_',' ')),dd=el('dd',typeof value==='object'?Object.entries(value).map(([k,v])=>k+': '+v).join(' · '):String(value));$('data-health').append(dt,dd);}
+  if(!Object.keys(health).length)$('data-health').append(el('dd','No data audit snapshot yet.'));
+  $('event-cohorts').replaceChildren();for(const c of r.event_cohorts||[])$('event-cohorts').append(el('p',c.event_type.replaceAll('_',' ')+' · '+c.selections+' selections / '+c.sessions+' sessions · '+number(c.mean_net_return_pct)+'% scenario mean. '+c.status));
+  if(!(r.event_cohorts||[]).length)$('event-cohorts').append(el('p','No outcomes linked to announcements known before publication yet. Backfilled news does not count.'));
+  text('disclosure-status',(feed.status||'Not collected')+' · '+(feed.message||'The scheduled collector will archive the latest official records.')+(feed.last_success_at?' · Last success '+new Date(feed.last_success_at).toLocaleString('en-GB'):''));
+  $('disclosure-list').replaceChildren();
+  for(const event of feed.events||[]){const row=el('article','','disclosure-row'),heading=el('h3',(event.symbol?event.symbol+' · ':'')+event.title);heading.dir='auto';row.append(heading);
+    if(event.title_ar){const ar=el('p',event.title_ar,'small');ar.dir='auto';row.append(ar);}
+    row.append(el('p',event.event_type.replaceAll('_',' ')+' · Published '+new Date(event.published_at).toLocaleString('en-GB')+' · First seen '+new Date(event.first_seen_at).toLocaleString('en-GB'),'small muted'));
+    try{const url=new URL(event.source_url);if(url.protocol==='https:'&&url.hostname==='beta.egx.com.eg'){const link=el('a','Read the original disclosure ↗','button');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}}catch(e){}
+    $('disclosure-list').append(row);
+  }
+  if(!(feed.events||[]).length)$('disclosure-list').append(el('p','No official records saved yet. Missing coverage is not evidence that no announcement exists.','state'));
+}
 function render() {
   if(!data)return;
   const picks=data.signals.filter(r=>r.candidate_rank).sort((a,b)=>a.candidate_rank-b.candidate_rank);
@@ -17,7 +43,10 @@ function render() {
     head.append(button,el('span','Score '+number(r.next_day_score,1)+' / 100','mono'));
     card.append(head,el('p',r.company,'muted'),el('p','Close '+price(r.latest_close)+' · Target '+price(r.next_day_target)+' · Stop '+price(r.next_day_stop_loss),'mono small'));
     const reasons=el('ul');for(const reason of r.selection_reasons||[])reasons.append(el('li',reason));
-    card.append(reasons,el('p',r.source_status||'Source confirmation unavailable','small muted'));$('shortlist').append(card);
+    card.append(reasons,el('p',r.source_status||'Source confirmation unavailable','small muted'));
+    const paper=data.paper?.session===data.target_session?(data.paper.orders||[]).find(o=>o.symbol===r.symbol):null;
+    if(paper)card.append(el('p',paper.decision==='paper_eligible'?'Paper risk checks passed · '+paper.quantity+' planned shares':'Watch only · '+paper.reasons.join('. '),'small'));
+    $('shortlist').append(card);
   }
   const h=$('horizon').value, f=$('filter').value;
   text('rankings-title',h==='next_day'?'Next-day opportunity list':'20-session opportunity list');
@@ -95,7 +124,7 @@ async function load(feedback=false) {
     text('session',data.price_session||'—');text('scanned',data.scan?'Scan saved '+data.scan.generated_at.slice(0,10):'No scan saved');text('symbols',data.signals.length);text('hit-rate',pct(data.outcomes.target_hit_rate));text('hits',(data.outcomes.hits||0)+' / '+(data.outcomes.total||0)+' distinct resolved signals');text('trade-count',data.outcomes.executable_trades||0);text('trade-note',data.outcomes.executable_trades?'Trade win rate '+pct(data.outcomes.trade_win_rate):'Historical stops unavailable or outcomes pending');
     text('notice',data.stale?'Saved data or features need refreshing. Run a market scan for the latest completed session.':'Prices and saved features match the latest completed session.');
     if(data.scan&&data.scan.error_count)text('notice',$('notice').textContent+' '+data.scan.error_count+' symbols failed the scan checks.');
-    $('notice').classList.toggle('good',!data.stale);validation('next-validation',data.validation.next_day);validation('swing-validation',data.validation.swing);render();loadHistory();
+    $('notice').classList.toggle('good',!data.stale);validation('next-validation',data.validation.next_day);validation('swing-validation',data.validation.swing);render();loadHistory();renderResearch();
     if(feedback)notifyUser('View refreshed · '+data.signals.length+' saved symbols.');
   }catch(e){if(!data)text('history-summary','Could not load prediction history. Use Refresh view to retry.');text('notice',e.message+'. Use Refresh view to retry.');$('notice').classList.remove('good');if(feedback)notifyUser('Refresh failed. Your saved view is still available.');}
   finally{loading=false;$('loading').classList.add('hidden');$('refresh').disabled=false;$('refresh').setAttribute('aria-busy','false');}

@@ -1,10 +1,4 @@
-"""Block Trade / Institutional Absorption Indicator (Upgrade #2).
-
-Identifies days with an abnormally tight High-Low range (low volatility) 
-but massive volume (e.g., >2x average). This indicates "absorption" or 
-block trading by institutions. Breakouts immediately following absorption 
-days have significantly higher win rates.
-"""
+"""Daily volume/range proxy. Actual block trades and institutional identity are unobserved."""
 
 from praecursor.core.stock import Stock
 from praecursor.scoring.indicator import Indicator
@@ -13,7 +7,7 @@ import numpy as np
 
 
 class BlockTradeIndicator(Indicator):
-    """Detects recent institutional block trades/absorption."""
+    """Detects unusual daily volume/range combinations."""
 
     def __init__(self, period: int = 20, lookback: int = 5, vol_multiplier: float = 2.0, range_percentile: float = 25.0):
         self.period = period

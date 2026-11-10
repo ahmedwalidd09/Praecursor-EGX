@@ -1,0 +1,42 @@
+name: Praecursor Official Disclosures
+
+on:
+  schedule:
+    - cron: '12 6-17 * * 0-4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-egx-scan
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install beautifulsoup4 tzdata
+      - name: Restore State
+        id: restore
+        run: |
+          mkdir -p database reports
+          gh release download db-latest --pattern praecursor.db.gz --dir database --clobber
+          gunzip -f database/praecursor.db.gz
+          python tools/database_state.py check
+      - name: Archive Official Public Disclosures
+        run: python tools/collect_disclosures.py
+      - name: Preserve Records and Feed Health
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          python tools/database_state.py backup
+          gzip -c database/backup.db > database/praecursor.db.gz
+          gh release upload db-latest database/praecursor.db.gz --clobber

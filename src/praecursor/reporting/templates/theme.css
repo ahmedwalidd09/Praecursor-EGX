@@ -11,3 +11,11 @@
 .shortlist-section{margin:48px 0}.shortlist-row{padding:24px 0;border-bottom:1px solid var(--line,#333)}.shortlist-head{display:flex;justify-content:space-between;gap:16px}.shortlist-row p{margin:8px 0}.shortlist-row ul{padding-left:20px;line-height:1.8}
 
 .history-controls{display:grid;grid-template-columns:2fr repeat(2,minmax(0,1fr));margin:20px 0 14px}.history-controls input,.history-controls select{width:100%;min-width:0}.history-pagination{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:18px 0}.history-pagination p{margin:0}#history-summary{margin-bottom:16px}#history-table caption{text-align:left;padding:14px 12px;caption-side:bottom}#history-table .outcome-hit{background:var(--silver);color:var(--ink);border-color:var(--silver)}#history-table .outcome-miss{border-style:dashed}#history-table .outcome-pending,#history-table .outcome-unverified{color:var(--muted)}@media(max-width:700px){.history-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.history-controls label{min-width:0}.history-controls label:first-child{grid-column:1/-1}.history-controls select{max-width:100%}.history-pagination{align-items:flex-start;flex-direction:column}}
+/* Research evidence follows the existing flat, monochrome workspace. */
+.research-detail{border-top:1px solid var(--line,#343434);padding:16px 0}
+.research-detail summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600}
+.evidence-list{display:grid;grid-template-columns:minmax(140px,1fr) 3fr;gap:12px 24px;margin:20px 0}
+.evidence-list dt{text-transform:capitalize;color:#aaa}.evidence-list dd{margin:0;overflow-wrap:anywhere}
+.disclosure-row{padding:24px 0;border-bottom:1px solid #343434}.disclosure-row h3{max-width:80ch;overflow-wrap:anywhere}
+.disclosure-row .button{margin-top:8px}.disclosure-row p{max-width:90ch}
+@media(max-width:640px){.evidence-list{grid-template-columns:1fr;gap:6px}.evidence-list dd{margin-bottom:12px}}

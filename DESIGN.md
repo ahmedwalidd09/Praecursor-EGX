@@ -28,6 +28,7 @@ Show real saved records only. Old scans explicitly marked historical. Setup scor
 Shared header, primary/secondary buttons, landing instrument, session strip, numbered approach rows, dashboard notice, metrics, searchable/filterable table, stock details dialog, model evidence, task progress, live feedback toast. Theme and behavior are shared between the local app and static export through reporting/pages.py.
 
 ## Last updated
+2026-11-10: Added a prospective paper ledger, matched-universe evidence, data limitations and official disclosure rows. All results distinguish measured observations from execution scenarios. Empty states remain explicit; source links open the official exchange in a new tab. No new color tokens or UI dependencies.
 2026-11-05: local desktop research dashboard.
 2026-11-08: UI/UX Pro Max redesign; monochrome palette, landing page, responsive layout and press/task feedback. The skill's generic marketing recommendations were not persisted; this document records the product-specific decisions.
 

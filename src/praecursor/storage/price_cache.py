@@ -2,6 +2,8 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 import sqlite3
+import hashlib
+import json
 
 from praecursor.collectors.collection_result import CollectionResult
 from praecursor.core.price_bar import PriceBar
@@ -26,6 +28,15 @@ class PriceCache:
         with closing(self._connect()) as connection:
             connection.executescript(PRICE_CACHE_SCHEMA)
             connection.executescript(INTRADAY_PRICE_SCHEMA)
+            connection.executescript("""
+                CREATE TABLE IF NOT EXISTS instrument_observations (
+                  ticker TEXT, source TEXT, observed_at TEXT, currency TEXT, source_url TEXT,
+                  PRIMARY KEY(ticker,source,observed_at));
+                CREATE TABLE IF NOT EXISTS price_observations (
+                  ticker TEXT, session TEXT, source TEXT, first_seen_at TEXT,
+                  content_hash TEXT, values_json TEXT,
+                  PRIMARY KEY(ticker,session,source,content_hash));
+            """)
             connection.commit()
 
     def save(self, result: CollectionResult) -> int:
@@ -55,6 +66,13 @@ class PriceCache:
         ]
 
         with closing(self._connect()) as connection:
+            if result.quote_currency and result.reference_url:
+                connection.execute("INSERT OR IGNORE INTO instrument_observations VALUES (?,?,?,?,?)",
+                    (result.symbol, result.source_name, result.collected_at.isoformat(), result.quote_currency, result.reference_url))
+            for row in rows:
+                payload = json.dumps([float(value) for value in row[3:8]])
+                connection.execute("INSERT OR IGNORE INTO price_observations VALUES (?,?,?,?,?,?)",
+                    (row[0], row[1], row[2], row[9], hashlib.sha256(payload.encode()).hexdigest(), payload))
             connection.executemany(
                 """
                 INSERT INTO source_prices (

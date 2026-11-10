@@ -402,9 +402,9 @@ class OpportunityScorer:
     def _score_closing_aggression(self, closing_aggression: float) -> ScoreComponent:
         max_score = 5.0
         if self._missing(closing_aggression) or closing_aggression <= 0:
-            return ScoreComponent("Closing Aggression (MOC)", 0.0, max_score, "No closing bar aggression.")
+            return ScoreComponent("Daily Close Proxy", 0.0, max_score, "No closing bar aggression.")
         pts = round(min(max_score, (closing_aggression / 100.0) * max_score), 2)
-        return ScoreComponent("Closing Aggression (MOC)", pts, max_score, f"Institutional closing aggression: {closing_aggression:.1f}%.")
+        return ScoreComponent("Daily Close Proxy", pts, max_score, f"Daily close-location proxy: {closing_aggression:.1f}%.")
 
     def _score_nr7_compression(self, nr7_compression: float) -> ScoreComponent:
         max_score = 5.0
@@ -418,7 +418,7 @@ class OpportunityScorer:
         if self._missing(vsa_absorption) or vsa_absorption <= 0:
             return ScoreComponent("VSA Absorption", 0.0, max_score, "No supply absorption detected.")
         pts = round(min(max_score, (vsa_absorption / 100.0) * max_score), 2)
-        return ScoreComponent("VSA Absorption", pts, max_score, f"Institutional supply absorption: {vsa_absorption:.1f}%.")
+        return ScoreComponent("VSA Absorption", pts, max_score, f"Volume/range absorption proxy: {vsa_absorption:.1f}%.")
 
     def _score_sector_spillover(self, sector_spillover: float) -> ScoreComponent:
         max_score = 5.0
@@ -439,7 +439,7 @@ class OpportunityScorer:
             return ScoreComponent("Anchored VWAP", 0.0, max_score, "AVWAP unavailable.")
             
         if 0.0 <= avwap_dist <= 3.0:
-            return ScoreComponent("Anchored VWAP", 5.0, max_score, "institutional accumulation zone.")
+            return ScoreComponent("Anchored VWAP", 5.0, max_score, "price near the anchored daily-volume reference.")
         elif 3.0 < avwap_dist <= 8.0:
             return ScoreComponent("Anchored VWAP", 3.0, max_score, "healthy trend.")
         else:
@@ -780,10 +780,10 @@ class OpportunityScorer:
     def _score_block_trade(self, block_trade: float) -> ScoreComponent:
         """Batch 2 Upgrade #2: Institutional absorption reward."""
         max_score = 5.0
-        if self._missing(block_trade): return ScoreComponent("Block Trade", 0.0, max_score, "Unavailable.")
+        if self._missing(block_trade): return ScoreComponent("Volume/Range Proxy", 0.0, max_score, "Unavailable.")
         if block_trade == 1.0:
-            return ScoreComponent("Block Trade", max_score, max_score, "Institutional Block Trade (Absorption) detected recently! Strong accumulation sign.")
-        return ScoreComponent("Block Trade", 0.0, max_score, "No recent absorption block trades.")
+            return ScoreComponent("Volume/Range Proxy", max_score, max_score, "Unusual daily volume with a narrow range; actual block trades are unobserved.")
+        return ScoreComponent("Volume/Range Proxy", 0.0, max_score, "No recent daily volume/range proxy signal.")
 
     def _score_distribution_exhaustion(self, distribution: float) -> ScoreComponent:
         """Batch 2 Upgrade #5: Distribution Exhaustion penalty."""

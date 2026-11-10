@@ -61,6 +61,7 @@ jobs:
           path: |
             data/published_samples.csv
             reports/learning_feedback.json
+            reports/research_evidence.json
           if-no-files-found: error
           retention-days: 30
 
@@ -116,5 +117,7 @@ jobs:
         if: always()
         with:
           name: model-validation
-          path: reports/*validation.json
+          path: |
+            reports/*validation.json
+            reports/research_registry.json
           retention-days: 90

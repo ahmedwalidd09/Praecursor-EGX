@@ -1,0 +1,18 @@
+{
+  "version": "paper-v1",
+  "initial_equity": 100000,
+  "risk_per_trade": 0.005,
+  "max_position_weight": 0.15,
+  "max_sector_weight": 0.30,
+  "max_gross_weight": 0.60,
+  "max_participation": 0.005,
+  "max_pair_correlation": 0.80,
+  "min_reward_risk": 1.5,
+  "max_drawdown": 0.10,
+  "fee_bps_per_side": 10,
+  "spread_bps": 20,
+  "slippage_bps_per_side": 10,
+  "impact_bps_at_limit": 20,
+  "min_drift_trades": 30,
+  "drift_window_sessions": 20
+}

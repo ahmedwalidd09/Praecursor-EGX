@@ -38,6 +38,8 @@ def predict_validated(values, setup_score, horizon, session):
         if (not manifest.get("promoted") or manifest.get("feature_version")!=FEATURE_VERSION
                 or manifest.get("label_version")!=LABEL_VERSION or manifest.get("features")!=FEATURES):
             return None,{"reason":"Model feature contract is incompatible"}
+        if manifest.get("validation_protocol") != 4 or not manifest.get("rolling_validation", {}).get("passed"):
+            return None,{"reason":"Model has not passed the current rolling-validation protocol"}
         if not session or str(session)<=manifest["data_cutoff"]:
             return None,{"reason":"Model contains data from this session or later"}
         row=pd.DataFrame([feature_row(values,setup_score)],columns=FEATURES)

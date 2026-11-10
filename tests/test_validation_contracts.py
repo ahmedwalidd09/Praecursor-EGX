@@ -48,7 +48,7 @@ def test_existing_model_version_is_never_overwritten(tmp_path, monkeypatch):
     monkeypatch.setattr(validation, "ROOT", tmp_path)
     frame = samples()
     fingerprint = hashlib.sha256(pd.util.hash_pandas_object(frame, index=False).values.tobytes()).hexdigest()[:12]
-    version = f"next_day-{FEATURE_VERSION}-labels{LABEL_VERSION}-protocol3-{fingerprint}"
+    version = f"next_day-{FEATURE_VERSION}-labels{LABEL_VERSION}-protocol4-{fingerprint}"
     directory = tmp_path / "models" / "validated" / version
     directory.mkdir(parents=True)
     original = '{"promoted": false, "reason": "Already evaluated"}'

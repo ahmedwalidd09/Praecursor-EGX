@@ -89,7 +89,7 @@ def test_training_reuses_same_input_but_reacts_to_labels_and_protocol(tmp_path, 
     from tools import retrain_models as training
     original_root = training.ROOT
     for name in ("src/praecursor/ml/validation.py", "src/praecursor/ml/features.py",
-                 "src/praecursor/analysis/outcomes.py", "tools/retrain_models.py"):
+                 "src/praecursor/analysis/outcomes.py", "src/praecursor/ml/rolling.py", "tools/retrain_models.py"):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((original_root / name).read_bytes())

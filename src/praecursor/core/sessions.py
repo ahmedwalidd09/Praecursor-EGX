@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import json
 
 CAIRO = ZoneInfo("Africa/Cairo")
+PUBLICATION_CUTOFF = time(16)
 
 
 def is_session(day: date):
@@ -21,7 +22,7 @@ def is_session(day: date):
 def completed_session(now=None):
     now = (now or datetime.now(CAIRO)).astimezone(CAIRO)
     day = now.date()
-    if now.time() < time(16):
+    if now.time() < PUBLICATION_CUTOFF:
         day -= timedelta(days=1)
     while not is_session(day):
         day -= timedelta(days=1)

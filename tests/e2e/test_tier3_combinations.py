@@ -80,8 +80,8 @@ class TestTier3Combinations:
                 PRIMARY KEY (ticker, trade_date, source)
             )
         """)
-        # Next day price high 83.0 (reaches target 82.5) but close is 79.0 (lower than entry)
-        cursor.execute("INSERT INTO source_prices VALUES ('SCHEDULED_SYM', '2026-07-31', 80.0, 83.0, 78.5, 79.0, 1000, 'consensus')")
+        # The next session is Sunday. Its high reaches the target even though the close is lower.
+        cursor.execute("INSERT INTO source_prices VALUES ('SCHEDULED_SYM', '2026-08-02', 80.0, 83.0, 78.5, 79.0, 1000, 'consensus')")
         conn.execute("UPDATE scanner_signals SET feature_session=substr(generated_at,1,10) WHERE feature_session IS NULL")
         conn.commit()
         conn.close()

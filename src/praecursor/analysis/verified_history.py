@@ -4,7 +4,7 @@ from datetime import date, datetime
 import json
 from praecursor.analysis.outcomes import LABEL_VERSION, evaluate_path
 from praecursor.data.canonical import select_candle
-from praecursor.core.sessions import completed_session, CAIRO
+from praecursor.core.sessions import completed_session, next_session, CAIRO
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS verified_outcomes (
@@ -39,6 +39,7 @@ def resolve_history(conn, as_of_date=None):
     universe_size = len({key[0] for key in groups})
     minimum = min(10, max(1, universe_size // 3))
     sessions = sorted(d for d, symbols in session_symbols.items() if len(symbols) >= minimum)
+    observed_sessions = set(sessions)
     candles = {key: select_candle(rows) for key, rows in groups.items()}
     actions = {(r["symbol"], r["effective_session"]): r["price_factor"] for r in conn.execute(
         "SELECT * FROM corporate_actions WHERE verified=1 AND price_factor>0 AND source_url<>''")}
@@ -51,7 +52,8 @@ def resolve_history(conn, as_of_date=None):
         generated = _parse_signal_date(sig["generated_at"]).isoformat()
         if generated > cutoff:
             continue
-        ref = sig.get("feature_session")
+        published_session = sig.get("feature_session")
+        ref = published_session
         if not ref:
             stamp = datetime.fromisoformat(str(sig["generated_at"]).replace("Z", "+00:00"))
             if stamp.tzinfo is None:
@@ -64,8 +66,13 @@ def resolve_history(conn, as_of_date=None):
             bar = candles[(sig["symbol"], ref)]
             if not sig["latest_close"] or abs(bar.close / sig["latest_close"] - 1) > .01:
                 continue
-        future = [d for d in sessions if d > ref][:20]
-        path = [candles.get((sig["symbol"], d)) for d in future]
+        if published_session:
+            # An exchange-wide data gap cannot shift a published next-open entry.
+            entry = next_session(date.fromisoformat(ref)).isoformat()
+            future = [entry] + [d for d in sessions if d > entry][:19] if entry <= cutoff else []
+        else:
+            future = [d for d in sessions if d > ref][:20]
+        path = [candles.get((sig["symbol"], d)) if d in observed_sessions else None for d in future]
         # Split factors come only from explicit verified events, never price-ratio guesses.
         # Convert all future bars back to the signal's price basis.
         from dataclasses import replace

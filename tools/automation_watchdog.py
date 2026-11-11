@@ -5,6 +5,9 @@ import os
 import subprocess
 
 
+DATABASE_WORKFLOWS = ("daily_scan.yml", "model_learning.yml", "disclosures.yml", "weekly_review.yml")
+
+
 def due_workflows(now):
     day = now.weekday()  # Monday=0, Sunday=6; all cron timestamps below are UTC.
     due = []
@@ -19,7 +22,8 @@ def due_workflows(now):
 
 
 def needs_recovery(runs, due):
-    recent = [r for r in runs if datetime.fromisoformat(r["created_at"].replace("Z","+00:00"))>=due]
+    recent = [r for r in runs if r["head_branch"] == "main"
+              and datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")) >= due]
     # Manual previews are not proof that a scheduled Telegram delivery happened.
     recent = [r for r in recent if r["event"]=="schedule" or r.get("display_title","").startswith("Watchdog recovery")]
     if any(r["status"]!="completed" or r["conclusion"]=="success" for r in recent):
@@ -31,13 +35,19 @@ def main():
     repo = os.environ["GITHUB_REPOSITORY"]
     now = datetime.now(timezone.utc)
     preview = os.environ.get("PREVIEW") == "true"
+    due_by_workflow = dict(due_workflows(now))
+    if not due_by_workflow:
+        return
     candidates = []
     busy = False
-    for workflow,due in due_workflows(now):
+    for workflow in DATABASE_WORKFLOWS:
         response = subprocess.run(["gh","api",f"repos/{repo}/actions/workflows/{workflow}/runs?per_page=30"],
                                   check=True,capture_output=True,text=True)
         runs = json.loads(response.stdout)["workflow_runs"]
         busy = busy or any(r["status"]!="completed" for r in runs)
+        due = due_by_workflow.get(workflow)
+        if due is None:
+            continue
         recover = needs_recovery(runs,due)
         print(f"{workflow}: {'recovery needed' if recover else 'scheduled run present'}")
         if recover:

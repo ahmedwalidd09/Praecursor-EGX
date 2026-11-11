@@ -15,7 +15,6 @@ from praecursor.ml.published import published_samples
 from praecursor.analysis.data_quality import audit_data
 from praecursor.analysis.shadow_experiments import resolve_shadows
 from praecursor.analysis.weekly_report import completed_week, freeze_weekly, build_weekly, format_weekly
-from praecursor.core.sessions import completed_session
 
 
 def send_owner(text):
@@ -39,8 +38,6 @@ def main():
     args = parser.parse_args()
     now = datetime.now(timezone.utc)
     end = completed_week(now)
-    if end > completed_session(now):
-        raise SystemExit("Weekly close has not completed")
     frame = published_samples(ROOT / "database/praecursor.db")
     with closing(connect(ROOT / "database/praecursor.db")) as conn:
         audit_data(conn,now)

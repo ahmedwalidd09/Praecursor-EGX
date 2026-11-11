@@ -7,7 +7,7 @@ import json
 from praecursor.analysis.outcomes import outcome_category, LABEL_VERSION
 from praecursor.analysis.research import frozen_evidence
 from praecursor.analysis.paper_portfolio import paper_summary
-from praecursor.core.sessions import next_session, CAIRO
+from praecursor.core.sessions import next_session, CAIRO, PUBLICATION_CUTOFF
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS weekly_reports (
  week_end TEXT PRIMARY KEY, created_at TEXT, protocol_hash TEXT, payload TEXT,
@@ -19,7 +19,10 @@ PROTOCOL = dict(version="weekly-1", label_version=LABEL_VERSION, shortlist=5,
 
 
 def completed_week(now=None):
-    today = (now or datetime.now(timezone.utc)).astimezone(CAIRO).date()
+    local = (now or datetime.now(timezone.utc)).astimezone(CAIRO)
+    today = local.date()
+    if local.time() < PUBLICATION_CUTOFF:
+        today -= timedelta(days=1)
     return today-timedelta(days=(today.weekday()-3)%7)
 
 

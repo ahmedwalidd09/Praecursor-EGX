@@ -11,6 +11,7 @@ from praecursor.analysis.outcomes import outcome_category
 from praecursor.analysis.shadow_experiments import choose, record_shadow, resolve_shadows, trial_decision, approved_paper_filter
 from praecursor.analysis.weekly_report import build_weekly, freeze_weekly, format_weekly, completed_week
 from tools.automation_watchdog import due_workflows, needs_recovery
+from tools import automation_watchdog
 
 NOW = datetime(2026,11,10,18,tzinfo=timezone.utc)
 
@@ -75,6 +76,18 @@ def test_weekly_target_touch_and_profit_are_distinct_missing_is_not_a_loss():
         assert outcome_category("pending",float("nan"))=="unresolved"
 
 
+def test_weekly_close_uses_cairo_cutoff_even_if_thursday_is_closed(monkeypatch):
+    from praecursor.core import sessions
+
+    thursday = date(2026, 11, 12)
+    monkeypatch.setattr(sessions, "is_session",
+                        lambda day: day.weekday() not in (4, 5) and day != thursday)
+    before_close = datetime(2026, 11, 12, 13, 59, tzinfo=timezone.utc)
+    assert completed_week(before_close) == date(2026, 11, 5)
+    assert completed_week(before_close + timedelta(minutes=1)) == thursday
+    assert completed_week(before_close + timedelta(days=1)) == thursday
+
+
 def test_shadow_plan_is_prospective_frozen_and_rejection_stays_cash():
     with connection() as conn:
         for i in range(10):
@@ -110,15 +123,48 @@ def test_watchdog_uses_utc_schedule_skips_previews_and_bounds_retries():
     now=NOW.replace(hour=22)
     due=dict(due_workflows(now))["daily_scan.yml"]
     assert set(dict(due_workflows(now)))=={"daily_scan.yml","model_learning.yml","disclosures.yml"}
-    preview=dict(created_at="2026-11-10T19:00:00Z",status="completed",conclusion="success",event="workflow_dispatch",display_title="Daily scanner")
+    preview=dict(created_at="2026-11-10T19:00:00Z",status="completed",conclusion="success",event="workflow_dispatch",display_title="Daily scanner",head_branch="main")
     assert needs_recovery([preview],due)
     assert not needs_recovery([dict(preview,event="schedule")],due)
     assert not needs_recovery([dict(preview,status="queued",event="schedule",conclusion=None)],due)
     assert not needs_recovery([dict(preview,display_title="Watchdog recovery - scanner",conclusion="failure")],due)
+    assert needs_recovery([dict(preview,display_title="Watchdog recovery - scanner",head_branch="test")],due)
 
 
-def test_resolved_predictions_survive_vendor_revisions():
-    from praecursor.analysis.verified_history import resolve_history
+def test_watchdog_defers_for_off_schedule_writer_then_dispatches_once(monkeypatch):
+    saturday = datetime(2026, 11, 14, 22, tzinfo=timezone.utc)
+    monkeypatch.setattr(automation_watchdog, "datetime", Mock(
+        now=Mock(return_value=saturday), combine=datetime.combine, fromisoformat=datetime.fromisoformat))
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.delenv("PREVIEW", raising=False)
+    weekly = [{"status": "queued"}]
+    dispatched = []
+
+    def gh(command, **kwargs):
+        if command[1] == "api":
+            runs = weekly if "/weekly_review.yml/" in command[2] else []
+            return Mock(stdout=json.dumps({"workflow_runs": runs}))
+        dispatched.append(command)
+
+    monkeypatch.setattr(automation_watchdog.subprocess, "run", gh)
+    automation_watchdog.main()
+    assert dispatched == []
+    weekly.clear()
+    monkeypatch.setenv("PREVIEW", "true")
+    automation_watchdog.main()
+    assert dispatched == []
+    monkeypatch.delenv("PREVIEW")
+    automation_watchdog.main()
+    assert dispatched == [["gh", "workflow", "run", "daily_scan.yml", "--repo", "owner/repo",
+                           "--ref", "main", "-f", "recovery=true"]]
+
+
+@pytest.mark.parametrize("gap", [False, True])
+def test_resolved_predictions_survive_vendor_revisions(gap, monkeypatch):
+    from praecursor.analysis import verified_history
+
+    monkeypatch.setattr(verified_history, "completed_session", lambda: date(2026, 11, 11))
+    resolve_history = verified_history.resolve_history
     with sqlite3.connect(":memory:") as conn:
         conn.row_factory=sqlite3.Row
         conn.executescript("""CREATE TABLE source_prices(ticker,trade_date,open,high,low,close,volume,source);
@@ -127,6 +173,13 @@ def test_resolved_predictions_survive_vendor_revisions():
             INSERT INTO scanner_signals VALUES (1,'COMI','2026-11-09T18:00:00Z','2026-11-09',100,105,95,'candidate','swing');
             INSERT INTO source_prices VALUES ('COMI','2026-11-09',100,103,99,100,1000,'tradingview');
             INSERT INTO source_prices VALUES ('COMI','2026-11-10',100,106,99,104,1000,'tradingview');""")
+        if gap:
+            conn.execute("UPDATE source_prices SET trade_date='2026-11-11' WHERE trade_date='2026-11-10'")
+            resolve_history(conn,"2026-11-11")
+            missing = conn.execute("SELECT * FROM verified_outcomes").fetchone()
+            assert missing["next_day_status"] == "missing_or_conflicting_candle"
+            assert missing["next_day_hit"] is None
+            conn.execute("INSERT INTO source_prices VALUES ('COMI','2026-11-10',100,106,99,104,1000,'tradingview')")
         resolve_history(conn,"2026-11-10")
         original=dict(conn.execute("SELECT * FROM verified_outcomes").fetchone())
         assert original["next_day_hit"]==1 and original["next_day_trade_hit"]==1

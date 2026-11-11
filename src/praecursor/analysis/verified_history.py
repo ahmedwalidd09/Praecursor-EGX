@@ -1,10 +1,11 @@
 """Resolve stored signals without changing legacy outcome evidence."""
 from collections import defaultdict
 from datetime import date, datetime
+from functools import cache
 import json
 from praecursor.analysis.outcomes import LABEL_VERSION, evaluate_path
 from praecursor.data.canonical import select_candle
-from praecursor.core.sessions import completed_session, next_session, CAIRO
+from praecursor.core.sessions import completed_session, session_horizon, CAIRO
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS verified_outcomes (
@@ -40,6 +41,7 @@ def resolve_history(conn, as_of_date=None):
     minimum = min(10, max(1, universe_size // 3))
     sessions = sorted(d for d, symbols in session_symbols.items() if len(symbols) >= minimum)
     observed_sessions = set(sessions)
+    horizon_dates = cache(session_horizon)
     candles = {key: select_candle(rows) for key, rows in groups.items()}
     actions = {(r["symbol"], r["effective_session"]): r["price_factor"] for r in conn.execute(
         "SELECT * FROM corporate_actions WHERE verified=1 AND price_factor>0 AND source_url<>''")}
@@ -67,9 +69,8 @@ def resolve_history(conn, as_of_date=None):
             if not sig["latest_close"] or abs(bar.close / sig["latest_close"] - 1) > .01:
                 continue
         if published_session:
-            # An exchange-wide data gap cannot shift a published next-open entry.
-            entry = next_session(date.fromisoformat(ref)).isoformat()
-            future = [entry] + [d for d in sessions if d > entry][:19] if entry <= cutoff else []
+            # Exchange-wide data gaps occupy their original positions in the horizon.
+            future = [d for d in horizon_dates(ref, 20) if d <= cutoff]
         else:
             future = [d for d in sessions if d > ref][:20]
         path = [candles.get((sig["symbol"], d)) if d in observed_sessions else None for d in future]
@@ -92,7 +93,7 @@ def resolve_history(conn, as_of_date=None):
         previous = conn.execute("SELECT * FROM verified_outcomes WHERE run_id=? AND symbol=?",
                                 (sig["run_id"], sig["symbol"])).fetchone()
         # Freeze resolved observations under this protocol; vendor revisions remain in the price journal.
-        terminal = {"target", "stop", "horizon_exit", "unfilled", "ambiguous_barrier_order"}
+        terminal = {"target", "stop", "horizon_exit", "unfilled", "ambiguous_barrier_order", "no_recorded_stop"}
         from praecursor.analysis.outcomes import Outcome
         if previous and previous["label_version"] == LABEL_VERSION:
             for horizon in ("next_day", "swing"):

@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timezone
 import json
 
 from praecursor.core.sessions import CAIRO, completed_session, next_session
+from praecursor.analysis.outcomes import LABEL_VERSION
 from praecursor.ml.rolling import block_mean_interval
 
 TRIALS = [
@@ -91,6 +92,7 @@ def resolve_shadows(conn, now=None):
             choices = json.loads(day["choices"])
             outcomes = {r["symbol"]:dict(r) for r in conn.execute("SELECT * FROM verified_outcomes WHERE run_id=?", (day["run_id"],))}
             if any(s not in outcomes or outcomes[s]["next_day_status"] not in terminal or
+                   outcomes[s]["resolved_session"] != day["session"] or outcomes[s]["label_version"] != LABEL_VERSION or
                    outcomes[s]["next_day_net_return"] is None for s in choices["baseline"]):
                 continue
             baseline = sum(outcomes[s]["next_day_net_return"] for s in choices["baseline"])/5

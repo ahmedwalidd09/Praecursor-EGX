@@ -15,13 +15,13 @@ def main():
     summary = feedback_summary(frame)
     from contextlib import closing
     from praecursor.storage.database import connect
-    from praecursor.analysis.research import save_research
+    from praecursor.analysis.research import measurement_samples, save_research
     with closing(connect(ROOT / "database/praecursor.db")) as conn:
         from praecursor.analysis.data_quality import audit_data
         from praecursor.analysis.shadow_experiments import resolve_shadows
         quality = audit_data(conn)
         experiments = resolve_shadows(conn)
-        research = save_research(conn, frame)
+        research = save_research(conn, measurement_samples(conn))
     (ROOT / "reports/data_quality.json").write_text(json.dumps(quality, indent=2), encoding="utf-8")
     (ROOT / "reports/shadow_experiments.json").write_text(json.dumps(experiments, indent=2), encoding="utf-8")
     (ROOT / "reports/research_evidence.json").write_text(json.dumps(research, indent=2), encoding="utf-8")

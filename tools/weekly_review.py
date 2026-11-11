@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT / "src"))
 from praecursor.storage.database import connect
-from praecursor.ml.published import published_samples
+from praecursor.analysis.research import measurement_samples
 from praecursor.analysis.data_quality import audit_data
 from praecursor.analysis.shadow_experiments import resolve_shadows
 from praecursor.analysis.weekly_report import completed_week, freeze_weekly, build_weekly, format_weekly
@@ -38,10 +38,10 @@ def main():
     args = parser.parse_args()
     now = datetime.now(timezone.utc)
     end = completed_week(now)
-    frame = published_samples(ROOT / "database/praecursor.db")
     with closing(connect(ROOT / "database/praecursor.db")) as conn:
         audit_data(conn,now)
         resolve_shadows(conn,now)
+        frame = measurement_samples(conn)
         report = (build_weekly if args.dry_run else freeze_weekly)(conn,frame,end,now)
         message = format_weekly(report)
         output = ROOT / "reports"

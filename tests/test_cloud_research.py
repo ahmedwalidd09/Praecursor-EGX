@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from praecursor.analysis.data_quality import SCHEMA, audit_data, currency_evidence, refresh_quote_currencies
-from praecursor.analysis.outcomes import outcome_category
+from praecursor.analysis.outcomes import LABEL_VERSION, outcome_category
 from praecursor.analysis.shadow_experiments import choose, record_shadow, resolve_shadows, trial_decision, approved_paper_filter
 from praecursor.analysis.weekly_report import build_weekly, freeze_weekly, format_weekly, completed_week
 from tools.automation_watchdog import due_workflows, needs_recovery
@@ -22,7 +22,7 @@ def connection():
     conn.executescript(SCHEMA+"""
       CREATE TABLE source_prices(ticker,trade_date,open,high,low,close,volume,source);
       CREATE TABLE scanner_signals(run_id,symbol,candidate_rank,feature_session,indicator_values_json);
-      CREATE TABLE verified_outcomes(run_id,symbol,next_day_status,next_day_net_return);
+      CREATE TABLE verified_outcomes(run_id,symbol,next_day_status,next_day_net_return,resolved_session,label_version);
     """)
     return conn
 
@@ -54,8 +54,8 @@ def test_quality_audit_counts_absent_symbols_and_does_not_invent_holidays():
 
 
 def weekly_frame():
-    return pd.DataFrame([dict(symbol=f"P{i}",session="2026-11-09",candidate_rank=i+1,
-        next_day_resolved_session="2026-11-10",next_day_target_hit=hit,
+    return pd.DataFrame([dict(symbol=f"P{i}",session="2026-11-10",candidate_rank=i+1,
+        benchmark_eligible=True,next_day_target_hit=hit,
         next_day_net_return_pct=net,next_day_status=status)
         for i,(status,hit,net) in enumerate([("target",1,2),("horizon_exit",0,1),
             ("unfilled",1,0),("ambiguous_barrier_order",1,-2),("pending",None,None)])])
@@ -88,6 +88,64 @@ def test_weekly_close_uses_cairo_cutoff_even_if_thursday_is_closed(monkeypatch):
     assert completed_week(before_close + timedelta(days=1)) == thursday
 
 
+@pytest.mark.parametrize("all_old", [False, True])
+def test_weekly_counts_original_picks_independently_of_training(tmp_path, monkeypatch, all_old):
+    from praecursor.analysis.verified_history import SCHEMA as OUTCOME_SCHEMA
+    from praecursor.ml.features import FEATURE_VERSION, INDICATOR_TO_FEATURE
+    from praecursor.ml.published import published_samples
+    from praecursor.reporting.prediction_history import prediction_history
+    from tools import weekly_review
+
+    db = tmp_path / "database" / "praecursor.db"
+    db.parent.mkdir()
+    features = dict.fromkeys(INDICATOR_TO_FEATURE, 1)
+    features["AvgTurnover20"] = 1_000_000
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.executescript(SCHEMA + OUTCOME_SCHEMA + """
+            CREATE TABLE scanner_signals(id INTEGER PRIMARY KEY,run_id,symbol,company,generated_at,
+            latest_close,next_day_target,feature_session,candidate_rank,next_day_label,
+            feature_version,indicator_values_json,opportunity_score,data_quality_score);""")
+        for run, prefix in ((1, "ORIGINAL"), (2, "RERUN")):
+            for rank in range(1, 7):
+                symbol = f"{prefix}{rank}"
+                conn.execute("""INSERT INTO scanner_signals VALUES
+                    (NULL,?,?,?, ?,100,105,'2026-11-09',?,'',?,?,70,100)""",
+                    (run, symbol, symbol, f"2026-11-09T{17 + run}:00:00Z", rank if rank <= 5 else None,
+                     "old" if run == 1 and (all_old or rank == 2) else FEATURE_VERSION,
+                     None if run == 1 and rank == 1 else json.dumps(features)))
+                if run == 1 and rank == 2:
+                    continue
+                conn.execute("""INSERT INTO verified_outcomes
+                    (run_id,symbol,signal_date,next_day_hit,next_day_net_return,next_day_status,resolved_session,label_version)
+                    VALUES (?,?,'2026-11-09',1,2,'target',?,?)""",
+                    (run, symbol, "2026-11-11" if run == 1 and rank == 3 else "2026-11-10", LABEL_VERSION))
+        dashboard = prediction_history(conn)
+        conn.execute("""UPDATE verified_outcomes SET swing_hit=1,swing_net_return=2,
+            swing_status='target',swing_resolved_session='2026-12-08' WHERE symbol='ORIGINAL4'""")
+    monkeypatch.setattr(weekly_review, "ROOT", tmp_path)
+    monkeypatch.setattr(weekly_review, "datetime", Mock(now=Mock(return_value=NOW + timedelta(days=3))))
+    monkeypatch.setattr(weekly_review, "audit_data", Mock())
+    monkeypatch.setattr(weekly_review, "resolve_shadows", Mock())
+    monkeypatch.setattr("sys.argv", ["weekly_review", "--dry-run"])
+    weekly_review.main()
+    report = json.loads((tmp_path / "reports" / "weekly_review.json").read_text(encoding="utf-8"))
+    detail = report["predictions_detail"]
+    assert [(r["symbol"], r["session"], r["rank"]) for r in detail] == [
+        (f"ORIGINAL{rank}", "2026-11-10", rank) for rank in range(1, 6)]
+    assert [(r["symbol"], r["session"], r["candidate_rank"]) for r in dashboard] == [
+        (r["symbol"], r["session"], r["rank"]) for r in detail]
+    assert report["target_hits"] == 3 and report["categories"]["unresolved"] == 2
+    assert report["performance"]["sessions"] == 0
+    frame = published_samples(db).set_index("symbol")
+    if all_old:
+        assert frame.empty
+    else:
+        assert set(frame.index) == {"ORIGINAL3", "ORIGINAL4", "ORIGINAL5", "ORIGINAL6"}
+        assert pd.isna(frame.loc["ORIGINAL3", "next_day_target_hit"])
+        assert pd.isna(frame.loc["ORIGINAL4", "swing_target_hit"])
+
+
 def test_shadow_plan_is_prospective_frozen_and_rejection_stays_cash():
     with connection() as conn:
         for i in range(10):
@@ -102,7 +160,12 @@ def test_shadow_plan_is_prospective_frozen_and_rejection_stays_cash():
         assert dict(conn.execute("SELECT * FROM shadow_sessions").fetchone())==dict(row)
         assert approved_paper_filter(conn,1,NOW) is None
         for i in range(5):
-            conn.execute("INSERT INTO verified_outcomes VALUES (1,?,'horizon_exit',?)",(f"P{i}",2 if i<2 else -2))
+            conn.execute("INSERT INTO verified_outcomes VALUES (1,?,'horizon_exit',?,'2026-11-11',?)",
+                         (f"P{i}",2 if i<2 else -2,LABEL_VERSION))
+        conn.execute("UPDATE verified_outcomes SET resolved_session='2026-11-12' WHERE symbol='P4'")
+        resolve_shadows(conn, NOW+timedelta(days=1))
+        assert conn.execute("SELECT result FROM shadow_sessions").fetchone()[0] is None
+        conn.execute("UPDATE verified_outcomes SET resolved_session='2026-11-11' WHERE symbol='P4'")
         resolve_shadows(conn, NOW+timedelta(days=1))
         result=json.loads(conn.execute("SELECT result FROM shadow_sessions").fetchone()[0])
         assert result["candidate_return_pct"]==.8 and result["baseline_return_pct"]==-.4
@@ -186,3 +249,51 @@ def test_resolved_predictions_survive_vendor_revisions(gap, monkeypatch):
         conn.execute("UPDATE source_prices SET high=101,low=94,close=96 WHERE trade_date='2026-11-10'")
         resolve_history(conn,"2026-11-10")
         assert dict(conn.execute("SELECT * FROM verified_outcomes").fetchone())==original
+
+
+@pytest.mark.parametrize("holiday", [False, True])
+def test_swing_keeps_the_configured_twenty_session_boundary(holiday, monkeypatch, tmp_path):
+    from praecursor.analysis import verified_history
+    from praecursor.core import sessions
+
+    feature = date(2026, 8, 2)
+    dates = [feature]
+    for _ in range(21):
+        dates.append(sessions.next_session(dates[-1]))
+    missing = dates[6]
+    if holiday:
+        monkeypatch.setattr(sessions, "__file__", str(tmp_path / "src/praecursor/core/sessions.py"))
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config/market_closures.json").write_text(json.dumps([missing.isoformat()]))
+    monkeypatch.setattr(verified_history, "completed_session", lambda: dates[-1])
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        conn.executescript("""CREATE TABLE source_prices(ticker,trade_date,open,high,low,close,volume,source);
+            CREATE TABLE scanner_signals(run_id,symbol,generated_at,feature_session,latest_close,
+            next_day_target,next_day_stop_loss,next_day_label,swing_label,swing_target,swing_stop_loss);
+            INSERT INTO scanner_signals VALUES
+            (1,'TEST','2026-08-02T18:00:00Z','2026-08-02',100,105,95,'candidate','swing',115,90);""")
+        candle = "INSERT INTO source_prices VALUES ('TEST',?,100,?,99,100,1000,'tradingview')"
+        conn.executemany(candle, [(d.isoformat(), 120 if d == dates[-1] else 101)
+                                 for d in dates if d != missing])
+
+        verified_history.resolve_history(conn, dates[19].isoformat())
+        early = conn.execute("SELECT * FROM verified_outcomes").fetchone()
+        assert early["next_day_hit"] == 0 and early["resolved_session"] == dates[1].isoformat()
+        assert early["swing_status"] == "pending"
+        verified_history.resolve_history(conn, dates[-1].isoformat())
+        outcome = conn.execute("SELECT * FROM verified_outcomes").fetchone()
+        if holiday:
+            assert outcome["swing_hit"] == 1
+            assert outcome["swing_resolved_session"] == dates[-1].isoformat()
+            return
+        assert outcome["swing_status"] == "missing_or_conflicting_candle"
+        assert outcome["swing_hit"] is None
+        conn.execute(candle, (missing.isoformat(), 101))
+        verified_history.resolve_history(conn, dates[-1].isoformat())
+        original = dict(conn.execute("SELECT * FROM verified_outcomes").fetchone())
+        assert original["swing_hit"] == 0
+        assert original["swing_resolved_session"] == dates[20].isoformat()
+        conn.execute("UPDATE source_prices SET high=120 WHERE trade_date=?", (missing.isoformat(),))
+        verified_history.resolve_history(conn, dates[-1].isoformat())
+        assert dict(conn.execute("SELECT * FROM verified_outcomes").fetchone()) == original

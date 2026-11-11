@@ -1,20 +1,20 @@
 """Weekly frozen top-five evaluation; target touches never imply trade profitability."""
 from collections import Counter
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 
 from praecursor.analysis.outcomes import outcome_category, LABEL_VERSION
 from praecursor.analysis.research import frozen_evidence
 from praecursor.analysis.paper_portfolio import paper_summary
-from praecursor.core.sessions import next_session, CAIRO, PUBLICATION_CUTOFF
+from praecursor.core.sessions import CAIRO, PUBLICATION_CUTOFF
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS weekly_reports (
  week_end TEXT PRIMARY KEY, created_at TEXT, protocol_hash TEXT, payload TEXT,
  delivery_status TEXT NOT NULL DEFAULT 'pending');"""
-PROTOCOL = dict(version="weekly-1", label_version=LABEL_VERSION, shortlist=5,
+PROTOCOL = dict(version="weekly-2", label_version=LABEL_VERSION, shortlist=5,
     cost_bps=25, stress_additional_bps=50, baseline="matched eligible published universe",
-    aggregation="complete paired sessions; mean selection return, not portfolio return",
+    aggregation="five eligible picks and complete matched-universe outcomes; mean selection return, not portfolio return",
     unresolved="excluded from paired performance, always counted separately")
 
 
@@ -29,12 +29,10 @@ def completed_week(now=None):
 def build_weekly(conn, frame, end, now=None):
     now = now or datetime.now(timezone.utc)
     start = end-timedelta(days=4)
-    targets = frame.next_day_resolved_session.where(frame.next_day_resolved_session.notna(),
-        frame.session.map(lambda s: next_session(date.fromisoformat(s)).isoformat()))
-    week = frame[targets.between(start.isoformat(),end.isoformat())].copy()
-    picks = week[week.candidate_rank.between(1,5)]
+    week = frame[frame.session.between(start.isoformat(),end.isoformat())]
+    picks = week[week.candidate_rank.between(1,5)].sort_values(["session", "candidate_rank"])
     categories = Counter(outcome_category(r.next_day_status,r.next_day_net_return_pct) for r in picks.itertuples())
-    rows = [dict(symbol=r.symbol, session=targets.loc[r.Index], rank=int(r.candidate_rank),
+    rows = [dict(symbol=r.symbol, session=r.session, rank=int(r.candidate_rank),
         target="hit" if r.next_day_target_hit==1 else "miss" if r.next_day_target_hit==0 else "unresolved",
         trade=outcome_category(r.next_day_status,r.next_day_net_return_pct), status=r.next_day_status,
         net_return_pct=float(r.next_day_net_return_pct) if r.next_day_net_return_pct==r.next_day_net_return_pct and r.next_day_net_return_pct is not None else None)

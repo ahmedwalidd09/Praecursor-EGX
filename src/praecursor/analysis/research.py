@@ -3,17 +3,35 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 import json
 import sqlite3
+import pandas as pd
 
+from praecursor.analysis.published_history import original_predictions
 from praecursor.core.sessions import completed_session
 from praecursor.data.canonical import select_candle
+from praecursor.ml.published import eligible_features
 from praecursor.ml.rolling import block_mean_interval
+
+
+def measurement_samples(conn):
+    """Keep all saved picks and their original eligible benchmark universe."""
+    rows = []
+    columns = ["symbol", "session", "candidate_rank", "published_at", "benchmark_eligible",
+               "next_day_target_hit", "next_day_net_return_pct", "next_day_status"]
+    for r in original_predictions(conn):
+        eligible = eligible_features(r) is not None
+        if eligible or r["candidate_rank"] in range(1, 6):
+            rows.append((r["symbol"], r["target_session"], r["candidate_rank"], r["generated_at"],
+                         eligible, r["next_day_hit"], r["next_day_net_return"], r["next_day_status"] or "pending"))
+    return pd.DataFrame(rows, columns=columns)
 
 
 def frozen_evidence(frame):
     daily = []
-    for session, universe in frame.groupby("session"):
-        selected = universe[universe.candidate_rank.between(1,5)]
-        if selected.empty or universe.next_day_net_return_pct.isna().any() or universe.next_day_target_hit.isna().any():
+    for session, rows in frame.groupby("session"):
+        selected = rows[rows.candidate_rank.between(1,5)]
+        universe = rows[rows.benchmark_eligible]
+        if (sorted(selected.candidate_rank) != [1, 2, 3, 4, 5] or not selected.benchmark_eligible.all()
+                or universe.next_day_net_return_pct.isna().any() or universe.next_day_target_hit.isna().any()):
             continue
         mean = float(selected.next_day_net_return_pct.mean())
         baseline = float(universe.next_day_net_return_pct.mean())
@@ -32,7 +50,7 @@ def frozen_evidence(frame):
                        "Positive measured excess in this sample" if interval[0]>0 else "No demonstrated excess",
                 basis="Frozen daily shortlist versus equal-weight eligible published universe; not EGX30, not portfolio P&L",
                 cost_scenario="25 bps existing round-trip label scenario; stress adds 50 bps per filled trade",
-                limitations="Only complete sessions; surviving configured universe; repeated research trials require prospective confirmation")
+                limitations="Only sessions with five eligible, resolved picks and a complete eligible universe; surviving configured universe; repeated trials require prospective confirmation")
 
 
 def data_health(conn):
@@ -62,10 +80,7 @@ def event_cohorts(conn, frame):
     cohorts=defaultdict(list)
     picks=frame[frame.candidate_rank.between(1,5) & frame.next_day_net_return_pct.notna()]
     for row in picks.itertuples():
-        signal=conn.execute("SELECT generated_at FROM scanner_signals WHERE symbol=? AND feature_session=? ORDER BY generated_at LIMIT 1",(row.symbol,row.session)).fetchone()
-        if not signal:
-            continue
-        stamp=datetime.fromisoformat(signal[0].replace("Z","+00:00"))
+        stamp=datetime.fromisoformat(row.published_at.replace("Z","+00:00"))
         kinds=conn.execute("""SELECT DISTINCT event_type FROM disclosure_events WHERE symbol=?
              AND datetime(known_at)<=datetime(?) AND datetime(known_at)>=datetime(?)""",
              (row.symbol,stamp.isoformat(),(stamp-timedelta(days=7)).isoformat())).fetchall()

@@ -34,3 +34,13 @@ def next_session(day: date):
     while not is_session(day):
         day += timedelta(days=1)
     return day
+
+
+def session_horizon(feature_session: str, length: int):
+    """Configured session dates after a saved feature date, in order."""
+    day = date.fromisoformat(feature_session)
+    dates = []
+    for _ in range(length):
+        day = next_session(day)
+        dates.append(day.isoformat())
+    return dates

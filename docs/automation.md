@@ -28,14 +28,18 @@ They preserve dated snapshots and queue official capital-action/suspension and
 calendar notices. Public-feed gaps never become invented holiday dates or split
 factors. Uncertain symbols remain watch-only under the existing risk rules.
 
-Outcome verification anchors the entry for dated predictions to the next
-configured session. A missing market-wide candle on that date leaves the result
-unresolved. Resolved observations stay frozen under the label protocol, and later
-vendor corrections remain in the price journal. Weekly
-reports distinguish target hits/misses from profitable/loss/breakeven, unfilled,
-ambiguous and unresolved trade scenarios. Missing results exclude the entire
-paired session and remain counted. Weekly snapshots are immutable, with the
-protocol hash, costs, uncertainty, matched-universe baseline and paper drawdown.
+Outcome verification keeps every configured session in a dated prediction's
+one- or twenty-session horizon. Missing or conflicting evidence occupies its
+original position. Resolved observations stay frozen, and later vendor
+corrections remain in the price journal. A stored maturity outside the expected
+horizon remains unresolved in current measurement and training exports.
+
+Weekly reviews and dashboard prediction history use the first saved pre-open run
+for each target session. All saved ranks 1–5 remain visible even when features
+are missing or ineligible for training. Reports distinguish target touches from
+trade scenarios. Paired performance requires five eligible picks and resolved
+outcomes across the matched eligible published universe. Weekly snapshots are
+immutable and include the protocol hash, costs, uncertainty and paper drawdown.
 Their JSON/Markdown artifacts are retained for 90 days; snapshots persist in the DB.
 The weekly period ends on Thursday at the 16:00 Cairo publication cutoff, including
 weeks with a configured Thursday closure.

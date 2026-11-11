@@ -29,8 +29,13 @@ def test_saved_features_and_outcomes_are_joined_without_rerun_or_future_leakage(
             (7,"EARLY","2026-11-08T04:00:00Z",FEATURE_VERSION,None),
             (8,"CUTOFF","2026-11-08T07:00:00Z",FEATURE_VERSION,1),
             (9,"NEW","2026-11-08T04:00:00Z",FEATURE_VERSION,None)]:
+            session = "2026-11-05"
+            if symbol in ("MISS","UNKNOWN"):
+                run, stamp = 1, "2026-11-05T18:00:00Z"
+            if symbol in ("EARLY","NEW"):
+                run, stamp, session = 7, "2026-11-10T04:00:00Z", "2026-11-09"
             c.execute('INSERT INTO scanner_signals VALUES (?,?,?,?,?,?,?,?,?,?)',
-                      (run,symbol,stamp,"2026-11-05",version,json.dumps(values),70,100,100,1))
+                      (run,symbol,stamp,session,version,json.dumps(values),70,100,100,1))
             if symbol == "NEW":
                 continue  # Not yet visited by the after-close outcome tracker.
             c.execute('INSERT INTO verified_outcomes VALUES (?,?,?,?,?,?,?,?,?,?,?)',
@@ -43,8 +48,8 @@ def test_saved_features_and_outcomes_are_joined_without_rerun_or_future_leakage(
     assert frame.loc["MISS", "next_day_target_hit"] == 0
     assert pd.isna(frame.loc["UNKNOWN", "next_day_target_hit"])
     assert frame.loc["NEW", "next_day_status"] == "pending"
-    assert feedback_summary(frame) == dict(examples=5,sessions=1,candidates=5,hits=1,misses=1,unresolved=3,
-        provenance="Original published features; first prediction per symbol/session; incompatible legacy features excluded")
+    assert feedback_summary(frame) == dict(examples=5,sessions=2,candidates=5,hits=1,misses=1,unresolved=3,
+        provenance="Original published features; first published run per feature session; incompatible legacy features excluded")
 
 
 def test_insufficient_feedback_never_replaces_incumbent(tmp_path, monkeypatch):

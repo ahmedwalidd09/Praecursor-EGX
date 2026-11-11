@@ -90,4 +90,11 @@ def research_summary(conn):
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='research_snapshots'").fetchone():
         return {}
     row=conn.execute("SELECT payload FROM research_snapshots WHERE id=1").fetchone()
-    return json.loads(row[0]) if row else {}
+    report = json.loads(row[0]) if row else {}
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='quality_audits'").fetchone():
+        latest = conn.execute("SELECT payload FROM quality_audits ORDER BY checked_at DESC LIMIT 1").fetchone()
+        if latest:
+            audit = json.loads(latest[0])
+            health = report.setdefault("data_health",{})
+            health["reference_audit"] = f"{audit['checked_at']}: {audit['coverage_pct']:.1f}% current prices; {len(audit['unknown_or_conflicting_currency'])} currency gaps; {len(audit['review_queue'])} disclosure notices need effective-date review"
+    return report

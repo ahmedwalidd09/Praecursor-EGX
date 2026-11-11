@@ -149,6 +149,10 @@ def record_plan(conn, run_id, now=None, policy=None, sectors=None):
         return False
     if conn.execute("SELECT 1 FROM paper_sessions WHERE session=?", (target_session.isoformat(),)).fetchone():
         return False
+    from praecursor.analysis.shadow_experiments import approved_paper_filter
+    research_filter = approved_paper_filter(conn, run_id, now)
+    if research_filter:
+        policy = dict(policy, research_filter=research_filter)
     summary = paper_summary(conn)
     equity = summary["equity"] if summary["equity"] is not None else policy["initial_equity"]
     reason = ""
@@ -170,13 +174,13 @@ def record_plan(conn, run_id, now=None, policy=None, sectors=None):
         turnover = float(values.get("AvgTurnover20") or 0)
         sector = sectors.get(pick["symbol"], "Unknown") or "Unknown"
         reasons = [reason] if reason else []
+        if research_filter and pick["symbol"] not in research_filter["allowed"]:
+            reasons.append("Validated paper filter: " + research_filter["name"] + " keeps this allocation in cash")
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         currency = None
         if "instrument_observations" in tables:
-            observation = conn.execute("""SELECT currency FROM instrument_observations WHERE ticker=?
-                AND datetime(observed_at)<=datetime(?) AND datetime(observed_at)>=datetime(?)
-                ORDER BY observed_at DESC LIMIT 1""", (pick["symbol"], now.isoformat(), (now-timedelta(days=7)).isoformat())).fetchone()
-            currency = observation[0] if observation else None
+            from praecursor.analysis.data_quality import currency_evidence
+            currency = currency_evidence(conn, pick["symbol"], now)
         if currency != "EGP":
             reasons.append("Paper book requires a recently observed EGP quote currency; foreign or unknown currency excluded")
         if "disclosure_events" in tables:

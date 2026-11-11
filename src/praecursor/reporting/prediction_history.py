@@ -2,6 +2,7 @@
 from datetime import date
 import re
 from praecursor.core.sessions import next_session
+from praecursor.analysis.outcomes import outcome_category
 
 
 def prediction_history(conn):
@@ -16,6 +17,8 @@ def prediction_history(conn):
     fields = ("signal_date", "resolved_session", "next_day_hit", "next_day_return",
               "next_day_max_return", "next_day_status")
     outcomes = ",".join(f"v.{f}" if verified else f"NULL AS {f}" for f in fields)
+    outcome_columns = {r[1] for r in conn.execute("PRAGMA table_info(verified_outcomes)")} if verified else set()
+    outcomes += ",v.next_day_net_return" if "next_day_net_return" in outcome_columns else ",NULL AS next_day_net_return"
     join = "LEFT JOIN verified_outcomes v ON v.run_id=s.run_id AND v.symbol=s.symbol" if verified else ""
     rows = conn.execute(f"""SELECT s.run_id,s.symbol,s.company,s.generated_at,s.latest_close,
         s.next_day_target,{feature} AS feature_session,{candidate} AS candidate_rank,{label} AS candidate_label,{outcomes}
@@ -49,6 +52,8 @@ def prediction_history(conn):
             reference=reference, target=r["next_day_target"],
             actual_high=actual(r["next_day_max_return"]), actual_close=actual(r["next_day_return"]),
             close_change_pct=r["next_day_return"], status=status,
+            trade_category=outcome_category(r["next_day_status"],r["next_day_net_return"]),
+            net_return_pct=r["next_day_net_return"],
             outcome_status=r["next_day_status"] or "pending"))
     history.sort(key=lambda r: r["candidate_rank"])
     return sorted(history, key=lambda r: r["session"], reverse=True)

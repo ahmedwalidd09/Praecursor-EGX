@@ -1,9 +1,15 @@
 name: Praecursor Official Disclosures
+run-name: ${{ inputs.recovery && 'Watchdog recovery - disclosures' || 'Official disclosures' }}
 
 on:
   schedule:
     - cron: '12 6-17 * * 0-4'
   workflow_dispatch:
+    inputs:
+      recovery:
+        description: Internal watchdog recovery marker
+        type: boolean
+        default: false
 
 permissions:
   contents: write

@@ -82,15 +82,31 @@ def resolve_history(conn, as_of_date=None):
         swing_target = float(sig.get("swing_target") or 0)
         # Old signals without a published swing target are not retrospectively relabelled.
         sw = evaluate_path(adjusted, reference, swing_target, float(sig.get("swing_stop_loss") or 0), 20)
-        previous = conn.execute("SELECT next_day_hit FROM verified_outcomes WHERE run_id=? AND symbol=?",
+        previous = conn.execute("SELECT * FROM verified_outcomes WHERE run_id=? AND symbol=?",
                                 (sig["run_id"], sig["symbol"])).fetchone()
+        # Freeze resolved observations under this protocol; vendor revisions remain in the price journal.
+        terminal = {"target", "stop", "horizon_exit", "unfilled", "ambiguous_barrier_order"}
+        from praecursor.analysis.outcomes import Outcome
+        if previous and previous["label_version"] == LABEL_VERSION:
+            for horizon in ("next_day", "swing"):
+                if previous[horizon+"_status"] not in terminal:
+                    continue
+                frozen = Outcome(previous[horizon+"_status"], target_hit=previous[horizon+"_hit"],
+                    trade_hit=previous[horizon+"_trade_hit"], net_return_pct=previous[horizon+"_net_return"],
+                    resolved_session=previous["resolved_session" if horizon=="next_day" else "swing_resolved_session"],
+                    close_return_pct=previous["next_day_return"] if horizon=="next_day" else None,
+                    max_return_pct=previous["next_day_max_return"] if horizon=="next_day" else None)
+                if horizon == "next_day":
+                    nd = frozen
+                else:
+                    sw = frozen
         conn.execute("""INSERT OR REPLACE INTO verified_outcomes VALUES
             (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             sig["run_id"], sig["symbol"], ref, sig["next_day_label"], nd.target_hit,
             nd.close_return_pct, nd.max_return_pct, nd.trade_hit, nd.net_return_pct, nd.status,
             nd.resolved_session, sig["swing_label"], sw.target_hit, sw.trade_hit,
             sw.net_return_pct, sw.status, sw.resolved_session, LABEL_VERSION, 25.0))
-        if nd.target_hit is not None and (previous is None or previous[0] is None):
+        if nd.target_hit is not None and (previous is None or previous["next_day_hit"] is None):
             count += 1
     conn.commit()
     return count

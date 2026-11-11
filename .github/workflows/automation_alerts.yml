@@ -2,7 +2,7 @@ name: Praecursor Automation Alerts
 
 on:
   workflow_run:
-    workflows: ['Praecursor-EGX Autonomous Scanner', 'Praecursor-EGX Outcome Learning', 'Praecursor Official Disclosures', 'Praecursor Checks']
+    workflows: ['Praecursor-EGX Autonomous Scanner', 'Praecursor-EGX Outcome Learning', 'Praecursor Official Disclosures', 'Praecursor Weekly Review', 'Praecursor Automation Watchdog', 'Praecursor Checks']
     types: [completed]
 
 permissions:

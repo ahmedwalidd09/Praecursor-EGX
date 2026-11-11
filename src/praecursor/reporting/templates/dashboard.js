@@ -87,6 +87,9 @@ function renderHistory(reset=false){
     tr.append(el('td',r.close_change_pct==null?'—':(r.close_change_pct>0?'+':'')+number(r.close_change_pct,2)+'%','num'));
     const outcome=document.createElement('td');outcome.append(el('span',labels[r.status],'badge outcome-'+r.status));
     if(r.status==='unverified')outcome.append(el('span',explanations[r.outcome_status]||'Result not verified','company'));
+    const tradeLabels={profitable:'Profitable after assumed costs',loss:'Loss after assumed costs',breakeven:'Break-even after assumed costs',not_filled:'Not filled · cash',ambiguous:'Ambiguous target/stop order',unresolved:'Trade unresolved'};
+    outcome.append(el('span',tradeLabels[r.trade_category]||'Trade unresolved','company'));
+    if(r.net_return_pct!=null)outcome.append(el('span','Scenario net '+number(r.net_return_pct,2)+'%','company'));
     tr.append(outcome);fragment.append(tr);
   }
   $('history-rows').replaceChildren(fragment);$('history-table-wrap').classList.toggle('hidden',!filtered.length);$('history-empty').classList.toggle('hidden',!!filtered.length);

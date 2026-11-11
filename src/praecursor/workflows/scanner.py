@@ -719,6 +719,14 @@ class ScannerWorkflow:
             from praecursor.storage.database import connect
             from praecursor.analysis.paper_portfolio import resolve_paper, record_plan
             with closing(connect(self.price_cache.path)) as connection:
+                from praecursor.analysis.data_quality import refresh_quote_currencies, audit_data
+                # Fake sources never make network requests during offline scans/tests.
+                if getattr(self.market_data_source, "name", "") in {"tradingview", "yahoo_finance", "stockanalysis"}:
+                    candidates = [r[0] for r in connection.execute("SELECT symbol FROM scanner_signals WHERE run_id=? AND candidate_rank BETWEEN 1 AND 5", (history_run_id,))]
+                    refresh_quote_currencies(connection, candidates)
+                audit_data(connection)
+                from praecursor.analysis.shadow_experiments import record_shadow
+                record_shadow(connection, history_run_id)
                 resolve_paper(connection)
                 sectors = {r.symbol: getattr(r.opportunity_score.stock, "sector", "Unknown") for r in ranked_results}
                 record_plan(connection, history_run_id, sectors=sectors)

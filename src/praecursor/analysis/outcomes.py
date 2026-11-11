@@ -5,6 +5,17 @@ from math import isfinite
 LABEL_VERSION = "3"
 
 
+def outcome_category(status, net_return_pct=None):
+    """Trade scenario categories are separate from whether the target was touched."""
+    if status == "unfilled":
+        return "not_filled"
+    if status == "ambiguous_barrier_order":
+        return "ambiguous"
+    if status in ("target", "stop", "horizon_exit") and net_return_pct is not None and isfinite(net_return_pct):
+        return "profitable" if net_return_pct > 0 else "loss" if net_return_pct < 0 else "breakeven"
+    return "unresolved"
+
+
 @dataclass(frozen=True)
 class Outcome:
     status: str

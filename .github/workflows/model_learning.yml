@@ -1,10 +1,16 @@
 name: Praecursor-EGX Outcome Learning
+run-name: ${{ inputs.recovery && 'Watchdog recovery - learning' || 'Outcome learning' }}
 
 on:
   schedule:
     # After each Sunday–Thursday close, before the 18:30 UTC briefing.
     - cron: '15 17 * * 0-4'
   workflow_dispatch:
+    inputs:
+      recovery:
+        description: Internal watchdog recovery marker
+        type: boolean
+        default: false
 
 concurrency:
   group: egx-model-learning
@@ -62,6 +68,8 @@ jobs:
             data/published_samples.csv
             reports/learning_feedback.json
             reports/research_evidence.json
+            reports/data_quality.json
+            reports/shadow_experiments.json
           if-no-files-found: error
           retention-days: 30
 

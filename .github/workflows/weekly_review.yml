@@ -1,0 +1,76 @@
+name: Praecursor Weekly Review
+run-name: ${{ inputs.recovery && 'Watchdog recovery - weekly review' || 'Weekly review' }}
+
+on:
+  schedule:
+    - cron: '15 20 * * 4'
+    # Recovery run is idempotent after a successful Thursday delivery.
+    - cron: '15 8 * * 5'
+  workflow_dispatch:
+    inputs:
+      recovery:
+        description: Internal watchdog recovery marker
+        type: boolean
+        default: false
+      dry_run:
+        description: Preview without sending Telegram or freezing the weekly report
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-egx-scan
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy scipy scikit-learn joblib tzdata
+      - name: Restore Durable State
+        id: restore
+        run: |
+          mkdir -p database reports
+          gh release download db-latest --pattern praecursor.db.gz --dir database --clobber
+          gunzip -f database/praecursor.db.gz
+          python tools/database_state.py check
+      - name: Resolve Available Outcomes
+        run: |
+          python tools/track_outcomes.py
+          python tools/export_learning_samples.py
+      - name: Produce Weekly Review
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PREVIEW: ${{ inputs.dry_run }}
+        run: |
+          FLAGS=""
+          if [ "$PREVIEW" = "true" ]; then FLAGS="--dry-run"; fi
+          python tools/weekly_review.py $FLAGS
+          cat reports/weekly_review.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Persist Outcomes and Delivery Receipt
+        if: always() && steps.restore.outcome == 'success'
+        run: |
+          python tools/database_state.py backup
+          gzip -c database/backup.db > database/praecursor.db.gz
+          gh release upload db-latest database/praecursor.db.gz --clobber
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-review-${{ github.run_id }}
+          path: |
+            reports/weekly_review.*
+            reports/data_quality.json
+            reports/shadow_experiments.json
+            reports/accuracy_history_archive.csv
+          retention-days: 90

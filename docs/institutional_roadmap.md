@@ -78,3 +78,22 @@ Fine-tuning is evidence-gated, not a one-turn promise: collect the forward ledge
 review missing data and execution assumptions, and retain a challenger only when
 the protocol supports it. Paid feeds, full historic point-in-time data, broker
 fills, live trading and desktop/cloud synchronization are not silently enabled.
+
+### Automated measurement extension — 2026-11-10
+
+Daily reference checks now run independently of price-history fetching for the
+five candidates. Full-universe quality snapshots include missing symbols, quote
+currency conflicts, stale prices and official-notice review queues. Weekday
+assumptions and incomplete holiday/corporate-action coverage remain explicit.
+
+Weekly Actions reviews freeze the original top-five results and evaluation
+protocol, distinguish target touches from net trade outcomes, report paired
+baselines/cost stress/uncertainty and paper drawdown, and send Telegram summaries.
+Two sequential predeclared filter experiments collect 60 unseen sessions each.
+Passing experiments automatically govern future paper eligibility; they never
+change historical plans or promote an unvalidated prediction model.
+
+A cloud watchdog checks for missing/failed scheduled work and dispatches bounded
+recovery runs. Every workflow is independent of the laptop. Release state and
+report artifacts survive runner teardown; scheduled reports include stale-data
+status rather than silently inventing missing results.

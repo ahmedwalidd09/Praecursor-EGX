@@ -20,7 +20,7 @@ def published_samples(database):
             ON s.run_id=v.run_id AND s.symbol=v.symbol
             WHERE s.feature_version=? AND (v.label_version=? OR v.run_id IS NULL)
             ORDER BY s.generated_at,s.run_id""", (FEATURE_VERSION, LABEL_VERSION)).fetchall()
-    records, seen = [], set()
+    records, seen, first_runs = [], set(), {}
     for row in rows:
         r = dict(row)
         session = r["feature_session"]
@@ -31,6 +31,9 @@ def published_samples(database):
         # Conservative pre-market cutoff also admits early manual runs, never intraday hindsight.
         deadline = datetime.combine(next_session(date.fromisoformat(session)), time(9), CAIRO)
         if stamp.astimezone(CAIRO) >= deadline:
+            continue
+        first_runs.setdefault(session, r["run_id"])
+        if first_runs[session] != r["run_id"]:
             continue
         key = (session, r["symbol"])
         if key in seen:
@@ -61,4 +64,4 @@ def feedback_summary(frame):
     return dict(examples=len(frame), sessions=int(frame.session.nunique()), candidates=len(picks),
         hits=int(picks.next_day_target_hit.eq(1).sum()), misses=int(picks.next_day_target_hit.eq(0).sum()),
         unresolved=int(picks.next_day_target_hit.isna().sum()),
-        provenance="Original published features; first prediction per symbol/session; incompatible legacy features excluded")
+        provenance="Original published features; first published run per feature session; incompatible legacy features excluded")

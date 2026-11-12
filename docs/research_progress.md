@@ -48,6 +48,13 @@ matching response chat before recording a per-session receipt. Existing opt-in
 subscriber tooling remains available separately. A lost response or failed
 database persistence can still leave delivery uncertain. [Scanner workflow](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/workflows/daily_scan.yml)
 
+The repaired November 12 cloud run used the November 11 completed price session
+and matched the cloud owner settings to the local configuration before sending.
+At 08:09 Cairo, Telegram acknowledged the briefing for one owner chat and all
+five candidate charts. All six pipeline stages passed. The database backup
+contained the five original picks with their reasons and one matching delivery
+receipt. CI passed 198 tests with 10 skipped. [Repair commit](https://github.com/ahmedwalidd09/Praecursor-EGX/commit/19ca762) · [Live scanner](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43165765155) · [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43165657254)
+
 ## Next work
 
 - Investigate individual source gaps and currency evidence using observable

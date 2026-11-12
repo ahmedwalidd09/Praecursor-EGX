@@ -182,8 +182,9 @@ def run_pipeline(
     effective_date = run_date or datetime.now(ZoneInfo("Africa/Cairo")).date()
     date_str = effective_date.strftime("%Y-%m-%d")
     
-    from praecursor.core.sessions import next_session
-    next_trading_day = next_session(effective_date)
+    from praecursor.core.sessions import completed_session, next_session
+    feature_session = run_date or completed_session()
+    next_trading_day = next_session(feature_session)
     next_trading_day_str = next_trading_day.strftime("%Y-%m-%d")
     
     # Ensure reports output directories are prepared for next-day scan output files
@@ -210,7 +211,7 @@ def run_pipeline(
         logger.info(f"Target Date: {next_trading_day_str}")
         logger.info("==================================================")
 
-        trading_day = is_egx_scan_day(effective_date)
+        trading_day = is_egx_scan_day(effective_date) or (run_date is None and next_trading_day == effective_date)
         if not trading_day and not force:
             logger.info(f"SKIPPED: Non-trading day ({date_str}) - skipping automated scan.")
             return 0
@@ -242,9 +243,7 @@ def run_pipeline(
         total_stages = 6
 
         # Stage 1: Daily Scanner
-        s1_cmd = [python_exe, "tools/run_scanner.py", "--no-telegram"]
-        if run_date:
-            s1_cmd.extend(["--date", date_str])
+        s1_cmd = [python_exe, "tools/run_scanner.py", "--no-telegram", "--date", feature_session.isoformat()]
             
         s1_ok = run_stage(
             logger,
@@ -257,6 +256,10 @@ def run_pipeline(
         if not s1_ok:
             pipeline_error = "Stage 1 (Scanner) failed. Aborting downstream pipeline execution."
             logger.error(pipeline_error)
+            fallback = [python_exe, "tools/send_telegram_report.py", "--session", next_trading_day_str, "--refresh-incomplete"]
+            if dry_run_telegram:
+                fallback.append("--dry-run")
+            run_stage(logger, 4, "Saved Telegram Briefing", fallback, root, timeout_seconds=180.0, max_attempts=1)
             return 1
         stages_passed += 1
             
@@ -317,7 +320,7 @@ def run_pipeline(
             logger,
             2.5,
             "Candlestick Chart Generation",
-            [python_exe, "tools/chart_generator.py", "--top", "5"],
+            [python_exe, "tools/chart_generator.py", "--session", next_trading_day_str],
             root,
             timeout_seconds=180.0,
         )
@@ -361,7 +364,7 @@ def run_pipeline(
             project_root=root,
         )
         
-        telegram_cmd = [python_exe, "tools/send_telegram_report.py", "--use-latest"]
+        telegram_cmd = [python_exe, "tools/send_telegram_report.py", "--session", next_trading_day_str]
         if dry_run_telegram:
             telegram_cmd.append("--dry-run")
 

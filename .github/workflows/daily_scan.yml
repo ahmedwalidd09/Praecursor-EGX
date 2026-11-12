@@ -22,6 +22,10 @@ on:
         required: false
         type: boolean
         default: false
+      owner_settings_proof:
+        description: Optional nonce and HMAC to check the configured owner pair before delivery
+        type: string
+        required: false
 
 concurrency:
   group: daily-egx-scan
@@ -86,6 +90,7 @@ jobs:
           PYTHONPATH: "src"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OWNER_SETTINGS_PROOF: ${{ inputs.owner_settings_proof }}
         run: |
           FLAGS=""
           if [ "${{ github.event.inputs.force }}" = "true" ]; then

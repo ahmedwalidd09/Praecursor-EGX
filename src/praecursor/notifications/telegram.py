@@ -182,7 +182,6 @@ class TelegramClient:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
 
-            last_error = None
             sent = False
             for attempt in range(1, max_retries + 1):
                 try:
@@ -190,7 +189,6 @@ class TelegramClient:
                     sent = True
                     break
                 except Exception as e:
-                    last_error = e
                     # If HTML parsing failed on a chunk, retry without parse_mode (plain text)
                     if "can't parse entities" in str(e).lower() and parse_mode:
                         try:
@@ -207,12 +205,12 @@ class TelegramClient:
                             break
                         except Exception:
                             pass
-                    logger.warning(f"Telegram sendMessage attempt {attempt}/{max_retries} failed: {e}")
+                    logger.warning("Telegram sendMessage attempt %s/%s failed", attempt, max_retries)
                     if attempt < max_retries:
                         time.sleep(1.5 * attempt)
 
             if not sent:
-                raise RuntimeError(f"Telegram sendMessage failed after {max_retries} attempts: {last_error}")
+                raise RuntimeError(f"Telegram sendMessage failed after {max_retries} attempts") from None
 
         return last_resp
 

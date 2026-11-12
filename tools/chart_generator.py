@@ -18,7 +18,7 @@ REPORTS_DIR = ROOT / "reports"
 CHARTS_DIR = REPORTS_DIR / "charts"
 CHARTS_DIR.mkdir(parents=True, exist_ok=True)
 
-def fetch_symbol_history(symbol: str, lookback: int = 70) -> pd.DataFrame:
+def fetch_symbol_history(symbol: str, lookback: int = 70, through: str | None = None) -> pd.DataFrame:
     """Fetch recent daily OHLCV bars for a symbol from SQLite database."""
     query = """
     SELECT trade_date, open, high, low, close, volume
@@ -30,14 +30,14 @@ def fetch_symbol_history(symbol: str, lookback: int = 70) -> pd.DataFrame:
                             collected_at DESC
                ) as rn
         FROM source_prices
-        WHERE ticker = ?
+        WHERE ticker = ? AND date(trade_date) <= ?
     )
     WHERE rn = 1
     ORDER BY trade_date DESC
     LIMIT ?
     """
     with sqlite3.connect(str(DB_PATH)) as conn:
-        df = pd.read_sql(query, conn, params=(symbol, lookback + 100))
+        df = pd.read_sql(query, conn, params=(symbol, through or "9999-12-31", lookback + 100))
     
     if df.empty or len(df) < 15:
         return pd.DataFrame()
@@ -609,8 +609,15 @@ def render_chart_to_png(symbol: str, output_path: Path | None = None) -> Path | 
         print(f"Error rendering chart with Playwright for {symbol}: {e}")
         return None
 
-def generate_top_candidates_charts(top_n: int = 5) -> list[Path]:
-    """Generate charts for the top N actionable non-avoid candidates in opportunity_ranking.csv."""
+def generate_top_candidates_charts(top_n: int = 5, session: str | None = None) -> list[Path]:
+    """Generate charts for the dated shortlist or the current ranking CSV."""
+    if session:
+        from contextlib import closing
+        from praecursor.notifications.owner_briefing import original_shortlist
+        with closing(sqlite3.connect(str(DB_PATH))) as conn:
+            picks = original_shortlist(conn, session)
+        return generate_candidate_charts({r["symbol"]: dict(r, score_percent=r["opportunity_score"])
+                                          for r in picks[:top_n]}, session)
     csv_path = REPORTS_DIR / "opportunity_ranking.csv"
     if not csv_path.exists():
         print("opportunity_ranking.csv not found.")
@@ -632,13 +639,15 @@ def generate_top_candidates_charts(top_n: int = 5) -> list[Path]:
 
     # Sort actionable candidates by next_day_score descending
     eligible.sort(key=lambda x: x[1])
-    symbols = [s[0] for s in eligible[:top_n]]
+    return generate_candidate_charts({symbol: get_candidate_metadata(symbol) for symbol, _ in eligible[:top_n]})
 
-    if not symbols:
+
+def generate_candidate_charts(candidates: dict, session: str | None = None) -> list[Path]:
+    if not candidates:
         print("No eligible candidates found for chart generation.")
         return []
 
-    print(f"Generating charts for top {len(symbols)} actionable candidates: {', '.join(symbols)}...")
+    print(f"Generating charts for {len(candidates)} candidates: {', '.join(candidates)}...")
     generated = []
     
     try:
@@ -647,20 +656,23 @@ def generate_top_candidates_charts(top_n: int = 5) -> list[Path]:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
             
-            for sym in symbols:
+            for sym, meta in candidates.items():
                 try:
-                    meta = get_candidate_metadata(sym)
-                    df = fetch_symbol_history(sym, lookback=65)
+                    df = fetch_symbol_history(sym, lookback=65, through=meta.get("feature_session") if session else None)
                     if df.empty:
                         print(f"Skipping {sym}: insufficient data.")
                         continue
+                    if session and df["trade_date"].iloc[-1].date().isoformat() != meta.get("feature_session"):
+                        print(f"Skipping {sym}: chart data do not reach the saved price session.")
+                        continue
                     
                     html = generate_chart_html(sym, df, meta)
-                    html_file = CHARTS_DIR / f"{sym}_chart.html"
+                    stem = f"{session}_{sym}_chart" if session else f"{sym}_chart"
+                    html_file = CHARTS_DIR / f"{stem}.html"
                     with open(html_file, "w", encoding="utf-8") as f:
                         f.write(html)
                         
-                    png_path = CHARTS_DIR / f"{sym}_chart.png"
+                    png_path = CHARTS_DIR / f"{stem}.png"
                     page.goto(html_file.as_uri())
                     page.wait_for_timeout(300)
                     page.screenshot(path=str(png_path), type="png")
@@ -681,9 +693,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate high-resolution dark mode candlestick chart PNGs.")
     parser.add_argument("--symbol", type=str, help="Single EGX ticker symbol to chart (e.g. SDTI)")
     parser.add_argument("--top", type=int, default=5, help="Generate charts for top N candidates (default: 5)")
+    parser.add_argument("--session", help="Use the original shortlist saved for this session")
     args = parser.parse_args()
 
     if args.symbol:
         render_chart_to_png(args.symbol.upper())
     else:
-        generate_top_candidates_charts(args.top)
+        generate_top_candidates_charts(args.top, args.session)

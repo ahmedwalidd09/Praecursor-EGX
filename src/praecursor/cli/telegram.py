@@ -150,6 +150,13 @@ def load_latest_scan_result() -> MinimalRunResult | None:
 
 def main() -> int:
     args = parse_args()
+    if args.session:
+        from contextlib import closing
+        from praecursor.notifications.owner_briefing import deliver_owner_briefing
+        from praecursor.storage.database import connect
+        with closing(connect()) as conn:
+            return deliver_owner_briefing(conn, args.session, Path("reports/charts"),
+                                          preview=args.dry_run, refresh_incomplete=args.refresh_incomplete)
     result = None
 
     if args.token and args.chat_id:
@@ -250,6 +257,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-charts", action="store_true", help="Skip sending candlestick chart images.")
     parser.add_argument("--send-files", action="store_true", help="Also send CSV/HTML/Markdown report files.")
     parser.add_argument("--dry-run", action="store_true", help="Print message without sending to Telegram.")
+    parser.add_argument("--session", help="Deliver the original shortlist for this session to the configured owner.")
+    parser.add_argument("--refresh-incomplete", action="store_true", help="Flag an incomplete refresh in the owner briefing.")
     return parser.parse_args()
 
 

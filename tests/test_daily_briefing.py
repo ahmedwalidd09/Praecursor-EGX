@@ -1,11 +1,14 @@
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 import json
+import sqlite3
+import pytest
 
 from praecursor.scoring.candidates import select_daily_candidates
 from praecursor.notifications.telegram import TelegramReportFormatter
+from praecursor.notifications import owner_briefing
 from tools.run_autonomous_pipeline import is_egx_scan_day, run_pipeline
 
 
@@ -78,6 +81,51 @@ def test_preview_never_claims_delivery(tmp_path):
     with patch("tools.run_autonomous_pipeline.run_stage",return_value=True):
         assert run_pipeline(tmp_path,tmp_path/"logs",dry_run_telegram=True,run_date=date(2026,11,7))==0
     assert json.loads((tmp_path/"data/scan_status.json").read_text())["telegram_status"]=="Preview only"
+
+
+def test_thursday_morning_recovers_thursday_from_wednesday_close(tmp_path, monkeypatch):
+    from praecursor.core import sessions
+    from tools import run_autonomous_pipeline as pipeline
+
+    now = datetime(2026, 11, 12, 6, tzinfo=timezone.utc)
+    completed = sessions.completed_session
+    monkeypatch.setattr(sessions, "completed_session", lambda: completed(now))
+    with patch.object(pipeline, "datetime", wraps=datetime) as clock, patch.object(pipeline, "run_stage", return_value=True) as stage:
+        clock.now.side_effect = now.astimezone
+        assert run_pipeline(tmp_path, tmp_path/"logs", dry_run_telegram=True) == 0
+    assert stage.call_args_list[0].args[3][-2:] == ["--date", "2026-11-11"]
+    assert stage.call_args.args[3][-3:] == ["--session", "2026-11-12", "--dry-run"]
+
+
+@pytest.mark.parametrize("invalid", [
+    {"ok": False}, {"ok": True, "result": {"chat": {"id": 100}}},
+    {"ok": True, "result": {"message_id": 50, "chat": {"id": 999}}},
+])
+def test_owner_briefing_requires_matching_message_then_reuses_receipt(tmp_path, monkeypatch, invalid):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "mock-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "100")
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute("""CREATE TABLE scanner_signals(run_id,symbol,generated_at,feature_session,
+            candidate_rank,next_day_score,latest_close,next_day_target,next_day_stop_loss,selection_reasons)""")
+        conn.executemany("INSERT INTO scanner_signals VALUES (?,?,?,?,1,70,100,105,97,?)", [
+            (1, "ORIGINAL", "2026-11-11T18:30:00Z", "2026-11-11", '["Saved reason"]'),
+            (2, "RERUN", "2026-11-12T06:00:00Z", "2026-11-11", '["Later reason"]'),
+        ])
+        with patch.object(owner_briefing, "TelegramClient") as client:
+            sender = client.return_value
+            sender.send_message.return_value = invalid
+            assert owner_briefing.deliver_owner_briefing(conn, "2026-11-12", tmp_path) == 1
+            assert conn.execute("SELECT count(*) FROM telegram_owner_receipts").fetchone()[0] == 0
+            accepted = {"ok": True, "result": {"message_id": 50, "chat": {"id": 100}}}
+            sender.send_message.return_value = sender.send_photo.return_value = accepted
+            (tmp_path / "2026-11-12_ORIGINAL_chart.png").touch()
+            assert owner_briefing.deliver_owner_briefing(conn, "2026-11-12", tmp_path) == 0
+            message = sender.send_message.call_args.args[0]
+            assert "For session: 2026-11-12" in message and "Price session: 2026-11-11" in message
+            assert "ORIGINAL" in message and "Saved reason" in message and "RERUN" not in message
+            assert sender.send_photo.call_count == 1
+            assert owner_briefing.deliver_owner_briefing(conn, "2026-11-12", tmp_path) == 0
+            assert sender.send_message.call_count == 2
 
 
 def test_telegram_shows_paper_decisions_only_for_matching_session():

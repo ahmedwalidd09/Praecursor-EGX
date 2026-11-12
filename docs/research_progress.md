@@ -34,11 +34,22 @@ disagreed with the configured next session and are flagged as unverified.
 The label formula and existing promotion gates still apply.
 [Durable cloud state](https://github.com/ahmedwalidd09/Praecursor-EGX/releases/tag/db-latest)
 
+## November 12 Telegram incident
+
+The November 12 briefing was skipped after the Wednesday Actions schedule ran
+early Thursday Cairo time. The old pipeline applied Thursday's evening scan
+guard, logged November 15 as the target, and exited successfully without reaching
+Telegram. [Skipped scheduled run](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43130940924)
+
+The autonomous pipeline now derives the briefing date from the completed price
+session and uses the original pre-open shortlist and chart dates. The owner route
+uses the Actions credential pair directly. It requires Telegram's message ID and
+matching response chat before recording a per-session receipt. Existing opt-in
+subscriber tooling remains available separately. A lost response or failed
+database persistence can still leave delivery uncertain. [Scanner workflow](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/workflows/daily_scan.yml)
+
 ## Next work
 
-- Make daily Telegram recovery reuse the original shortlist and persist a durable
-  delivery receipt to suppress duplicates. The latest-scan briefing can still
-  reflect a rerun.
 - Investigate individual source gaps and currency evidence using observable
   provider and instrument records. The November 10 audit found 207 of 248
   symbols current and 246 currency gaps.

@@ -118,12 +118,13 @@ class TestHeadlessPipelineRunner(unittest.TestCase):
             self.assertEqual(mock_run_stage.call_count, 6)
 
     @patch("run_autonomous_pipeline.run_stage")
-    def test_run_pipeline_stage1_failure_aborts(self, mock_run_stage):
-        mock_run_stage.side_effect = [False]
+    def test_run_pipeline_stage1_failure_uses_saved_briefing(self, mock_run_stage):
+        mock_run_stage.side_effect = [False, True]
         with tempfile.TemporaryDirectory() as tmp_dir:
             exit_code = run_pipeline(project_root=Path(tmp_dir), logs_dir=Path(tmp_dir) / "logs", force=True, retrain=True)
             self.assertEqual(exit_code, 1)
-            self.assertEqual(mock_run_stage.call_count, 1)
+            self.assertEqual(mock_run_stage.call_count, 2)
+            self.assertIn("--refresh-incomplete", mock_run_stage.call_args.args[3])
 
     @patch("run_autonomous_pipeline.run_stage")
     def test_run_pipeline_stage2_failure_propagates(self, mock_run_stage):

@@ -4,7 +4,10 @@ import csv
 import math
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import date
+from html import escape
+import re
+from string import Template
 import pandas as pd
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -37,24 +40,13 @@ def fetch_symbol_history(symbol: str, lookback: int = 70, through: str | None = 
     LIMIT ?
     """
     with sqlite3.connect(str(DB_PATH)) as conn:
-        df = pd.read_sql(query, conn, params=(symbol, through or "9999-12-31", lookback + 100))
+        df = pd.read_sql(query, conn, params=(symbol, through or "9999-12-31", lookback))
     
     if df.empty or len(df) < 15:
         return pd.DataFrame()
     
-    # Sort chronologically
     df["trade_date"] = pd.to_datetime(df["trade_date"])
-    df = df.sort_values("trade_date").reset_index(drop=True)
-    
-    # Calculate EMAs over full history before slicing
-    df["ema20"] = df["close"].ewm(span=20, adjust=False).mean()
-    df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
-    df["ema200"] = df["close"].ewm(span=200, adjust=False).mean()
-    df["vol_ma20"] = df["volume"].rolling(20, min_periods=1).mean()
-    
-    # Slice to desired display lookback
-    display_df = df.iloc[-lookback:].copy().reset_index(drop=True)
-    return display_df
+    return df.sort_values("trade_date").reset_index(drop=True)
 
 def get_candidate_metadata(symbol: str) -> dict:
     """Read candidate ranking, labels, target and stop from opportunity_ranking.csv."""
@@ -69,510 +61,69 @@ def get_candidate_metadata(symbol: str) -> dict:
                 return r
     return {}
 
-def parse_target_and_stop(reasons_str: str, current_close: float) -> tuple[float | None, float | None, str, str]:
-    """Parse Target and Stop Loss prices and percentage changes from reasons string."""
-    import re
-    target = None
-    stop = None
-    target_pct = ""
-    stop_pct = ""
-    
-    m_tgt = re.search(r"Target placed at\s+([\d\.]+)\s+\(\+?([-\d\.]+)%\)", reasons_str)
-    if m_tgt:
-        target = float(m_tgt.group(1))
-        target_pct = f"+{float(m_tgt.group(2)):.1f}%"
-    
-    m_stop = re.search(r"Stop Loss placed at\s+([\d\.]+)\s+\((-?[\d\.]+)%\)", reasons_str)
-    if m_stop:
-        stop = float(m_stop.group(1))
-        stop_pct = f"{float(m_stop.group(2)):.1f}%"
-        
-    return target, stop, target_pct, stop_pct
+def price_value(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def saved_level(meta, field, prose_label):
+    if field in meta:
+        return price_value(meta[field])
+    match = re.search(rf"{prose_label} placed at ([0-9.]+)", meta.get("next_day_reasons") or "")
+    return price_value(match.group(1)) if match else None
+
 
 def generate_chart_html(symbol: str, df: pd.DataFrame, meta: dict) -> str:
-    """Generate high-contrast, cyberpunk-quant dark-themed candlestick chart HTML."""
-    candles = []
-    for _, row in df.iterrows():
-        candles.append({
-            "date": row["trade_date"].strftime("%d %b"),
-            "open": round(float(row["open"]), 2),
-            "high": round(float(row["high"]), 2),
-            "low": round(float(row["low"]), 2),
-            "close": round(float(row["close"]), 2),
-            "volume": int(row["volume"]),
-            "ema20": round(float(row["ema20"]), 2) if not pd.isna(row["ema20"]) else None,
-            "ema50": round(float(row["ema50"]), 2) if not pd.isna(row["ema50"]) else None,
-            "ema200": round(float(row["ema200"]), 2) if not pd.isna(row["ema200"]) else None,
-            "vol_ma20": int(row["vol_ma20"]) if not pd.isna(row["vol_ma20"]) else 0,
-        })
-    
-    company = meta.get("company", symbol)
-    close_price = round(float(meta.get("latest_close", candles[-1]["close"])), 2)
-    score = f"{float(meta.get('score_percent', 0)):.1f}%"
-    label = meta.get("next_day_label", "Breakout Candidate")
-    reasons = meta.get("next_day_reasons", "")
-    
-    target, stop, target_pct, stop_pct = parse_target_and_stop(reasons, close_price)
-    
-    # Calculate R:R
-    rr_str = "N/A"
-    if target and stop and target > close_price and stop < close_price:
-        gain = target - close_price
-        risk = close_price - stop
-        if risk > 0:
-            rr_str = f"{(gain / risk):.1f} : 1"
-            
-    # Pattern identification
-    pattern_badge = "MOMENTUM SETUP"
-    if "NR7" in reasons or "Inside Day" in reasons:
-        pattern_badge = "NR7 VOLATILITY COIL"
-    elif "Fibonacci" in reasons:
-        pattern_badge = "FIBONACCI 61.8% EXPANSION"
-    elif "Breakout" in label:
-        pattern_badge = "RESISTANCE BREAKOUT"
-    elif "VSA" in reasons:
-        pattern_badge = "INSTITUTIONAL ABSORPTION"
+    """Render the saved setup with full-precision daily price geometry."""
+    bars = [dict(date=row.trade_date.strftime("%d %b"), open=float(row.open),
+                 high=float(row.high), low=float(row.low), close=float(row.close),
+                 volume=float(row.volume))
+            for row in df.itertuples()]
+    reference = price_value(meta.get("latest_close")) or price_value(bars[-1]["close"])
+    target = saved_level(meta, "next_day_target", "Target")
+    stop = saved_level(meta, "next_day_stop_loss", "Stop Loss")
+    levels = [reference, target, stop]
+    precision = 4 if any(value is not None and value < 1 for value in levels) else 3
 
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{
-    background-color: #07080B;
-    color: #F3F4F6;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    width: 1280px;
-    height: 800px;
-    overflow: hidden;
-    position: relative;
-    user-select: none;
-  }}
+    def display_price(value):
+        return f"{value:,.{precision}f}" if value is not None else "—"
 
-  /* Top Navigation / Header */
-  .header {{
-    height: 70px;
-    padding: 12px 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: rgba(13, 15, 22, 0.7);
-    backdrop-filter: blur(10px);
-  }}
-  .header-left {{
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }}
-  .symbol {{
-    font-size: 26px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    color: #FFFFFF;
-    font-family: 'JetBrains Mono', monospace, sans-serif;
-  }}
-  .company {{
-    font-size: 14px;
-    color: #9CA3AF;
-    font-weight: 500;
-  }}
-  .price-pill {{
-    background: #111827;
-    border: 1px solid #374151;
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: #38BDF8;
-  }}
-  .badge {{
-    padding: 5px 12px;
-    border-radius: 5px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    font-family: 'JetBrains Mono', monospace;
-  }}
-  .badge-setup {{
-    background: rgba(16, 185, 129, 0.15);
-    color: #10B981;
-    border: 1px solid rgba(16, 185, 129, 0.3);
-  }}
-  .badge-pattern {{
-    background: rgba(245, 158, 11, 0.15);
-    color: #F59E0B;
-    border: 1px solid rgba(245, 158, 11, 0.3);
-  }}
-  .header-right {{
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }}
-  .stat-box {{
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-  }}
-  .stat-label {{
-    font-size: 10px;
-    color: #6B7280;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }}
-  .stat-val {{
-    font-size: 15px;
-    font-weight: 700;
-    font-family: 'JetBrains Mono', monospace;
-  }}
-  .stat-val.target {{ color: #10B981; }}
-  .stat-val.stop {{ color: #EF4444; }}
-  .stat-val.rr {{ color: #A855F7; }}
+    reward_risk = ""
+    if target and stop and reference and 0 < stop < reference < target:
+        reward_risk = f"Reward / risk {(target - reference) / (reference - stop):.2f}×"
 
-  /* Main Chart Area */
-  .chart-container {{
-    position: relative;
-    width: 1280px;
-    height: 730px;
-  }}
-  canvas {{
-    display: block;
-  }}
+    rank = meta.get("candidate_rank")
+    rank = f"Candidate {int(rank):02d}" if rank else "Daily chart"
+    feature = meta.get("feature_session") or df["trade_date"].iloc[-1].date().isoformat()
+    target_session = meta.get("target_session")
+    close_date = date.fromisoformat(feature).strftime("%d %b %Y")
+    session = f"Briefing <strong>{date.fromisoformat(target_session):%d %b %Y}</strong>" if target_session else ""
 
-  /* Watermark */
-  .watermark {{
-    position: absolute;
-    bottom: 24px;
-    right: 32px;
-    font-size: 11px;
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.15);
-    letter-spacing: 1px;
-  }}
-</style>
-</head>
-<body>
+    reasons = meta.get("selection_reasons") or ""
+    if isinstance(reasons, str):
+        reasons = json.loads(reasons) if reasons.startswith("[") else reasons.split("; ")
+    selected = [reason for reason in reasons if reason and not reason.startswith("Target/stop reward-to-risk")][:2]
+    evidence = "".join(f"<p>{escape(reason)}</p>" for reason in selected)
+    if evidence:
+        evidence = '<section class="evidence"><span class="kicker">Selection evidence</span>' + evidence + "</section>"
 
-<div class="header">
-  <div class="header-left">
-    <div class="symbol">{symbol}</div>
-    <div class="company">{company}</div>
-    <div class="price-pill">{close_price:.2f} EGP</div>
-    <div class="badge badge-setup">{label}</div>
-    <div class="badge badge-pattern">{pattern_badge}</div>
-  </div>
-  <div class="header-right">
-    <div class="stat-box">
-      <span class="stat-label">Target</span>
-      <span class="stat-val target">{f'{target:.2f} ({target_pct})' if target else 'N/A'}</span>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Stop Loss</span>
-      <span class="stat-val stop">{f'{stop:.2f} ({stop_pct})' if stop else 'N/A'}</span>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Risk/Reward</span>
-      <span class="stat-val rr">{rr_str}</span>
-    </div>
-  </div>
-</div>
+    template = Template(Path(__file__).with_name("candidate_chart.html").read_text(encoding="utf-8"))
+    return template.substitute(
+        symbol=escape(symbol), company=escape(meta.get("company") or symbol), rank=rank,
+        session=session, close_date=close_date, reference=display_price(reference),
+        target=display_price(target), stop=display_price(stop), reward_risk=reward_risk,
+        evidence=evidence, chart_data=json.dumps(dict(bars=bars, levels=levels), allow_nan=False),
+    )
 
-<div class="chart-container">
-  <canvas id="chart" width="1280" height="730"></canvas>
-  <div class="watermark">PRAECURSOR-EGX // DAILY INSTITUTIONAL SIGNAL RADAR</div>
-</div>
 
-<script>
-const data = {json.dumps(candles)};
-const target = {json.dumps(target)};
-const stop = {json.dumps(stop)};
-const closePrice = {close_price};
-const targetPct = {json.dumps(target_pct)};
-const stopPct = {json.dumps(stop_pct)};
+def capture_chart(page, html_file: Path, png_path: Path):
+    page.goto(html_file.as_uri())
+    page.locator('canvas[data-rendered="true"]').wait_for(timeout=5000)
+    page.screenshot(path=str(png_path), type="png", full_page=True)
 
-const canvas = document.getElementById('chart');
-const ctx = canvas.getContext('2d');
-
-const width = 1280;
-const height = 730;
-const paddingRight = 90;
-const paddingLeft = 20;
-const paddingTop = 30;
-const volumeHeight = 120;
-const priceChartHeight = height - volumeHeight - paddingTop - 40;
-
-// Calculate price bounds
-let minPrice = Infinity;
-let maxPrice = -Infinity;
-data.forEach(d => {{
-  if (d.low < minPrice) minPrice = d.low;
-  if (d.high > maxPrice) maxPrice = d.high;
-  if (d.ema20 && d.ema20 < minPrice) minPrice = d.ema20;
-  if (d.ema20 && d.ema20 > maxPrice) maxPrice = d.ema20;
-  if (d.ema50 && d.ema50 < minPrice) minPrice = d.ema50;
-  if (d.ema50 && d.ema50 > maxPrice) maxPrice = d.ema50;
-  if (d.ema200 && d.ema200 < minPrice) minPrice = d.ema200;
-  if (d.ema200 && d.ema200 > maxPrice) maxPrice = d.ema200;
-}});
-
-if (target && target > maxPrice) maxPrice = target;
-if (stop && stop < minPrice) minPrice = stop;
-
-// Add 5% padding to prices
-const priceRange = maxPrice - minPrice;
-minPrice -= priceRange * 0.04;
-maxPrice += priceRange * 0.05;
-
-// Max Volume
-let maxVol = 0;
-data.forEach(d => {{
-  if (d.volume > maxVol) maxVol = d.volume;
-}});
-maxVol *= 1.25;
-
-// Helper scaling functions
-function getY(price) {{
-  return paddingTop + priceChartHeight - ((price - minPrice) / (maxPrice - minPrice)) * priceChartHeight;
-}}
-
-function getVolY(vol) {{
-  const volTop = paddingTop + priceChartHeight + 20;
-  return volTop + volumeHeight - (vol / maxVol) * volumeHeight;
-}}
-
-const candleCount = data.length;
-const chartWidth = width - paddingLeft - paddingRight;
-const candleWidth = chartWidth / candleCount;
-const barWidth = Math.max(3, candleWidth * 0.72);
-
-// Draw Background Grid
-ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-ctx.lineWidth = 1;
-
-// Key level Y positions
-const yTarget = target && target > closePrice ? getY(target) : null;
-const yStop = stop && stop < closePrice ? getY(stop) : null;
-const yEntry = getY(closePrice);
-
-function isNearBadge(y) {{
-  if (yTarget !== null && Math.abs(y - yTarget) < 18) return true;
-  if (yStop !== null && Math.abs(y - yStop) < 18) return true;
-  if (yEntry !== null && Math.abs(y - yEntry) < 16) return true;
-  return false;
-}}
-
-// Horizontal price grid lines (5 levels)
-const gridSteps = 6;
-for (let i = 0; i <= gridSteps; i++) {{
-  const p = minPrice + (i / gridSteps) * (maxPrice - minPrice);
-  const y = getY(p);
-  ctx.beginPath();
-  ctx.moveTo(paddingLeft, y);
-  ctx.lineTo(width - paddingRight, y);
-  ctx.stroke();
-
-  // Price text on right axis (only if not colliding with key level badges)
-  if (!isNearBadge(y)) {{
-    ctx.fillStyle = '#6B7280';
-    ctx.font = '11px "JetBrains Mono", monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(p.toFixed(2), width - paddingRight + 12, y + 4);
-  }}
-}}
-
-// Target Corridor (Translucent Shading)
-if (yTarget !== null) {{
-  const yClose = getY(closePrice);
-  ctx.fillStyle = 'rgba(16, 185, 129, 0.06)';
-  ctx.fillRect(paddingLeft, yTarget, chartWidth, yClose - yTarget);
-
-  // Target Line
-  ctx.strokeStyle = '#10B981';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 4]);
-  ctx.beginPath();
-  ctx.moveTo(paddingLeft, yTarget);
-  ctx.lineTo(width - paddingRight, yTarget);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Target Badge on Right
-  ctx.fillStyle = '#10B981';
-  if (ctx.roundRect) {{
-    ctx.beginPath();
-    ctx.roundRect(width - paddingRight + 4, yTarget - 11, 78, 22, 4);
-    ctx.fill();
-  }} else {{
-    ctx.fillRect(width - paddingRight + 4, yTarget - 11, 78, 22);
-  }}
-  ctx.fillStyle = '#07080B';
-  ctx.font = 'bold 10px "JetBrains Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(target.toFixed(2), width - paddingRight + 43, yTarget + 4);
-}}
-
-// Stop Loss Corridor (Translucent Shading)
-if (yStop !== null) {{
-  const yClose = getY(closePrice);
-  ctx.fillStyle = 'rgba(239, 68, 68, 0.06)';
-  ctx.fillRect(paddingLeft, yClose, chartWidth, yStop - yClose);
-
-  // Stop Line
-  ctx.strokeStyle = '#EF4444';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 4]);
-  ctx.beginPath();
-  ctx.moveTo(paddingLeft, yStop);
-  ctx.lineTo(width - paddingRight, yStop);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Stop Badge on Right
-  ctx.fillStyle = '#EF4444';
-  if (ctx.roundRect) {{
-    ctx.beginPath();
-    ctx.roundRect(width - paddingRight + 4, yStop - 11, 78, 22, 4);
-    ctx.fill();
-  }} else {{
-    ctx.fillRect(width - paddingRight + 4, yStop - 11, 78, 22);
-  }}
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 10px "JetBrains Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(stop.toFixed(2), width - paddingRight + 43, yStop + 4);
-}}
-
-// Current Close Entry Line
-ctx.strokeStyle = '#06B6D4';
-ctx.lineWidth = 1.5;
-ctx.setLineDash([3, 3]);
-ctx.beginPath();
-ctx.moveTo(paddingLeft, yEntry);
-ctx.lineTo(width - paddingRight, yEntry);
-ctx.stroke();
-ctx.setLineDash([]);
-
-// Entry Badge
-ctx.fillStyle = '#06B6D4';
-if (ctx.roundRect) {{
-  ctx.beginPath();
-  ctx.roundRect(width - paddingRight + 4, yEntry - 10, 78, 20, 4);
-  ctx.fill();
-}} else {{
-  ctx.fillRect(width - paddingRight + 4, yEntry - 10, 78, 20);
-}}
-ctx.fillStyle = '#07080B';
-ctx.font = 'bold 10px "JetBrains Mono", monospace';
-ctx.textAlign = 'center';
-ctx.fillText(closePrice.toFixed(2), width - paddingRight + 43, yEntry + 4);
-
-// Draw EMAs
-function drawEMA(key, color, width) {{
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.beginPath();
-  let started = false;
-  data.forEach((d, i) => {{
-    if (d[key] !== null) {{
-      const x = paddingLeft + i * candleWidth + candleWidth / 2;
-      const y = getY(d[key]);
-      if (!started) {{
-        ctx.moveTo(x, y);
-        started = true;
-      }} else {{
-        ctx.lineTo(x, y);
-      }}
-    }}
-  }});
-  ctx.stroke();
-}}
-
-drawEMA('ema200', 'rgba(168, 85, 247, 0.75)', 1.5);
-drawEMA('ema50', 'rgba(56, 189, 248, 0.85)', 1.8);
-drawEMA('ema20', '#F59E0B', 2.0);
-
-// Draw Candlesticks & Volume
-data.forEach((d, i) => {{
-  const xCenter = paddingLeft + i * candleWidth + candleWidth / 2;
-  const xLeft = xCenter - barWidth / 2;
-  const isUp = d.close >= d.open;
-  const candleColor = isUp ? '#10B981' : '#EF4444';
-
-  // 1. Candlestick Wick
-  ctx.strokeStyle = candleColor;
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(xCenter, getY(d.high));
-  ctx.lineTo(xCenter, getY(d.low));
-  ctx.stroke();
-
-  // 2. Candlestick Body
-  const yOpen = getY(d.open);
-  const yClose = getY(d.close);
-  const bodyTop = Math.min(yOpen, yClose);
-  const bodyHeight = Math.max(2, Math.abs(yClose - yOpen));
-
-  ctx.fillStyle = candleColor;
-  ctx.fillRect(xLeft, bodyTop, barWidth, bodyHeight);
-
-  // 3. Volume Bar
-  const volTop = getVolY(d.volume);
-  const volBottom = paddingTop + priceChartHeight + 20 + volumeHeight;
-  ctx.fillStyle = isUp ? 'rgba(16, 185, 129, 0.45)' : 'rgba(239, 68, 68, 0.45)';
-  ctx.fillRect(xLeft, volTop, barWidth, volBottom - volTop);
-
-  // Date Labels (Every 8 bars)
-  if (i % 8 === 0 || i === candleCount - 1) {{
-    ctx.fillStyle = '#6B7280';
-    ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(d.date, xCenter, paddingTop + priceChartHeight + 14);
-  }}
-}});
-
-// 4. Volume 20-MA Line
-ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)';
-ctx.lineWidth = 1.5;
-ctx.beginPath();
-let volMaStarted = false;
-data.forEach((d, i) => {{
-  if (d.vol_ma20 > 0) {{
-    const x = paddingLeft + i * candleWidth + candleWidth / 2;
-    const y = getVolY(d.vol_ma20);
-    if (!volMaStarted) {{
-      ctx.moveTo(x, y);
-      volMaStarted = true;
-    }} else {{
-      ctx.lineTo(x, y);
-    }}
-  }}
-}});
-ctx.stroke();
-
-// Legend
-ctx.font = '11px "JetBrains Mono", monospace';
-ctx.textAlign = 'left';
-
-ctx.fillStyle = '#F59E0B';
-ctx.fillText('■ EMA20', paddingLeft + 10, paddingTop + 20);
-
-ctx.fillStyle = '#38BDF8';
-ctx.fillText('■ EMA50', paddingLeft + 90, paddingTop + 20);
-
-ctx.fillStyle = '#A855F7';
-ctx.fillText('■ EMA200', paddingLeft + 170, paddingTop + 20);
-
-ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
-ctx.fillText('■ Vol MA20', paddingLeft + 260, paddingTop + 20);
-</script>
-</body>
-</html>"""
-    return html_content
 
 def render_chart_to_png(symbol: str, output_path: Path | None = None) -> Path | None:
     """Generate and capture a high-res PNG chart for a given symbol."""
@@ -597,10 +148,8 @@ def render_chart_to_png(symbol: str, output_path: Path | None = None) -> Path | 
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
-            page.goto(html_file.as_uri())
-            page.wait_for_timeout(300)  # ensure canvas render
-            page.screenshot(path=str(png_path), type="png")
+            page = browser.new_page(viewport={"width": 600, "height": 740}, device_scale_factor=2)
+            capture_chart(page, html_file, png_path)
             browser.close()
             
         print(f"Chart saved: {png_path} ({png_path.stat().st_size} bytes)")
@@ -616,30 +165,16 @@ def generate_top_candidates_charts(top_n: int = 5, session: str | None = None) -
         from praecursor.notifications.owner_briefing import original_shortlist
         with closing(sqlite3.connect(str(DB_PATH))) as conn:
             picks = original_shortlist(conn, session)
-        return generate_candidate_charts({r["symbol"]: dict(r, score_percent=r["opportunity_score"])
-                                          for r in picks[:top_n]}, session)
+        return generate_candidate_charts({r["symbol"]: r for r in picks[:top_n]}, session)
     csv_path = REPORTS_DIR / "opportunity_ranking.csv"
     if not csv_path.exists():
         print("opportunity_ranking.csv not found.")
         return []
 
-    eligible = []
     with open(csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            sym = r.get("symbol")
-            nd_label = r.get("next_day_label", "")
-            if not sym or not r.get("candidate_rank"):
-                continue
-            try:
-                nd_score = float(r.get("next_day_score", 0.0) or 0.0)
-            except (ValueError, TypeError):
-                nd_score = 0.0
-            eligible.append((sym, int(r["candidate_rank"])))
-
-    # Sort actionable candidates by next_day_score descending
-    eligible.sort(key=lambda x: x[1])
-    return generate_candidate_charts({symbol: get_candidate_metadata(symbol) for symbol, _ in eligible[:top_n]})
+        eligible = [r for r in csv.DictReader(f) if r.get("symbol") and r.get("candidate_rank")]
+    eligible.sort(key=lambda r: int(r["candidate_rank"]))
+    return generate_candidate_charts({r["symbol"]: r for r in eligible[:top_n]})
 
 
 def generate_candidate_charts(candidates: dict, session: str | None = None) -> list[Path]:
@@ -654,7 +189,7 @@ def generate_candidate_charts(candidates: dict, session: str | None = None) -> l
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=2)
+            page = browser.new_page(viewport={"width": 600, "height": 740}, device_scale_factor=2)
             
             for sym, meta in candidates.items():
                 try:
@@ -673,9 +208,7 @@ def generate_candidate_charts(candidates: dict, session: str | None = None) -> l
                         f.write(html)
                         
                     png_path = CHARTS_DIR / f"{stem}.png"
-                    page.goto(html_file.as_uri())
-                    page.wait_for_timeout(300)
-                    page.screenshot(path=str(png_path), type="png")
+                    capture_chart(page, html_file, png_path)
                     print(f"[OK] Generated chart: {png_path.name} ({png_path.stat().st_size} bytes)")
                     generated.append(png_path)
                 except Exception as e:
@@ -699,4 +232,6 @@ if __name__ == "__main__":
     if args.symbol:
         render_chart_to_png(args.symbol.upper())
     else:
-        generate_top_candidates_charts(args.top, args.session)
+        charts = generate_top_candidates_charts(args.top, args.session)
+        if args.session and not charts:
+            sys.exit(1)

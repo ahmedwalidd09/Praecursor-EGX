@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$symbol · Praecursor</title>
+<style>
+  :root { color-scheme: dark; --ink: #f3f3f3; --muted: #b9b9b9; --edge: #343434;
+    --silver: #d5d5d5; --mono: "Fira Code", Consolas, "Liberation Mono", monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--ink); background: #0b0b0b;
+    font: 22px/1.35 Manrope, "Segoe UI", "DejaVu Sans", sans-serif; }
+  main { max-width: 600px; margin: auto; padding: 24px 26px 22px; }
+  .masthead, .context, .legend, .footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .masthead, .context, .legend, .footer, dt, .kicker { font: 600 17px/1.3 var(--mono); }
+  .masthead { padding-bottom: 16px; border-bottom: 1px solid var(--edge); letter-spacing: .04em; }
+  .mark { display: inline-block; width: 15px; height: 15px; margin-right: 10px;
+    border: 2px solid var(--silver); border-top-width: 5px; transform: skewX(-13deg); }
+  .rank, .context, .legend, .footer, dt, .kicker { color: var(--muted); }
+  h1 { margin: 9px 0 0; font-size: 68px; line-height: 1; letter-spacing: -.06em; overflow-wrap: anywhere; }
+  .company { margin: 4px 0 10px; font-weight: 500; font-size: 24px; overflow-wrap: anywhere; }
+  .context { flex-wrap: wrap; }
+  .context strong { color: var(--ink); font-weight: inherit; }
+  dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 20px 0 0; padding: 12px 0;
+    border-block: 1px solid var(--edge); background: #141414; }
+  dl div { min-width: 0; padding: 0 12px; }
+  dl div + div { border-left: 1px solid var(--edge); }
+  dt { font-size: 15px; }
+  dt i { display: inline-block; width: 14px; margin-right: 7px; vertical-align: 4px; border-top: 2px solid var(--silver); }
+  .target i { border-top-style: dashed; }
+  .stop i { border-top-style: dotted; }
+  dd { margin: 4px 0 0; font: 600 28px/1.15 var(--mono); overflow-wrap: anywhere; }
+  .legend { margin: 14px 0 7px; font-size: 15px; flex-wrap: wrap; }
+  .legend b { font-weight: 600; color: var(--silver); }
+  .legend span:last-child { color: var(--ink); }
+  canvas { width: 100%; height: 372px; display: block; }
+  .evidence { padding: 13px 0 11px; border-top: 1px solid var(--edge); }
+  .evidence p { margin: 5px 0 0; font-size: 20px; overflow-wrap: anywhere; }
+  .footer { padding-top: 11px; border-top: 1px solid var(--edge); font-size: 15px; flex-wrap: wrap; }
+</style>
+<main>
+  <header>
+    <div class="masthead"><span><i class="mark"></i>PRAECURSOR / EGX</span><span class="rank">$rank</span></div>
+    <h1>$symbol</h1>
+    <p class="company">$company</p>
+    <div class="context"><span>$session</span><span>Price close <strong>$close_date</strong></span></div>
+  </header>
+  <dl>
+    <div><dt><i></i>Reference close</dt><dd>$reference</dd></div>
+    <div class="target"><dt><i></i>Target</dt><dd>$target</dd></div>
+    <div class="stop"><dt><i></i>Stop</dt><dd>$stop</dd></div>
+  </dl>
+  <div class="legend"><span><b>□</b> Up &nbsp; <b>■</b> Down</span><span>$reward_risk</span></div>
+  <canvas aria-label="Daily price candles and volume through $close_date"></canvas>
+  $evidence
+  <div class="footer"><span>Daily OHLC · Quote prices</span><span>Opening entry price varies</span></div>
+</main>
+<script id="chart-data" type="application/json">$chart_data</script>
+<script>
+(() => {
+  const {bars, levels} = JSON.parse(document.getElementById('chart-data').textContent);
+  const canvas = document.querySelector('canvas');
+  const width = canvas.clientWidth, height = canvas.clientHeight, dpr = window.devicePixelRatio;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const mono = getComputedStyle(document.documentElement).getPropertyValue('--mono');
+  ctx.font = '16px ' + mono;
+  const lows = bars.map(b => b.low).concat(levels.filter(v => v !== null));
+  const highs = bars.map(b => b.high).concat(levels.filter(v => v !== null));
+  const floor = Math.min(...lows), ceiling = Math.max(...highs);
+  const spread = ceiling - floor || ceiling * .02;
+  const min = Math.max(0, floor - spread * .09), max = ceiling + spread * .09;
+  const decimals = Math.min(8, Math.max(floor < 1 ? 3 : 2, 1 - Math.floor(Math.log10((max - min) / 4))));
+  const left = 4, right = width - Math.ceil(ctx.measureText(max.toFixed(decimals)).width) - 14;
+  const top = 12, bottom = 274, volumeTop = 313, volumeBottom = 365;
+  const step = (right - left) / bars.length;
+  const x = i => left + (i + .5) * step;
+  const y = price => top + (max - price) / (max - min) * (bottom - top);
+  function line(x1, y1, x2, y2, color, weight = 1, dash = []) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = weight;
+    ctx.setLineDash(dash);
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.fillStyle = '#141414';
+  ctx.fillRect(left, top, right - left, bottom - top);
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 4; i++) {
+    const price = max - i * (max - min) / 4;
+    const yy = y(price);
+    line(left, yy, right, yy, '#343434');
+    ctx.fillStyle = '#b9b9b9';
+    ctx.fillText(price.toFixed(decimals), right + 8, yy);
+  }
+  levels.forEach((level, i) => {
+    if (level !== null) line(left, y(level), right, y(level), '#aaaaaa', 1.5, [[], [9, 5], [2, 5]][i]);
+  });
+  const candleWidth = Math.min(15, Math.max(2, step * .58));
+  const peakVolume = Math.max(1, ...bars.map(b => b.volume));
+  line(left, volumeBottom, right, volumeBottom, '#343434');
+  bars.forEach((bar, i) => {
+    const xx = x(i), rising = bar.close >= bar.open, silver = rising ? '#f3f3f3' : '#999999';
+    const bodyTop = Math.min(y(bar.open), y(bar.close));
+    const bodyHeight = Math.max(1, Math.abs(y(bar.open) - y(bar.close)));
+    line(xx, y(bar.high), xx, y(bar.low), silver, 1.2);
+    ctx.fillStyle = rising ? '#141414' : silver;
+    ctx.fillRect(xx - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+    if (rising) {
+      ctx.strokeStyle = silver;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(xx - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+    }
+    const volume = bar.volume / peakVolume * (volumeBottom - volumeTop);
+    ctx.fillStyle = rising ? '#747474' : '#454545';
+    ctx.fillRect(xx - candleWidth / 2, volumeBottom - volume, candleWidth, volume);
+  });
+  ctx.fillStyle = '#b9b9b9';
+  for (const i of new Set([0, Math.floor((bars.length - 1) / 2), bars.length - 1])) {
+    ctx.textAlign = i === 0 ? 'left' : i === bars.length - 1 ? 'right' : 'center';
+    ctx.fillText(bars[i].date, i === 0 ? left : i === bars.length - 1 ? right : x(i), 293);
+  }
+  ctx.textAlign = 'left';
+  ctx.fillText('Vol.', right + 8, 348);
+  canvas.dataset.rendered = 'true';
+})();
+</script>
+</html>

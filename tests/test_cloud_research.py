@@ -72,6 +72,22 @@ def test_audit_shows_conflict_provenance_and_latest_arabic_notice():
         assert [(r["kind"], r["title_ar"]) for r in report["review_queue"]] == [("calendar_notice", "عطلة b")]
 
 
+def test_rounded_display_conflict_stays_unverified():
+    with connection() as conn:
+        conn.executemany("INSERT INTO source_prices VALUES (?,'2026-11-10',?,?,?,?,?,?)", [
+            ("ARAB", .256, .258, .253, .256, 1000, "tradingview"),
+            ("ARAB", .26, .26, .25, .26, 1000, "stockanalysis"),
+            ("REAL", .256, .258, .253, .256, 1000, "tradingview"),
+            ("REAL", .26, .27, .25, .26, 1000, "stockanalysis"),
+            ("VOL", .256, .258, .253, .256, 1001, "tradingview"),
+            ("VOL", .26, .26, .25, .26, 1000, "stockanalysis"),
+        ])
+        result = audit_data(conn, NOW, ["ARAB", "REAL", "VOL"])
+        assert result["current_symbols"] == 0
+        assert [r["price_evidence"] for r in result["symbols"]] == [
+            "display_compatible_conflict", "source_conflict", "source_conflict"]
+
+
 def weekly_frame():
     return pd.DataFrame([dict(symbol=f"P{i}",session="2026-11-10",candidate_rank=i+1,
         benchmark_eligible=True,next_day_target_hit=hit,

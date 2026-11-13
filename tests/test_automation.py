@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from praecursor.collectors.fake_market_data_source import FakeMarketDataSource
+from praecursor.collectors.collection_result import CollectionResult
 from praecursor.storage.price_cache import PriceCache
 from praecursor.workflows.scanner import ScannerWorkflow
 from tools.database_state import check_database, backup_database
@@ -31,6 +32,24 @@ def test_prices_only_collects_without_scoring_or_publishing(tmp_path):
     assert workflow.price_cache.count("COMI", "fake_market_data") > 200
     for operation in (scorer.score, reports, dashboard, history):
         operation.assert_not_called()
+
+
+@pytest.mark.parametrize("primary_count", [0, 1])
+def test_price_refresh_accepts_short_histories_and_checks_secondary(tmp_path, primary_count):
+    session = date(2026, 7, 27)
+    primary = FakeMarketDataSource()
+    secondary = FakeMarketDataSource("secondary")
+    bar = primary._create_price_bar(session, 0)
+    primary.fetch_history = Mock(return_value=CollectionResult("COMI", primary.name, [bar] * primary_count))
+    secondary.fetch_history = Mock(return_value=CollectionResult("COMI", secondary.name, [bar]))
+    cache = PriceCache(tmp_path / "prices.db")
+    workflow = ScannerWorkflow(minimum_bars=251, source_name=primary.name, market_data_source=primary,
+                               consensus_data_sources=[secondary], price_cache=cache)
+    result = workflow.run(symbols=["COMI"], end_date=session, prices_only=True)
+    assert result.success_count == 1 and result.history_run_id is None
+    assert cache.count("COMI", primary.name) == primary_count
+    assert cache.count("COMI", secondary.name) == 1
+    secondary.fetch_history.assert_called_once()
 
 
 def test_database_backup_requires_real_history_and_preserves_it(tmp_path):

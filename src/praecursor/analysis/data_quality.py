@@ -109,8 +109,18 @@ def audit_data(conn, now=None, symbols=None):
     for symbol, enabled in sorted(configured.items()):
         candle = select_candle(groups[symbol]) if groups[symbol] else None
         sources = provider_dates[symbol]
-        valid_sources = sum(select_candle([row]) is not None for row in groups[symbol])
-        evidence = ("complete" if candle else "source_conflict" if valid_sources > 1 else
+        valid = {item.source: item for row in groups[symbol] if (item := select_candle([row]))}
+        display = valid.get("stockanalysis")
+        primary = valid.get("tradingview")
+        # Audit-only comparison to the published two-decimal history display.
+        # Keep canonical selection and its verification gates unchanged.
+        prices = ("open", "high", "low", "close")
+        display_compatible = bool(display and primary and display.volume == primary.volume
+            and all(abs(getattr(display, field) * 100 - round(getattr(display, field) * 100)) < 1e-7
+                    and abs(getattr(display, field) - getattr(primary, field)) <= .0050000001
+                    for field in prices))
+        evidence = ("complete" if candle else "display_compatible_conflict" if display_compatible and len(valid) == 2
+                    else "source_conflict" if len(valid) > 1 else
                     "invalid_or_no_trades" if groups[symbol] else "no_current_observation")
         records.append(dict(symbol=symbol, enabled=enabled, last_price_session=max(sources.values(), default=None),
             price_status="current" if candle else "conflicting_or_invalid" if groups[symbol] else "stale_or_missing",

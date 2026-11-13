@@ -459,7 +459,7 @@ class ScannerWorkflow:
                 local_cache = PriceCache(database_path=self.price_cache.path)
                 local_primary_manager = DataManager(
                     sources=[self.market_data_source],
-                    minimum_bars=self.minimum_bars,
+                    minimum_bars=1 if prices_only else self.minimum_bars,
                     price_cache=local_cache,
                 )
                 local_stock_builder = CachedStockBuilder(
@@ -468,7 +468,12 @@ class ScannerWorkflow:
                     source_name=self.source_name,
                 )
 
-                primary_result = local_primary_manager.fetch_history(symbol, start_date, selected_end_date)
+                primary_error = None
+                try:
+                    primary_result = local_primary_manager.fetch_history(symbol, start_date, selected_end_date)
+                except ValueError as error:
+                    primary_error = error
+                    primary_result = CollectionResult(symbol, self.market_data_source.name)
                 
                 consensus_results = []
                 consensus_source_errors = {}
@@ -485,6 +490,21 @@ class ScannerWorkflow:
                         except Exception as e:
                             consensus_source_errors[source.name] = str(e)
 
+                if prices_only:
+                    candles = local_cache.load_canonical(symbol, selected_end_date, selected_end_date)
+                    if not candles:
+                        raise ValueError(f"No usable candle for completed session {selected_end_date}"
+                                         + (f"; {primary_error}" if primary_error else ""))
+                    return SymbolScanResult(
+                        symbol=symbol, downloaded_bars=len(primary_result.price_bars),
+                        cached_bars=len(candles), total_cached_rows=len(candles),
+                        warnings=list(primary_result.warnings),
+                        opportunity_score=OpportunityScore(symbol=symbol, company=symbol,
+                            latest_close=candles[-1].close, total_score=0, max_score=100, indicator_values={}),
+                    )
+
+                if primary_error:
+                    raise primary_error
                 consensus_result, consensus_error = self._calculate_consensus(
                     symbol,
                     primary_result,

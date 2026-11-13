@@ -29,6 +29,11 @@ individually so valid rows from the same response can be validated and saved.
 Data audits show enabled and configured coverage, each provider's latest
 session, canonical source, conflicts and invalid or zero-volume observations.
 The audit queues the latest known official notice revision in Arabic and English.
+Price-only learning checks both providers even when the primary history is too
+short for scoring. Refresh success requires a usable candle for the requested
+completed session. Audits label two-decimal display compatibility only when both
+providers have the same volume and all four prices fit the displayed rounding
+interval. These observations remain unresolved under the canonical price rules.
 Public-feed gaps remain unresolved until there is evidence for an exchange
 closure or adjustment. Uncertain symbols remain watch-only under existing rules.
 

@@ -90,6 +90,34 @@ or per-instrument effective dates and factors. The audit retains these items for
 review without applying unverified closures or adjustments.
 [Official notices](https://beta.egx.com.eg/en) · [EGX methodology](https://beta.egx.com.eg/api/media/uploads/EGX_100_EWI_Jan_2025_92e823d17f.pdf)
 
+## Source mapping and display precision
+
+The November 12 baseline contained 24 enabled symbols with no current price
+observation, two invalid or no-trade rows and 14 provider conflicts. The price
+refresh was applying the scoring minimum before reaching the second provider.
+TWSA had 243 TradingView bars, below the scoring requirement of 251, while FCMD
+had no TradingView response. Both StockAnalysis mappings resolve to the expected
+companies. DEIN's public history showed dated rows with no reported trade
+volume. These cases require separate evidence from a wrong ticker or a 404.
+[Baseline cloud run](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43420708386) · [TWSA history](https://stockanalysis.com/quote/egx/TWSA/history/) · [FCMD history](https://stockanalysis.com/quote/egx/FCMD/history/) · [DEIN history](https://stockanalysis.com/quote/egx/DEIN/history/)
+
+The price-only refresh now checks the second provider independently and judges
+success on a usable candle for the completed session. Scoring still uses the
+existing minimum history and eligibility checks. The audit flags conflicts
+compatible with the two-decimal HTML display when all four price differences
+fit a half-cent interval and reported volume is identical. These cases remain
+conflicts for verification. ACGC and ELNA had close disagreements beyond that
+interval despite matching intraday ranges. ARAB's saved baseline also had a
+volume discrepancy, so it cannot be classified by price rounding alone.
+
+No ticker was remapped from a name match or missing page. ALEX has a historical
+issuer delisting statement and a current provider symbol, but the sources leave
+current listing status unresolved. StockAnalysis supplies displayed values.
+Investing.com requires permission for storing and reusing its market data.
+FoudaLens limits automated collection, and its inspected archive did not
+cover the target session. No independent full-precision feed was integrated.
+[TITAN issuer history](https://titancementegypt.com/about-us/our-history/) · [TradingView ALEX](https://in.tradingview.com/symbols/EGX-ALEX/) · [Investing.com terms](https://www.investing.com/about-us/terms-and-conditions/) · [FoudaLens archive](https://foudalens.com/en/stock/ARAB.CA/trades) · [FoudaLens terms](https://foudalens.com/en/terms)
+
 ## Next work
 
 - Verify source mappings for enabled symbols with missing histories, and find

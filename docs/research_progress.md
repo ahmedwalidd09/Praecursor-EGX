@@ -137,6 +137,11 @@ The trial remains shadow-only while paired evidence accumulates. Neither arm's
 trial results enter production labels, model training, or active paper sizing.
 [Methodology and archived-data example](adaptive_levels.md)
 
+Deployment `776286a` passed 211 CI tests with 10 skipped. The Telegram-disabled
+weekly preview published the new artifact with zero registered or paired
+sessions for both horizons. The first qualifying post-deployment shortlist
+starts the prospective record. [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43424847651) · [Weekly preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43424890737)
+
 ## Next work
 
 - Resolve remaining missing instruments using authoritative listing status and

@@ -29,7 +29,7 @@ def connection():
 
 def test_reference_refresh_is_independent_of_price_history_and_never_assumes_currency():
     with connection() as conn:
-        fetch = Mock(return_value="<p>Currency is EGP</p>")
+        fetch = Mock(return_value="<title>Bank (EGX:COMI)</title><p>Currency is EGP</p>")
         assert refresh_quote_currencies(conn,["COMI"],NOW,fetch)=={"COMI":"observed"}
         refresh_quote_currencies(conn,["COMI"],NOW,fetch)
         assert fetch.call_count==1
@@ -37,7 +37,9 @@ def test_reference_refresh_is_independent_of_price_history_and_never_assumes_cur
         conn.execute("INSERT INTO instrument_observations VALUES ('COMI','other',?,'USD','https://example.com')",(NOW.isoformat(),))
         assert currency_evidence(conn,"COMI",NOW)=="conflicting"
         assert currency_evidence(conn,"COMI",NOW+timedelta(days=8)) is None
-        assert refresh_quote_currencies(conn,["NONE"],NOW,Mock(side_effect=OSError()))=={"NONE":"unavailable"}
+        assert refresh_quote_currencies(conn,["CANA"],NOW,Mock(side_effect=OSError()))=={"CANA":"unavailable"}
+        assert refresh_quote_currencies(conn,["CANA"],NOW,fetch)=={"CANA":"unverified_reference"}
+        assert currency_evidence(conn,"CANA",NOW) is None
         assert currency_evidence(conn,"NONE",NOW) is None
         with pytest.raises(ValueError):
             refresh_quote_currencies(conn,["../bad"],NOW,fetch)
@@ -51,6 +53,23 @@ def test_quality_audit_counts_absent_symbols_and_does_not_invent_holidays():
         assert report["stale_or_missing"]==["MISSING","OLD"]
         assert report["unknown_or_conflicting_currency"]==["COMI","MISSING","OLD"]
         assert conn.execute("SELECT count(*) FROM quality_audits").fetchone()[0]==1
+
+
+def test_audit_shows_conflict_provenance_and_latest_arabic_notice():
+    from praecursor.collectors.egx_disclosures import SCHEMA as DISCLOSURES
+
+    with connection() as conn:
+        conn.executescript(DISCLOSURES)
+        conn.execute("INSERT INTO source_prices VALUES ('COMI','2026-11-10',100,105,99,103,1000,'tradingview')")
+        conn.execute("INSERT INTO source_prices VALUES ('COMI','2026-11-10',110,115,109,113,1000,'stockanalysis')")
+        conn.execute("INSERT INTO source_prices VALUES ('ZERO','2026-11-10',100,100,100,100,0,'tradingview')")
+        for rev, stamp in (("a", NOW-timedelta(days=1)), ("b", NOW), ("c", NOW+timedelta(days=1))):
+            conn.execute("INSERT INTO disclosure_events VALUES ('1',?,NULL,NULL,?,?,?,'other','',?,'','','https://beta.egx.com.eg/en','{}','{}')",
+                         (rev, stamp.isoformat(), stamp.isoformat(), stamp.isoformat(), f"عطلة {rev}"))
+        report = audit_data(conn, NOW, ["COMI", "ZERO"])
+        assert [r["price_evidence"] for r in report["symbols"]] == ["source_conflict", "invalid_or_no_trades"]
+        assert report["symbols"][0]["source_sessions"] == {"stockanalysis": "2026-11-10", "tradingview": "2026-11-10"}
+        assert [(r["kind"], r["title_ar"]) for r in report["review_queue"]] == [("calendar_notice", "عطلة b")]
 
 
 def weekly_frame():

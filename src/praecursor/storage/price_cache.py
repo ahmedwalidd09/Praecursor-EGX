@@ -46,7 +46,7 @@ class PriceCache:
         If the same ticker, trade date, and source already exist, the row is
         updated instead of duplicated.
         """
-        if not result.price_bars:
+        if not result.price_bars and not (result.quote_currency and result.reference_url):
             return 0
 
         rows = [

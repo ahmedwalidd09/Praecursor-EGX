@@ -55,10 +55,34 @@ five candidate charts. All six pipeline stages passed. The database backup
 contained the five original picks with their reasons and one matching delivery
 receipt. CI passed 198 tests with 10 skipped. [Repair commit](https://github.com/ahmedwalidd09/Praecursor-EGX/commit/19ca762) · [Live scanner](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43165765155) · [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43165657254)
 
+## Provider and instrument evidence
+
+The November 12 baseline audit counted 207/248 current prices, all single-source,
+and 239 currency gaps. Thirteen of the 37 missing or stale symbols were disabled
+in the scan config. The cloud collection log recorded 22 StockAnalysis 404s.
+Two current TradingView rows had zero volume. ARAB and GTEX showed disagreement
+against the provider's two-decimal history table, which can be material for
+sub-pound and sub-dollar shares. Those candles remain subject to normal conflict
+checks. [Baseline audit](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43341840542) · [Collection log](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43322434690) · [ARAB history](https://stockanalysis.com/quote/egx/ARAB/history/) · [GTEX history](https://stockanalysis.com/quote/egx/GTEX/history/)
+
+One impossible StockAnalysis candle could previously invalidate an entire
+history response. The parser now omits the individual row and retains the
+other validated dates. Currency evidence survives a rejected OHLCV response,
+requires a matching EGX symbol, and gives explicit quote currency priority
+over reporting currency. The audit now records provider freshness and the
+latest known revision of Arabic and English official notices.
+[COMI history](https://stockanalysis.com/quote/egx/COMI/history/) · [SAIB quote](https://stockanalysis.com/quote/egx/SAIB/)
+
+The official homepage supplies recent notices and the EGX methodology describes
+adjustment formulas. Neither establishes a complete historical closure calendar
+or per-instrument effective dates and factors. The audit retains these items for
+review without applying unverified closures or adjustments.
+[Official notices](https://beta.egx.com.eg/en) · [EGX methodology](https://beta.egx.com.eg/api/media/uploads/EGX_100_EWI_Jan_2025_92e823d17f.pdf)
+
 ## Next work
 
-- Investigate individual source gaps and currency evidence using observable
-  provider and instrument records. The November 10 audit found 207 of 248
-  symbols current and 246 currency gaps.
+- Verify source mappings for enabled symbols with missing histories, and find
+  full-precision independent daily prices for low-priced shares.
 - Obtain authoritative exchange closure dates and corporate-action effective
-  dates and factors. Unverified gaps remain unresolved.
+  dates and factors. Keep collecting prospective evidence under the existing
+  promotion gates.

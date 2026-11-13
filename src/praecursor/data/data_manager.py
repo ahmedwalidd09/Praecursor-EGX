@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from praecursor.core.sessions import completed_session, CAIRO
 
@@ -73,6 +74,8 @@ class DataManager:
         collection_result.warnings.extend(validation_result.warnings)
 
         if not validation_result.is_valid:
+            if self.price_cache is not None and collection_result.quote_currency and collection_result.reference_url:
+                self.price_cache.save(replace(collection_result, price_bars=[]))
             error_text = "; ".join(validation_result.errors)
             raise ValueError(
                 f"Invalid price data from {collection_result.source_name} "

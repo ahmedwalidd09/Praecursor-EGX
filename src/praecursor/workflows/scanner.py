@@ -723,7 +723,7 @@ class ScannerWorkflow:
                 # Fake sources never make network requests during offline scans/tests.
                 if getattr(self.market_data_source, "name", "") in {"tradingview", "yahoo_finance", "stockanalysis"}:
                     candidates = [r[0] for r in connection.execute("SELECT symbol FROM scanner_signals WHERE run_id=? AND candidate_rank BETWEEN 1 AND 5", (history_run_id,))]
-                    refresh_quote_currencies(connection, candidates)
+                    refresh_quote_currencies(connection, candidates, symbol_mapper=self.symbol_mapper)
                 audit_data(connection)
                 from praecursor.analysis.shadow_experiments import record_shadow
                 record_shadow(connection, history_run_id)

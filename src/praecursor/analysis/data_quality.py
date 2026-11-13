@@ -1,15 +1,16 @@
 """Dated reference checks and conservative, machine-readable data review queues."""
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-import csv
 import json
 from pathlib import Path
 import re
 import sqlite3
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from praecursor.core.sessions import completed_session
 from praecursor.data.canonical import select_candle
+from praecursor.data.symbol_mapper import SymbolMapper
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMA = """
@@ -44,11 +45,12 @@ def _download(url):
     return content.decode("utf-8")
 
 
-def refresh_quote_currencies(conn, symbols, now=None, download=None):
+def refresh_quote_currencies(conn, symbols, now=None, download=None, symbol_mapper=None):
     """Refresh only missing/stale candidate references, independently of OHLCV success."""
     from praecursor.collectors.stockanalysis_source import quote_currency
     conn.executescript(SCHEMA)
     now = now or datetime.now(timezone.utc)
+    mapper = symbol_mapper or SymbolMapper.from_csv()
     results = {}
     for symbol in sorted(set(symbols)):
         if not re.fullmatch(r"[A-Z][A-Z0-9-]{0,12}", symbol):
@@ -57,14 +59,24 @@ def refresh_quote_currencies(conn, symbols, now=None, download=None):
         if currency and currency != "conflicting":
             results[symbol] = "fresh"
             continue
-        url = f"https://stockanalysis.com/quote/egx/{symbol}/"
         try:
-            currency = quote_currency((download or _download)(url))
+            provider_symbol = mapper.get_stockanalysis_symbol(symbol).strip().upper()
+        except KeyError:
+            results[symbol] = "unmapped"
+            continue
+        if not re.fullmatch(r"[A-Z][A-Z0-9-]{0,12}", provider_symbol):
+            raise ValueError("Invalid StockAnalysis symbol mapping")
+        url = f"https://stockanalysis.com/quote/egx/{provider_symbol}/"
+        try:
+            currency = quote_currency((download or _download)(url), provider_symbol)
             if not currency:
-                raise ValueError("No explicit quote currency")
-            conn.execute("INSERT OR IGNORE INTO instrument_observations VALUES (?,?,?,?,?)",
-                         (symbol, "stockanalysis", now.isoformat(), currency, url))
-            status = "observed"
+                status = "unverified_reference"
+            else:
+                conn.execute("INSERT OR IGNORE INTO instrument_observations VALUES (?,?,?,?,?)",
+                             (symbol, "stockanalysis", now.isoformat(), currency, url))
+                status = "observed"
+        except HTTPError as exc:
+            status = f"http_{exc.code}"
         except Exception:
             status = "unavailable"  # Failed references never become assumed EGP.
         conn.execute("INSERT OR REPLACE INTO reference_checks VALUES (?,?,?,?)",
@@ -80,33 +92,52 @@ def audit_data(conn, now=None, symbols=None):
     now = now or datetime.now(timezone.utc)
     session = completed_session(now).isoformat()
     if symbols is None:
-        with (ROOT / "config/symbols.csv").open(encoding="utf-8-sig") as file:
-            symbols = [r["egx_symbol"] for r in csv.DictReader(file)]
+        mapper = SymbolMapper.from_csv(ROOT / "config/symbols.csv")
+        enabled_symbols = set(mapper.get_symbols())
+        configured = {symbol: symbol in enabled_symbols for symbol in mapper.get_symbols(include_disabled=True)}
+    else:
+        configured = dict.fromkeys(symbols, True)
     groups = defaultdict(list)
     for row in conn.execute("SELECT * FROM source_prices WHERE date(trade_date)=?", (session,)):
         groups[row["ticker"]].append(row)
-    latest = dict(conn.execute("SELECT ticker,max(date(trade_date)) FROM source_prices WHERE date(trade_date)<=? GROUP BY ticker", (session,)))
+    provider_dates = defaultdict(dict)
+    reference_checks = {r["symbol"]: dict(r) for r in conn.execute("SELECT * FROM reference_checks")}
+    for ticker, source, last in conn.execute("""SELECT ticker,source,max(date(trade_date))
+        FROM source_prices WHERE date(trade_date)<=? GROUP BY ticker,source""", (session,)):
+        provider_dates[ticker][source] = last
     records = []
-    for symbol in sorted(set(symbols)):
+    for symbol, enabled in sorted(configured.items()):
         candle = select_candle(groups[symbol]) if groups[symbol] else None
-        records.append(dict(symbol=symbol, last_price_session=latest.get(symbol),
+        sources = provider_dates[symbol]
+        valid_sources = sum(select_candle([row]) is not None for row in groups[symbol])
+        evidence = ("complete" if candle else "source_conflict" if valid_sources > 1 else
+                    "invalid_or_no_trades" if groups[symbol] else "no_current_observation")
+        records.append(dict(symbol=symbol, enabled=enabled, last_price_session=max(sources.values(), default=None),
             price_status="current" if candle else "conflicting_or_invalid" if groups[symbol] else "stale_or_missing",
+            price_evidence=evidence, canonical_source=candle.source if candle else None, source_sessions=sources,
             agreeing_sources=candle.agreeing_sources if candle else 0,
+            reference_check=reference_checks.get(symbol),
             quote_currency=currency_evidence(conn, symbol, now)))
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     reviews = []
     if "disclosure_events" in tables:
-        for row in conn.execute("""SELECT event_id,symbol,event_type,title,body,source_url FROM disclosure_events
-            WHERE datetime(known_at)>=datetime(?) AND datetime(known_at)<=datetime(?)""",
+        for row in conn.execute("""SELECT * FROM (
+                SELECT *,ROW_NUMBER() OVER(PARTITION BY event_id ORDER BY known_at DESC,content_hash DESC) AS revision
+                FROM disclosure_events WHERE datetime(known_at)>=datetime(?) AND datetime(known_at)<=datetime(?))
+            WHERE revision=1 ORDER BY known_at DESC,event_id""",
             ((now-timedelta(days=14)).isoformat(), now.isoformat())):
-            calendar = bool(re.search(r"holiday|holidays|إجازة|عطلة|اجازة", row["title"]+" "+row["body"], re.I))
+            notice = " ".join(row[field] or "" for field in ("title", "title_ar", "body", "body_ar"))
+            calendar = bool(re.search(r"\bholidays?\b|إجازة|عطلة|اجازة", notice, re.I))
             if row["event_type"] in ("capital_action", "trading_suspension") or calendar:
                 reviews.append(dict(event_id=row["event_id"], symbol=row["symbol"],
                     kind="calendar_notice" if calendar else row["event_type"], source_url=row["source_url"],
+                    known_at=row["known_at"], title=row["title"], title_ar=row["title_ar"],
                     status="Effective date/factor not automatically verified"))
     fresh = sum(r["price_status"] == "current" for r in records)
     report = dict(checked_at=now.isoformat(), expected_session=session, configured_symbols=len(records),
         current_symbols=fresh, coverage_pct=100*fresh/len(records) if records else 0,
+        enabled_symbols=sum(configured.values()),
+        current_enabled_symbols=sum(r["enabled"] and r["price_status"] == "current" for r in records),
         stale_or_missing=[r["symbol"] for r in records if r["price_status"] == "stale_or_missing"],
         conflicting_or_invalid=[r["symbol"] for r in records if r["price_status"] == "conflicting_or_invalid"],
         unknown_or_conflicting_currency=[r["symbol"] for r in records if r["quote_currency"] in (None,"conflicting")],

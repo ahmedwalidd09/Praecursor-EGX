@@ -22,11 +22,15 @@ shortcut and local Python server can be off. A platform-wide GitHub outage can
 also delay the watchdog; cron is not a guaranteed delivery deadline.
 
 Each scan independently refreshes missing/stale quote-currency evidence for its
-five candidates before paper sizing. Data audits cover every configured symbol,
-including absent prices, conflicts, single-source coverage and currency gaps.
-They preserve dated snapshots and queue official capital-action/suspension and
-calendar notices. Public-feed gaps never become invented holiday dates or split
-factors. Uncertain symbols remain watch-only under the existing risk rules.
+five candidates before paper sizing. Scanner and Outcome Learning collection
+also save explicit, symbol-matched StockAnalysis quote currencies even when
+the price response is unusable. Malformed StockAnalysis candles are omitted
+individually so valid rows from the same response can be validated and saved.
+Data audits show enabled and configured coverage, each provider's latest
+session, canonical source, conflicts and invalid or zero-volume observations.
+The audit queues the latest known official notice revision in Arabic and English.
+Public-feed gaps remain unresolved until there is evidence for an exchange
+closure or adjustment. Uncertain symbols remain watch-only under existing rules.
 
 Outcome verification keeps every configured session in a dated prediction's
 one- or twenty-session horizon. Missing or conflicting evidence occupies its

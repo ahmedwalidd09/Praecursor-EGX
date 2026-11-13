@@ -1,4 +1,5 @@
 import logging
+from math import isfinite
 import re
 from bs4 import BeautifulSoup
 import time as time_module
@@ -17,14 +18,20 @@ from praecursor.data.symbol_mapper import SymbolMapper
 logger = logging.getLogger(__name__)
 
 
-def quote_currency(html):
+def quote_currency(html, expected_symbol=None):
     page = BeautifulSoup(html, "html.parser")
+    if expected_symbol:
+        identity = re.compile(rf"\(EGX:{re.escape(expected_symbol.upper())}\)")
+        title = page.title.get_text() if page.title else ""
+        if not identity.search(title):
+            return None
     for tag in page(["script", "style"]):
         tag.decompose()
     text = page.get_text(" ", strip=True)
     # Some USD-quoted shares also display EGP as the reporting currency.
-    match = re.search(r"Price in\s+([A-Z]{3})\b", text) or re.search(r"Currency is\s+([A-Z]{3})\b", text)
-    return match.group(1) if match else None
+    currencies = set(re.findall(r"Price in\s+([A-Z]{3})\b", text)
+                     or re.findall(r"Currency is\s+([A-Z]{3})\b", text))
+    return next(iter(currencies)) if len(currencies) == 1 else None
 
 
 class StockAnalysisTableParser(HTMLParser):
@@ -105,6 +112,9 @@ class StockAnalysisSource(MarketDataSource):
         url = self._build_url(stockanalysis_symbol)
         try:
             html_text = self._download_html(url, stockanalysis_symbol)
+            currency = quote_currency(html_text, stockanalysis_symbol)
+            if not currency:
+                raise ValueError("Could not verify StockAnalysis symbol and quote currency")
             price_bars, warnings = self._parse_price_bars(html_text, symbol, start_date, end_date)
         except Exception as error:
             logger.warning(f"StockAnalysis fetch failed for {symbol}: {error}")
@@ -122,7 +132,7 @@ class StockAnalysisSource(MarketDataSource):
             price_bars=price_bars,
             warnings=warnings,
             confidence=self.DEFAULT_CONFIDENCE,
-            quote_currency=quote_currency(html_text),
+            quote_currency=currency,
             reference_url=url,
         )
 
@@ -230,18 +240,17 @@ class StockAnalysisSource(MarketDataSource):
             low_price = self._parse_float(row[3])
             close_price = self._parse_float(row[4])
             volume = self._parse_volume(row[7])
-        except ValueError as error:
+        except (ValueError, OverflowError) as error:
             warnings.append(f"{symbol} {trade_date}: skipped malformed StockAnalysis row: {error}")
             return None
 
-        normalized_high = max(high_price, open_price, close_price)
-        normalized_low = min(low_price, open_price, close_price)
-
-        if normalized_high != high_price or normalized_low != low_price:
+        if (not all(isfinite(v) and v > 0 for v in (open_price, high_price, low_price, close_price))
+                or not low_price <= min(open_price, close_price) <= max(open_price, close_price) <= high_price
+                or volume < 0):
             warnings.append(
-                f"{symbol} {trade_date}: invalid high/low range conflicts with "
-                "open and close values."
+                f"{symbol} {trade_date}: skipped invalid StockAnalysis OHLCV row."
             )
+            return None
 
         return PriceBar(
             date=datetime.combine(trade_date, time.min),

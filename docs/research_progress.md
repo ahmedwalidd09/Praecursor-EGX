@@ -118,10 +118,20 @@ FoudaLens limits automated collection, and its inspected archive did not
 cover the target session. No independent full-precision feed was integrated.
 [TITAN issuer history](https://titancementegypt.com/about-us/our-history/) · [TradingView ALEX](https://in.tradingview.com/symbols/EGX-ALEX/) · [Investing.com terms](https://www.investing.com/about-us/terms-and-conditions/) · [FoudaLens archive](https://foudalens.com/en/stock/ARAB.CA/trades) · [FoudaLens terms](https://foudalens.com/en/terms)
 
+The November 12 cloud rerun on `9edd017` moved enabled coverage from 195/235
+to 199/235. CPME, GOUR, KORA, and TWSA gained usable candles. Enabled symbols
+with no current observation fell from 24 to 15, and invalid or no-trade rows
+rose from two to seven as missing observations became visible. Currency gaps
+fell from 53 to 42 across 248 configured symbols. Eight conflicts fit the
+display check, and six had differences beyond it. All 14 remain unresolved.
+Outcome Learning completed both jobs. CI passed 207 tests with 10 skipped.
+[Cloud audit](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43422465160) · [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43422441563)
+
 ## Next work
 
-- Verify source mappings for enabled symbols with missing histories, and find
-  full-precision independent daily prices for low-priced shares.
+- Resolve remaining missing instruments using authoritative listing status and
+  provider mappings. Verify a licensed independent full-precision source before
+  changing close or low-price conflict rules.
 - Obtain authoritative exchange closure dates and corporate-action effective
   dates and factors. Keep collecting prospective evidence under the existing
   promotion gates.

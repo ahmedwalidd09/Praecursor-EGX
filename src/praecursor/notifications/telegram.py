@@ -746,7 +746,6 @@ def dispatch_candidate_charts(
     chat_id: str | int | None = None,
 ) -> int:
     """Dispatch high-resolution chart photos for the top actionable candidates to Telegram."""
-    charts_dir = PROJECT_ROOT / "reports" / "charts"
     sent_count = 0
 
     if result is None:
@@ -775,13 +774,11 @@ def dispatch_candidate_charts(
         sym = getattr(item, "symbol", "")
         if not sym:
             continue
-        chart_png = charts_dir / f"{sym}_chart.png"
-        if not chart_png.exists():
-            try:
-                from tools.chart_generator import render_chart_to_png
-                chart_png = render_chart_to_png(sym)
-            except Exception:
-                chart_png = None
+        try:
+            from tools.chart_generator import render_chart_to_png
+            chart_png = render_chart_to_png(sym)
+        except Exception:
+            chart_png = None
 
         if not chart_png or not Path(chart_png).exists():
             continue

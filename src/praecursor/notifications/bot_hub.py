@@ -502,17 +502,13 @@ class TelegramBotHub:
 
     def _send_symbol_chart(self, chat_id: int, symbol: str) -> None:
         sym = symbol.upper()
-        chart_png = PROJECT_ROOT / "reports" / "charts" / f"{sym}_chart.png"
-        if not chart_png.exists():
-            try:
-                from tools.chart_generator import render_chart_to_png
-                res = render_chart_to_png(sym)
-                if res and Path(res).exists():
-                    chart_png = Path(res)
-            except Exception:
-                pass
+        try:
+            from tools.chart_generator import render_chart_to_png
+            chart_png = render_chart_to_png(sym)
+        except Exception:
+            chart_png = None
 
-        if chart_png.exists():
+        if chart_png and Path(chart_png).is_file():
             caption = f"📊 Technical Candlestick Radar for <b>{sym}</b>"
             self.client.send_photo(chart_png, caption=caption, parse_mode="HTML", chat_id=chat_id)
         else:

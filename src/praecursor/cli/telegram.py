@@ -197,16 +197,13 @@ def main() -> int:
         print(message)
         print("--------------------------------\n")
         if not args.no_charts and result:
-            charts_dir = Path("reports/charts")
             candidates = [c for c in getattr(result, "next_day_results", []) if c.candidate_rank]
             candidates.sort(key=lambda x: x.candidate_rank)
             top_actionable = candidates[:args.top_charts]
             print(f"--- CANDIDATE CHARTS QUEUED FOR PHOTO DISPATCH ({len(top_actionable)}) ---")
             for rank, item in enumerate(top_actionable, start=1):
                 sym = getattr(item, "symbol", "")
-                png = charts_dir / f"{sym}_chart.png"
-                exists_tag = "[EXISTS]" if png.exists() else "[WILL GENERATE]"
-                print(f"  Photo #{rank}: {sym} -> {png} {exists_tag}")
+                print(f"  Photo #{rank}: {sym} [WILL GENERATE]")
             print("----------------------------------------------------------\n")
         return 0
 

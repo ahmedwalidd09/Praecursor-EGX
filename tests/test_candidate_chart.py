@@ -1,11 +1,13 @@
 import json
 import re
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pandas as pd
 import pytest
 
 from tools.chart_generator import capture_chart, generate_chart_html
+from praecursor.notifications import bot_hub, telegram
 
 
 def test_chart_uses_saved_levels_and_unrounded_candles():
@@ -33,3 +35,26 @@ def test_chart_capture_waits_for_the_canvas(tmp_path):
         capture_chart(page, tmp_path / "chart.html", tmp_path / "chart.png")
     page.locator.assert_called_once_with('canvas[data-rendered="true"]')
     page.screenshot.assert_not_called()
+
+
+@pytest.mark.parametrize("rendered", [True, False])
+def test_telegram_routes_use_renderer_even_with_legacy_png(tmp_path, monkeypatch, rendered):
+    from tools import chart_generator
+
+    directory = tmp_path / "reports" / "charts"
+    directory.mkdir(parents=True)
+    (directory / "EFIH_chart.png").write_bytes(b"old image")
+    current = directory / "current.png"
+    current.touch()
+    render = Mock(return_value=current if rendered else None)
+    monkeypatch.setattr(chart_generator, "render_chart_to_png", render)
+    monkeypatch.setattr(telegram, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(bot_hub, "PROJECT_ROOT", tmp_path)
+    client = Mock()
+    client.send_photo.return_value = {"ok": True}
+    pick = SimpleNamespace(symbol="EFIH", candidate_rank=1)
+    result = SimpleNamespace(next_day_results=[pick])
+    assert telegram.dispatch_candidate_charts(client, result, verbose=False, chat_id=1) == int(rendered)
+    bot_hub.TelegramBotHub._send_symbol_chart(SimpleNamespace(client=client), 1, "efih")
+    assert [call.args for call in render.call_args_list] == [("EFIH",), ("EFIH",)]
+    assert [call.args[0] for call in client.send_photo.call_args_list] == ([current, current] if rendered else [])

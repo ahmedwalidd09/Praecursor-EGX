@@ -46,9 +46,12 @@ def overview(database=DATABASE):
             run=conn.execute("SELECT * FROM scanner_runs WHERE id IN (SELECT run_id FROM scanner_signals) ORDER BY id DESC LIMIT 1").fetchone()
             if run:
                 result["scan"]=dict(run)
+                from praecursor.analysis.adaptive_levels import adaptive_notes
+                notes = adaptive_notes(conn, run["id"])
                 signals=conn.execute("SELECT * FROM scanner_signals WHERE run_id=? ORDER BY next_day_score DESC,symbol",(run["id"],)).fetchall()
                 for r in signals:
                     row=dict(r)
+                    row["adaptive_levels"] = notes.get(row["symbol"], [])
                     row["selection_reasons"]=json.loads(row.get("selection_reasons") or "[]")
                     row["legacy"]=row.get("feature_version")!=FEATURE_VERSION
                     row["next_day_probability"]=None if row["legacy"] else row.get("next_day_probability")

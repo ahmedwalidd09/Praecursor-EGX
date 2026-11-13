@@ -50,6 +50,9 @@ def deliver_owner_briefing(conn, session, charts_dir: Path, *, preview=False, re
     message = TelegramReportFormatter().format_snapshot(dict(
         target_session=session, price_session=picks[0]["feature_session"], signals=picks, paper=paper_summary(conn)))
     message += "\n\nOriginal pre-open shortlist. Levels and reasons are from the saved scan."
+    from praecursor.analysis.adaptive_levels import adaptive_notes
+    if adaptive_notes(conn, picks[0]["run_id"]):
+        message += "\nChart notes marked Shadow are experimental."
     if conn.execute("SELECT 1 FROM sqlite_master WHERE name='quality_audits'").fetchone():
         audit = conn.execute("SELECT payload FROM quality_audits WHERE session=? ORDER BY checked_at DESC LIMIT 1",
                              (picks[0]["feature_session"],)).fetchone()

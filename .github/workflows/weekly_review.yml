@@ -72,5 +72,6 @@ jobs:
             reports/weekly_review.*
             reports/data_quality.json
             reports/shadow_experiments.json
+            reports/adaptive_levels.json
             reports/accuracy_history_archive.csv
           retention-days: 90

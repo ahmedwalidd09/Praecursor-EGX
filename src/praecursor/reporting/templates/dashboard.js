@@ -109,6 +109,8 @@ function showDetail(r) {
   for(const [k,v]of values){const group=document.createElement('div');group.append(el('dt',k),el('dd',v));$('levels').append(group);}
   $('reasons').replaceChildren();
   const reasons=h==='next_day'?[...(r.selection_reasons||[]),...(r.next_day_reasons||'No saved reasoning available.').split(';')]:['20-session target and stop are shown when recorded. Consult the swing validation report for independent evidence.'];
+  const shadow = (r.adaptive_levels||[]).find(note=>note.startsWith(h==='next_day'?'Shadow · 1 session ·':'Shadow · 20 sessions ·'));
+  if(shadow)reasons.push(shadow);
   for(const reason of reasons)$('reasons').append(el('div',reason.trim(),'reason'));
   $('detail').showModal();
 }

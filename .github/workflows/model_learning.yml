@@ -68,6 +68,7 @@ jobs:
             data/published_samples.csv
             reports/learning_feedback.json
             reports/research_evidence.json
+            reports/adaptive_levels.json
             reports/data_quality.json
             reports/shadow_experiments.json
           if-no-files-found: error

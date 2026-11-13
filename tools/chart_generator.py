@@ -106,6 +106,7 @@ def generate_chart_html(symbol: str, df: pd.DataFrame, meta: dict) -> str:
     if isinstance(reasons, str):
         reasons = json.loads(reasons) if reasons.startswith("[") else reasons.split("; ")
     selected = [reason for reason in reasons if reason and not reason.startswith("Target/stop reward-to-risk")][:2]
+    selected.extend((meta.get("adaptive_levels") or [])[:1])
     evidence = "".join(f"<p>{escape(reason)}</p>" for reason in selected)
     if evidence:
         evidence = '<section class="evidence"><span class="kicker">Selection evidence</span>' + evidence + "</section>"
@@ -163,8 +164,12 @@ def generate_top_candidates_charts(top_n: int = 5, session: str | None = None) -
     if session:
         from contextlib import closing
         from praecursor.notifications.owner_briefing import original_shortlist
+        from praecursor.analysis.adaptive_levels import adaptive_notes
         with closing(sqlite3.connect(str(DB_PATH))) as conn:
             picks = original_shortlist(conn, session)
+            notes = adaptive_notes(conn, picks[0]["run_id"]) if picks else {}
+        for pick in picks:
+            pick["adaptive_levels"] = notes.get(pick["symbol"], [])
         return generate_candidate_charts({r["symbol"]: r for r in picks[:top_n]}, session)
     csv_path = REPORTS_DIR / "opportunity_ranking.csv"
     if not csv_path.exists():

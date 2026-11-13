@@ -127,6 +127,16 @@ display check, and six had differences beyond it. All 14 remain unresolved.
 Outcome Learning completed both jobs. CI passed 207 tests with 10 skipped.
 [Cloud audit](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43422465160) · [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43422441563)
 
+## Adaptive profit targets and stops
+
+Implemented a prospective comparison of original saved targets and stops with
+an adaptive challenger. One- and 20-session estimates use completed price
+structure, a gap-aware noise buffer, and observed historical excursions. Both
+arms use the same next-open eligibility, risk sizing and friction assumptions.
+The trial remains shadow-only while paired evidence accumulates. Neither arm's
+trial results enter production labels, model training, or active paper sizing.
+[Methodology and archived-data example](adaptive_levels.md)
+
 ## Next work
 
 - Resolve remaining missing instruments using authoritative listing status and

@@ -73,6 +73,17 @@ over reporting currency. The audit now records provider freshness and the
 latest known revision of Arabic and English official notices.
 [COMI history](https://stockanalysis.com/quote/egx/COMI/history/) · [SAIB quote](https://stockanalysis.com/quote/egx/SAIB/)
 
+After deploying `9be58b4`, a price-only cloud rerun used the same November 12
+session. It saved current StockAnalysis observations for 170 symbols (previously
+2), with 156 multi-source confirmations (previously zero). Currency gaps fell
+from 239 to 53, with 188 EGP and 7 USD observations. Usable coverage fell from
+207/248 (83.5%) to 195/248 (78.6%), or 195/235 enabled. Twelve additional
+conflicts were exposed, leaving 14 conflicts, two invalid or no-trade rows,
+and 37 stale or missing symbols. This measures the quality and completeness
+of the evidence. The completed workflow saved the state and ran training behind
+the existing promotion gates. CI passed 204 tests with 10 skipped.
+[Deployment](https://github.com/ahmedwalidd09/Praecursor-EGX/commit/9be58b4) · [Cloud rerun and audit](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43420708386) · [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43420677720)
+
 The official homepage supplies recent notices and the EGX methodology describes
 adjustment formulas. Neither establishes a complete historical closure calendar
 or per-instrument effective dates and factors. The audit retains these items for

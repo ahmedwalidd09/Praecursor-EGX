@@ -223,3 +223,10 @@ backup and restore. [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions
 - **News** — The separate cloud job collects official exchange notices and
   economic RSS links without reading the production database. The local
   dashboard exposes the News view. [Operation and sources](news.md)
+
+Deployment `fdaf838` refreshed the News index using the prior release as
+input and retained the prior snapshot as a backup. All three feeds succeeded,
+producing 154 links after canonical URL and verified EGX cross-post
+deduplication. Chromium verified the published index, personal headline
+lookup, filters, paging, publisher links, and navigation at 320, 390 and
+1360 px. [News refresh](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43805080483) · [Regression checks](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43805076900)

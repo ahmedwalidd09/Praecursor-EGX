@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from math import isnan
 from praecursor.scoring.opportunity_score import OpportunityScore
+from praecursor.scoring.price_plan import SWING_POLICY, plan_evidence, price_text, valid_price
 
 
 @dataclass(frozen=True)
@@ -11,8 +12,9 @@ class SwingPrediction:
     label: str
     reasons: list[str]
     latest_close: float = 0.0
-    target_price: float = 0.0
-    stop_loss_price: float = 0.0
+    target_price: float | None = None
+    stop_loss_price: float | None = None
+    plan: dict | None = None
     position_size: float = 0.0
     max_risk: float = 0.0
     probability: float | None = None
@@ -72,8 +74,22 @@ def calculate_swing_prediction(
     atr14 = values.get("ATR14", float("nan"))
     latest_close = opportunity_score.latest_close
     
-    target_price = latest_close + (3.0 * atr14) if not _missing(atr14) else latest_close
-    stop_loss_price = latest_close - (1.0 * atr14) if not _missing(atr14) else latest_close
+    target_price = stop_loss_price = None
+    target_reason = stop_reason = "Requires a positive finite reference and ATR14"
+    if valid_price(latest_close) and valid_price(atr14):
+        candidate_target, candidate_stop = latest_close + 3 * atr14, latest_close - atr14
+        if valid_price(candidate_target) and 0 < candidate_stop < latest_close < candidate_target:
+            target_price, stop_loss_price = candidate_target, candidate_stop
+            target_reason = f"Reference + 3.0× ATR14 ({price_text(atr14)})"
+            stop_reason = f"Reference − 1.0× ATR14 ({price_text(atr14)})"
+        else:
+            target_reason = stop_reason = "ATR14 does not yield ordered, positive swing levels"
+    plan = plan_evidence(SWING_POLICY, 20, latest_close, target_price, stop_loss_price,
+                         atr14, target_reason, stop_reason)
+    if plan["status"] == "unavailable":
+        probability = None
+        label = "Price plan unavailable"
+        reasons.append(target_reason)
     dynamic_stop = False
             
     position_size = 0.0
@@ -91,6 +107,7 @@ def calculate_swing_prediction(
         latest_close=latest_close,
         target_price=target_price,
         stop_loss_price=stop_loss_price,
+        plan=plan,
         position_size=position_size,
         max_risk=max_risk,
         dynamic_stop=dynamic_stop

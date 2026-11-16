@@ -21,7 +21,7 @@ def test_chart_uses_saved_levels_and_unrounded_candles():
     data = json.loads(re.search(r'id="chart-data" type="application/json">(.*?)</script>', html)[1])
     assert data["bars"][0]["open"] == .255
     assert data["levels"] == [.259, .269, .244324]
-    assert "<dd>0.2590</dd>" in html and "<dd>0.2443</dd>" in html
+    assert "<dd>0.259</dd>" in html and "<dd>0.244324</dd>" in html
     assert "10 Nov 2026" in html and "11 Nov 2026" in html
     assert "Financial Services &amp; Digital Infrastructure</p>" in html
     assert "Reward / risk 0.68×" in html

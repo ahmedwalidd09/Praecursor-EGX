@@ -39,6 +39,7 @@ class MinimalResultRow:
     candidate_rank: int | None = None
     selection_reasons: tuple = ()
     source_status: str = ""
+    shortlist: dict | None = None
 
 
 @dataclass
@@ -103,8 +104,9 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                     latest_close=latest_c
                 )
 
-                target_p = float(row.get("next_day_target", 0.0) or 0.0)
-                stop_p = float(row.get("next_day_stop_loss", 0.0) or (row.get("swing_stop_loss", 0.0) or 0.0))
+                target_p = row.get("next_day_target")
+                stop_p = row.get("next_day_stop_loss")
+                plans = json.loads(row.get("plans_json") or "{}")
                 nd_s = float(row.get("next_day_score", 0.0) or 0.0)
                 nd_lbl = str(row.get("next_day_label", "") or "")
                 reasons_raw = str(row.get("next_day_reasons", "") or "")
@@ -117,6 +119,7 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                     latest_close=latest_c,
                     target_price=target_p,
                     stop_loss_price=stop_p,
+                    plan=plans.get("next_day"),
                     kelly_fraction=0.0,
                 )
 
@@ -130,6 +133,7 @@ def load_latest_scan_result() -> MinimalRunResult | None:
                     candidate_rank=row.get("candidate_rank"),
                     selection_reasons=tuple(json.loads(row.get("selection_reasons") or "[]")),
                     source_status=row.get("source_status") or "",
+                    shortlist=json.loads(row.get("shortlist_json") or "null"),
                 )
                 symbol_results.append(item)
 

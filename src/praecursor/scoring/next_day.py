@@ -1,9 +1,11 @@
 from dataclasses import dataclass
-from math import isnan
+from math import isfinite
 from typing import Any
 from praecursor.scoring.opportunity_score import OpportunityScore
 
-# Conservative target cap; exchange-specific limits require a verified instrument feed.
+from praecursor.scoring.price_plan import NEXT_DAY_POLICY, plan_evidence, price_text, valid_price
+
+# Legacy model cap used only by retrospective reconstruction.
 _CIRCUIT_BREAKER_LIMITS = {}
 _DEFAULT_CIRCUIT_BREAKER = 0.20
 
@@ -13,16 +15,19 @@ def _calculate_structural_levels(
     stock_obj: Any,
     values: dict[str, Any],
     symbol: str,
-) -> tuple[float, float, str, str]:
+    *,
+    legacy=False,
+) -> tuple[float | None, float | None, str, str]:
     """
     Derive price-action and structure-based Target and Stop-Loss levels.
     Uses real support/resistance pivots, breakout levels, dynamic EMAs, and swing pivots.
     """
-    if latest_close <= 0 or _missing(latest_close):
-        return 0.0, 0.0, "Invalid close price", "Invalid close price"
+    if not valid_price(latest_close):
+        missing = 0.0 if legacy else None
+        return missing, missing, "Invalid reference close", "Invalid reference close"
 
-    atr14 = values.get("ATR14", float("nan"))
-    if _missing(atr14) or atr14 <= 0:
+    atr14 = values.get("ATR14")
+    if legacy and not valid_price(atr14):
         atr14 = latest_close * 0.04
 
     # -------------------------------------------------------------
@@ -64,13 +69,14 @@ def _calculate_structural_levels(
 
     if valid_stops:
         stop_price, stop_desc = max(valid_stops, key=lambda item: item[0])
-    else:
-        # Fallback to 1.0x ATR14 disciplined stop
-        stop_price = latest_close - (1.0 * atr14)
-        stop_pct = (latest_close - stop_price) / latest_close if latest_close > 0 else 0.04
-        stop_pct = max(0.025, min(stop_pct, 0.065))
+    elif valid_price(atr14):
+        distance = (latest_close - (latest_close - atr14)) / latest_close if legacy else atr14 / latest_close
+        stop_pct = max(0.025, min(distance, 0.065))
         stop_price = latest_close * (1.0 - stop_pct)
-        stop_desc = f"1.0x ATR14 volatility floor"
+        bound = _bound_description(distance, .025, .065)
+        stop_desc = f"1.0× ATR14 ({price_text(atr14)}) gave {distance:.2%}; {bound}{stop_pct:.2%} applied"
+    else:
+        stop_price, stop_desc = None, "No valid support or positive ATR14"
 
     # -------------------------------------------------------------
     # 2. Structural Target Determination
@@ -118,29 +124,32 @@ def _calculate_structural_levels(
 
     if valid_targets:
         target_price, target_desc = min(valid_targets, key=lambda item: item[0])
-    else:
-        # Fallback to 1.5x ATR14 measured move
-        target_price = latest_close + (1.5 * atr14)
-        target_pct = (target_price - latest_close) / latest_close if latest_close > 0 else 0.06
-        target_pct = max(0.040, min(target_pct, 0.120))
+    elif valid_price(atr14):
+        raw = 1.5 * atr14
+        distance = ((latest_close + raw) - latest_close) / latest_close if legacy else raw / latest_close
+        target_pct = max(0.040, min(distance, 0.120))
         target_price = latest_close * (1.0 + target_pct)
-        target_desc = f"1.5x ATR14 measured momentum extension"
+        bound = _bound_description(distance, .040, .120)
+        target_desc = f"1.5× ATR14 ({price_text(atr14)}) gave {distance:.2%}; {bound}{target_pct:.2%} applied"
+    else:
+        target_price, target_desc = None, "No valid resistance or positive ATR14"
 
-    # Clamp by stock-specific Circuit Breaker if necessary
-    cb_limit = _CIRCUIT_BREAKER_LIMITS.get(symbol, _DEFAULT_CIRCUIT_BREAKER)
-    max_price = latest_close * (1.0 + (cb_limit * 0.975))
-    if target_price > max_price:
-        target_price = max_price
-        target_desc = f"clamped by EGX daily limit ceiling ({cb_limit*100:.0f}%)"
-
-    if stop_price <= 0 or stop_price >= latest_close:
-        stop_price = latest_close * 0.96
-        stop_desc = "4.0% protective stop floor"
-    if target_price <= latest_close:
-        target_price = latest_close * 1.05
-        target_desc = "5.0% baseline technical target"
-
+    if legacy:
+        cb_limit = _CIRCUIT_BREAKER_LIMITS.get(symbol, _DEFAULT_CIRCUIT_BREAKER)
+        target_price = min(target_price, latest_close * (1.0 + cb_limit * 0.975))
+        stop_price = stop_price if 0 < stop_price < latest_close else latest_close * .96
+        target_price = target_price if target_price > latest_close else latest_close * 1.05
+    elif not (valid_price(target_price) and valid_price(stop_price) and stop_price < latest_close < target_price):
+        return None, None, target_desc, stop_desc
     return target_price, stop_price, target_desc, stop_desc
+
+
+def _bound_description(value, floor, cap):
+    if value < floor:
+        return "floor bound at "
+    if value > cap:
+        return "cap bound at "
+    return ""
 
 
 @dataclass(frozen=True)
@@ -151,10 +160,11 @@ class NextDayPrediction:
     label: str
     reasons: list[str]
     latest_close: float = 0.0
-    target_price: float = 0.0          # Target 1 (Take-profit 50% scale-out)
-    target_price_2: float = 0.0        # Target 2 (Runner TP - exponential breakout)
-    stop_loss_price: float = 0.0       # Initial dynamic EWMA stop
-    trailing_stop_price: float = 0.0   # Breakeven stop anchor once TP1 hit
+    target_price: float | None = None
+    target_price_2: float | None = None
+    stop_loss_price: float | None = None
+    trailing_stop_price: float | None = None
+    plan: dict | None = None
     kelly_fraction: float = 0.0
     liquidity_tier: str = "MODERATE"   # HIGH, MODERATE, THIN
     probability: float | None = None
@@ -307,13 +317,15 @@ def calculate_next_day_prediction(
         values=values,
         symbol=symbol,
     )
-    target_price_2 = target_price
-    trailing_stop_price = latest_close
-
-    target_pct = (target_price - latest_close) / latest_close * 100.0 if latest_close > 0 else 0.0
-    stop_pct = (latest_close - stop_loss_price) / latest_close * 100.0 if latest_close > 0 else 0.0
-    reasons.append(f"Target placed at {target_price:.2f} (+{target_pct:.1f}%) {target_desc}")
-    reasons.append(f"Stop Loss placed at {stop_loss_price:.2f} (-{stop_pct:.1f}%) {stop_desc}")
+    plan = plan_evidence(NEXT_DAY_POLICY, 1, latest_close, target_price, stop_loss_price,
+                         values.get("ATR14"), target_desc, stop_desc)
+    available = plan["status"] == "heuristic-active"
+    if available:
+        reasons.append(f"Target {price_text(target_price)} · {target_desc}")
+        reasons.append(f"Stop {price_text(stop_loss_price)} · {stop_desc}")
+    else:
+        reasons.append(f"Plan unavailable · {target_desc} / {stop_desc}")
+        calibrated_probability = None
 
     # Kronos remains available through tools/predict_kronos.py for research.
     # Production ranking requires held-out evidence before adding its forecasts.
@@ -322,23 +334,23 @@ def calculate_next_day_prediction(
     turnover_val = values.get("AvgTurnover20", 0.0)
     if _missing(turnover_val) or float(turnover_val) <= 0:
         avg_vol = values.get("AvgVolume20", 0.0)
-        turnover_val = (float(avg_vol) * latest_close) if not _missing(avg_vol) and latest_close > 0 else 0.0
+        turnover_val = (float(avg_vol) * latest_close) if not _missing(avg_vol) and valid_price(latest_close) else 0.0
     else:
         turnover_val = float(turnover_val)
 
     closed_at_limit_up = values.get("ClosedAtLimitUp", 0.0)
     if turnover_val >= 10_000_000:
         liquidity_tier = "HIGH"
-        fill_feasibility = "High historical turnover (>10M EGP/day); fills depend on order size and spread"
+        fill_feasibility = "High historical turnover (≥10M quote units/day); fills depend on order size and spread"
     elif turnover_val >= 2_000_000:
         liquidity_tier = "MODERATE"
-        fill_feasibility = "Moderate Liquidity (2M-10M EGP/day - Limit Orders)"
+        fill_feasibility = "Moderate Liquidity (2M–10M quote units/day)"
     else:
         liquidity_tier = "THIN"
-        fill_feasibility = "Thin Liquidity (<2M EGP/day - Slippage Risk)"
+        fill_feasibility = "Thin Liquidity (<2M quote units/day)"
 
     if closed_at_limit_up == 1.0:
-        reasons.append("[CIRCUIT BREAKER LOCK] Closed at daily ceiling (+10%/+20%). Opening fill may be unavailable.")
+        reasons.append("Closed at the flagged upper price limit; next-open fill is uncertain.")
 
     regime_info = getattr(stock_obj, "market_context", {})
     regime_name = regime_info.get("regime", "Unknown")
@@ -349,7 +361,7 @@ def calculate_next_day_prediction(
     if calibrated_probability is not None:
         score = calibrated_probability * 100.0
 
-    rr_ratio = (target_pct / stop_pct) if stop_pct > 0 else 1.5
+    rr_ratio = plan.get("gross_reward_risk", 0.0)
     label = _label(
         score=score,
         rsi14=rsi14,
@@ -365,11 +377,13 @@ def calculate_next_day_prediction(
         turnover=turnover_val,
     )
 
-    if compatible_model and consensus_accepted and data_quality_score >= 80 and turnover_val >= 250_000 and latest_close >= .2:
+    if calibrated_probability is not None and consensus_accepted and data_quality_score >= 80 and turnover_val >= 250_000 and latest_close >= .2:
         label = "Next-Day Candidate" if calibrated_probability >= meta["threshold"] else "Watchlist Tomorrow"
     if data_quality_score < 80:
         label = "Insufficient History Quality"
         reasons.insert(0, "Insufficient validated history or session quality")
+    if not available:
+        label = "Price plan unavailable"
     if calibrated_probability is None:
         reasons.append("Technical setup only; no validated target probability or Kelly allocation available")
         reasons.append(meta.get("reason", "Model validation unavailable"))
@@ -385,9 +399,10 @@ def calculate_next_day_prediction(
         reasons=reasons,
         latest_close=latest_close,
         target_price=target_price,
-        target_price_2=target_price_2,
+        target_price_2=target_price,
         stop_loss_price=stop_loss_price,
-        trailing_stop_price=trailing_stop_price,
+        trailing_stop_price=latest_close if available else None,
+        plan=plan,
         kelly_fraction=kelly_fraction,
         liquidity_tier=liquidity_tier,
         fill_feasibility=fill_feasibility,
@@ -452,6 +467,6 @@ def _missing(value) -> bool:
     if value is None:
         return True
     try:
-        return isnan(float(value))
+        return not isfinite(float(value))
     except (ValueError, TypeError):
         return True

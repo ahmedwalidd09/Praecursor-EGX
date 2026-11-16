@@ -2,7 +2,7 @@ const snapshotNode = document.getElementById('saved-snapshot');
 const $ = id => document.getElementById(id);
 let data = null, busy = false, requesting = false, loading = false, activeTask = null;
 const number = (v,d=2) => v == null ? '—' : Number(v).toLocaleString('en-GB',{maximumFractionDigits:d,minimumFractionDigits:d});
-const price = v => v > 0 ? number(v,v < 1 ? 4 : 2) : '—';
+const price = v => Number.isFinite(v) && v > 0 ? Number(v.toPrecision(10)).toString() : '—';
 const quotePrice = (v,r) => price(v)+(v>0&&r.shortlist?.currency?' '+r.shortlist.currency:'');
 const pct = v => v == null ? '—' : number(v*100,1)+'%';
 function text(id,value) { $(id).textContent = value; }
@@ -113,7 +113,14 @@ function loadHistory(){
 }
 function showDetail(r) {
   const h=$('horizon').value;text('detail-title',r.symbol);text('detail-company',r.company);$('levels').replaceChildren();
+  const plan=r.plans?.[h];
   const values=[['Reference close',quotePrice(r.latest_close,r)],['Quote currency',r.shortlist?.currency||r.shortlist?.status||'Not recorded'],['Shortlist',r.shortlist?.exclusion||(r.shortlist?.policy||'Saved policy not recorded')],['Target',price(h==='next_day'?r.next_day_target:r.swing_target)],['Stop',price(r[h+'_stop_loss'])],['Target-touch probability',pct(h==='next_day'?r.next_day_probability:r.swing_probability)],['Data quality',number(r.data_quality_score,0)+' / 100'],['Close consensus',r.consensus_confidence>0?number(r.consensus_confidence,0)+' / 100':'Unverified'],['Feature session',r.feature_session||'Legacy record'],['Evidence',r.legacy?'Legacy · not recalibrated':(h==='next_day'?r.model_version:r.swing_model_version)||'Technical only']];
+  if(plan){
+    values.push(['Active plan',plan.policy+' · '+(plan.status==='heuristic-active'?'Heuristic':'Unavailable')],
+      ['Horizon',plan.horizon_sessions+' session'+(plan.horizon_sessions===1?'':'s')],
+      ['Target basis',plan.target_reason],['Stop basis',plan.stop_reason]);
+    if(plan.gross_reward_risk!=null) values.push(['Reference reward / risk',number(plan.gross_reward_risk)+'× gross · '+number(plan.net_reward_risk)+'× at '+plan.scenario_cost_bps+' bps']);
+  }
   for(const [k,v]of values){const group=document.createElement('div');group.append(el('dt',k),el('dd',v));$('levels').append(group);}
   $('reasons').replaceChildren();
   const reasons=h==='next_day'?[...(r.selection_reasons||[]),...(r.next_day_reasons||'No saved reasoning available.').split(';')]:['20-session target and stop are shown when recorded. Consult the swing validation report for independent evidence.'];

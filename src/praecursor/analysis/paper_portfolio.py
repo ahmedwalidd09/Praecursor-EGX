@@ -169,7 +169,10 @@ def record_plan(conn, run_id, now=None, policy=None, sectors=None):
     sectors = sectors or {}
     gross, sector_value, accepted_returns = 0, defaultdict(float), []
     for pick in picks:
-        reference, target, stop = (float(pick.get(k) or 0) for k in ("latest_close", "next_day_target", "next_day_stop_loss"))
+        reference, target, stop = (pick.get(k) for k in ("latest_close", "next_day_target", "next_day_stop_loss"))
+        # Unavailable levels cannot be stored as an order in the price-bearing ledger.
+        if any(value is None for value in (reference, target, stop)):
+            continue
         values = json.loads(pick.get("indicator_values_json") or "{}")
         turnover = float(values.get("AvgTurnover20") or 0)
         sector = sectors.get(pick["symbol"], "Unknown") or "Unknown"

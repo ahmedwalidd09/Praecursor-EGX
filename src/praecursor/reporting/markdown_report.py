@@ -1,4 +1,5 @@
 from math import isnan
+from praecursor.scoring.price_plan import price_text
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,8 @@ class ScannerMarkdownReportWriter:
                     f"- Next-day score: **{result.next_day_score:.0f}/100**",
                     f"- Next-day label: **{result.next_day_label}**",
                     f"- Next-day reasons: {result.next_day_reasons_text}",
-                    f"- Next-day Kelly Fraction: **Risk {result.next_day_prediction.kelly_fraction * 100:.1f}% of Portfolio**",
+                    f"- Next-day plan: {(result.next_day_prediction.plan or {}).get('policy', 'Unavailable')}",
+                    f"- Swing target / stop: {price_text(result.swing_prediction.target_price)} / {price_text(result.swing_prediction.stop_loss_price)}",
                     f"- Previous rank: **{result.previous_rank if result.previous_rank is not None else 'new'}**",
                     f"- Rank change: **{result.rank_change_text}**",
                     f"- Latest close: **{score.latest_close:.2f}**",

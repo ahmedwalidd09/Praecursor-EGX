@@ -241,7 +241,7 @@ class SymbolScanResult:
         return self.swing_prediction.label
 
     @property
-    def swing_stop_loss(self) -> float:
+    def swing_stop_loss(self) -> float | None:
         return self.swing_prediction.stop_loss_price
 
     @property

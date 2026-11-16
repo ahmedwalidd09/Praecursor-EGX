@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 LABEL_VERSION = "3"
+SCENARIO_COST_BPS = 25.0
 
 
 def outcome_category(status, net_return_pct=None):
@@ -27,13 +28,13 @@ class Outcome:
     resolved_session: str | None = None
 
 
-def evaluate_path(candles, reference, target, stop, horizon, cost_bps=25.0):
+def evaluate_path(candles, reference, target, stop, horizon, cost_bps=SCENARIO_COST_BPS):
     """Enter at next open; ambiguous same-bar barriers remain unlabelled for trade success.
 
     cost_bps is an explicit round-trip fee/slippage scenario, not a claim about broker charges.
     Missing sessions must be represented by None, never silently skipped.
     """
-    if not all(isfinite(x) and x > 0 for x in (reference, target)) or not reference < target:
+    if not all(x is not None and isfinite(x) and x > 0 for x in (reference, target)) or not reference < target:
         return Outcome("invalid_levels")
     if len(candles) < horizon:
         return Outcome("pending")
@@ -49,7 +50,7 @@ def evaluate_path(candles, reference, target, stop, horizon, cost_bps=25.0):
     common = dict(target_hit=hit, close_return_pct=(bars[-1].close / reference - 1) * 100,
                   max_return_pct=(max(b.high for b in bars) / reference - 1) * 100,
                   resolved_session=bars[-1].session)
-    if not isfinite(stop) or not 0 < stop < reference:
+    if stop is None or not isfinite(stop) or not 0 < stop < reference:
         return Outcome("no_recorded_stop", **common)
     entry = bars[0].open
     if entry >= target or entry <= stop or bars[0].low == bars[0].high:

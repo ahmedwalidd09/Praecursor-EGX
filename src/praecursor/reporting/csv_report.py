@@ -1,4 +1,5 @@
 import csv
+import json
 from math import isnan
 from pathlib import Path
 from typing import Any
@@ -173,6 +174,7 @@ class ScannerCSVReportWriter:
         "next_day_score",
         "next_day_label",
         "next_day_reasons",
+        "next_day_target", "next_day_stop_loss", "swing_target", "swing_stop_loss", "plans_json",
         *INDICATOR_FIELDNAMES,
         "consensus_accepted",
         "consensus_close",
@@ -240,6 +242,11 @@ class ScannerCSVReportWriter:
             "next_day_score": self._format_number(result.next_day_score),
             "next_day_label": result.next_day_label,
             "next_day_reasons": result.next_day_reasons_text,
+            "next_day_target": result.next_day_prediction.target_price,
+            "next_day_stop_loss": result.next_day_prediction.stop_loss_price,
+            "swing_target": result.swing_prediction.target_price,
+            "swing_stop_loss": result.swing_prediction.stop_loss_price,
+            "plans_json": json.dumps(dict(next_day=result.next_day_prediction.plan, swing=result.swing_prediction.plan)) ,
             **ranking_writer._indicator_columns(score),
             "consensus_accepted": consensus.accepted if consensus else False,
             "consensus_close": self._format_number(consensus.consensus_close) if consensus else "N/A",

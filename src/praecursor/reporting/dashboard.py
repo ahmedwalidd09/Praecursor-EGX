@@ -27,6 +27,7 @@ class ScannerDashboardWriter:
                 next_day_score=nd.score, next_day_label=item.next_day_label, next_day_target=nd.target_price,
                 candidate_rank=item.candidate_rank, selection_reasons=list(item.selection_reasons),
                 source_status=item.source_status, shortlist=getattr(item, "shortlist", None),
+                plans=dict(next_day=getattr(nd, "plan", None), swing=getattr(sw, "plan", None)),
                 next_day_stop_loss=nd.stop_loss_price, next_day_reasons=nd.reasons_text,
                 next_day_probability=nd.probability, model_version=nd.model_version,
                 swing_score=sw.score, swing_label=sw.label, swing_target=sw.target_price,

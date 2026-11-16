@@ -37,7 +37,7 @@ def _sample(stock, path, day):
     values = score.indicator_values
     if score.latest_close < .2 or values.get("AvgTurnover20",0) < 250000:
         return None
-    target,stop,_,_ = _calculate_structural_levels(score.latest_close,stock,values,stock.symbol)
+    target,stop,_,_ = _calculate_structural_levels(score.latest_close, stock, values, stock.symbol, legacy=True)
     nd = evaluate_path(path,score.latest_close,target,stop,1)
     atr = values.get("ATR14",0)
     sw = evaluate_path(path,score.latest_close,score.latest_close+3*atr,score.latest_close-atr,20)

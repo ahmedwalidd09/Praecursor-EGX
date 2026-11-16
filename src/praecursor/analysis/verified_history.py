@@ -83,13 +83,13 @@ def resolve_history(conn, as_of_date=None):
             factor *= actions.get((sig["symbol"], d), 1.0)
             adjusted.append(replace(bar, open=bar.open/factor, high=bar.high/factor,
                                     low=bar.low/factor, close=bar.close/factor) if bar else None)
-        reference = float(sig["latest_close"] or 0)
-        target = float(sig["next_day_target"] or 0)
-        stop = float(sig.get("next_day_stop_loss") or 0)
+        reference = sig["latest_close"]
+        target = sig["next_day_target"]
+        stop = sig.get("next_day_stop_loss")
         nd = evaluate_path(adjusted, reference, target, stop, 1)
-        swing_target = float(sig.get("swing_target") or 0)
+        swing_target = sig.get("swing_target")
         # Old signals without a published swing target are not retrospectively relabelled.
-        sw = evaluate_path(adjusted, reference, swing_target, float(sig.get("swing_stop_loss") or 0), 20)
+        sw = evaluate_path(adjusted, reference, swing_target, sig.get("swing_stop_loss"), 20)
         previous = conn.execute("SELECT * FROM verified_outcomes WHERE run_id=? AND symbol=?",
                                 (sig["run_id"], sig["symbol"])).fetchone()
         # Freeze resolved observations under this protocol; vendor revisions remain in the price journal.

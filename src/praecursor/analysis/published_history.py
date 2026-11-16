@@ -33,6 +33,7 @@ def original_predictions(conn):
         r = dict(row)
         rank = r.get("candidate_rank")
         r["shortlist"] = json.loads(r.pop("shortlist_json", None) or "null")
+        r["plans"] = json.loads(r.pop("plans_json", None) or "{}")
         if rank is None and r["shortlist"] is None:
             match = re.search(r"(?:Top Pick|Daily Candidate) #([1-5])\b", r.get("next_day_label") or "")
             rank = int(match.group(1)) if match else None

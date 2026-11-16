@@ -40,7 +40,7 @@ class TelegramFormatterTests(unittest.TestCase):
 
         message = TelegramReportFormatter().format_scanner_result(result, top_n=3)
         self.assertIn("PRAECURSOR-EGX", message.upper())
-        self.assertIn("COMI", message)
+        self.assertIn("Only 0/3", message)
 
 
 if __name__ == "__main__":

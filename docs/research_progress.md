@@ -242,10 +242,19 @@ lookup, filters, paging, publisher links, and navigation at 320, 390 and
    equal-weighted. The paired-shortlist benchmark uses the saved eligibility
    universe and reports legacy and new policy cohorts separately. Existing
    paper EGP and risk gates still apply.
-2. **Active plans** — Next implementation checkpoint. Trace next-day structural
-   and ATR levels, swing levels, and saved and live consumers before changing
-   future levels.
-3. **Cloud workspace** — Pending.
+2. **Active plans** — `structure-atr-v2` and `swing-atr-v2` are implemented.
+   Next-day measured stop distance uses ATR14 / close within 2.5–6.5%. Measured
+   target distance uses 1.5 × ATR14 / close within 4–12%. Eligible structural
+   levels retain their original priority. Swing uses close + 3 × ATR14 and
+   close − ATR14 when those levels are finite and ordered. Reference reward/risk
+   uses the saved close; the net scenario subtracts 25 bps of reference from
+   reward and adds it to risk. Executable outcomes use the eligible next open.
+   Synthetic ATR and emergency numeric replacements are unavailable in active
+   plans. The labeled legacy reconstruction keeps its original formula.
+   Historical signals and the adaptive shadow protocol stay frozen.
+3. **Cloud workspace** — Next implementation checkpoint. The current overview
+   reads the laptop SQLite file and local report JSON. Scope and authenticate
+   the cloud projection before publishing it.
 4. **News summaries and retention** — Pending.
 5. **Indicator comparison** — Pending.
 6. **Evidence maturity** — Pending.
@@ -257,3 +266,7 @@ evidence and one quoted in USD. This comparison is retrospective. The original
 five picks and outcome rows were preserved. The focused stage-one checks
 passed 45 tests.
 [Price source example](https://stockanalysis.com/quote/egx/COMI/history/)
+
+Stage one deployed in `a68a2ed`. The stage-two focused checks passed 60 tests,
+including clamp boundaries, invalid inputs, chart and Telegram parity, and
+legacy reconstruction.

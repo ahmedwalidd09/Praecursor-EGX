@@ -362,6 +362,9 @@ def _to_local_time(dt: datetime) -> datetime:
 import html as html_lib
 
 
+from praecursor.scoring.price_plan import price_text
+
+
 class TelegramReportFormatter:
     """Format scanner results for rich HTML Telegram messages."""
 
@@ -378,8 +381,12 @@ class TelegramReportFormatter:
             lines.append(f"\n<b>#{row['candidate_rank']} {html_lib.escape(row['symbol'])}</b> · Score {row['next_day_score']:.1f}/100")
             currency = (row.get("shortlist") or {}).get("currency")
             lines.append("Close / target / stop" + (f" ({html_lib.escape(currency)})" if currency else "") + ": " + " / ".join(
-                f"{row[k]:.3f}" if row.get(k) and row[k] > 0 else "Not recorded"
-                for k in ("latest_close", "next_day_target", "next_day_stop_loss")))
+                price_text(row.get(k)) for k in ("latest_close", "next_day_target", "next_day_stop_loss")))
+            plan = (row.get("plans") or {}).get("next_day")
+            if plan and plan["status"] == "heuristic-active":
+                lines.append(f"Reference R/R {plan['gross_reward_risk']:.2f}× gross · "
+                             f"{plan['net_reward_risk']:.2f}× at {plan['scenario_cost_bps']:g} bps · "
+                             + html_lib.escape(plan["policy"]))
             for reason in row.get("selection_reasons", []):
                 lines.append("• " + html_lib.escape(reason))
             lines.append(html_lib.escape(row.get("source_status") or "Source confirmation unavailable"))
@@ -405,339 +412,48 @@ class TelegramReportFormatter:
                 return None
 
         try:
-            from bs4 import BeautifulSoup
-        except ImportError:
-            BeautifulSoup = None
-
-        try:
             html = target_path.read_text(encoding="utf-8", errors="replace")
-        except (FileNotFoundError, OSError) as exc:
-            logger.warning(f"Could not read dashboard HTML from {target_path}: {exc}")
+        except OSError as exc:
+            logger.warning("Could not read dashboard HTML from %s: %s", target_path, exc)
             return None
 
         snapshot = re.search(r'<script id="saved-snapshot" type="application/json">(.*?)</script>', html, re.S)
-        if snapshot:
-            return self.format_snapshot(json.loads(snapshot.group(1)), top_n)
-
-        reg_m = re.search(r'class="pill-val regime-[^>]*>([^<]+)</span>', html)
-        regime = reg_m.group(1).strip() if reg_m else "UNKNOWN"
-
-        time_m = re.search(r'<span class="pill-label">LAST RAN AT:</span>\s*<span class="pill-val highlight">([^<]+)</span>', html)
-        scan_time_str = time_m.group(1).strip() if time_m else datetime.now().strftime("%Y-%m-%d %I:%M %p Cairo")
-        scan_time_str = scan_time_str.replace(" Cairo", "").strip()
-
-        sess_m = re.search(r'<span class="pill-label">TARGET SESSION:</span>\s*<span class="pill-val highlight">([^<]+)</span>', html)
-        target_session_raw = sess_m.group(1).strip() if sess_m else ""
-        try:
-            dt_sess = datetime.strptime(target_session_raw, "%Y-%m-%d")
-            target_session_str = dt_sess.strftime("%A, %b %d, %Y")
-        except Exception:
-            target_session_str = target_session_raw or "Next Trading Session"
-
-        blocks = []
-        header = (
-            f"🏛 <b>PRAECURSOR-EGX QUANT SCAN</b>\n"
-            f"⚡ <b>Version:</b> v6.3 Institutional Alpha\n"
-            f"🕒 <b>Last Ran At:</b> {scan_time_str}\n"
-            f"🎯 <b>Predicted For:</b> {target_session_str} (Open)\n"
-            f"🌐 <b>Market Regime:</b> {regime.title()}\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
-        )
-        blocks.append(header)
-
-        if not BeautifulSoup:
-            return None
-
-        soup = BeautifulSoup(html, "html.parser")
-        cards = soup.select(".candidate-card")
-        if not cards:
-            return None
-
-        non_avoid_cards = [
-            c for c in cards
-            if "Avoid" not in (c.select_one(".card-type-badge").text if c.select_one(".card-type-badge") else "")
-        ]
-        display_cards = non_avoid_cards if non_avoid_cards else cards
-
-        footer = "━━━━━━━━━━━━━━━━━━━━\n📊 <b>Full Terminal:</b> Open <code>reports/dashboard.html</code>"
-        count = 0
-        for card in display_cards:
-            sym_el = card.select_one(".symbol-name")
-            comp_el = card.select_one(".company-name")
-            badge_el = card.select_one(".card-type-badge")
-            score_el = card.select_one(".hero-score-num")
-
-            sym = sym_el.text.strip() if sym_el else ""
-            comp = comp_el.text.strip() if comp_el else ""
-            badge = badge_el.text.strip() if badge_el else ""
-
-            if not sym:
-                continue
-
-            score_text = score_el.text.strip().replace("%", "") if score_el else "0"
-            try:
-                score = float(score_text)
-            except ValueError:
-                score = 0.0
-
-            entry_val = 0.0
-            target_val = 0.0
-            target_pct = 0.0
-            stop_val = 0.0
-            stop_pct = 0.0
-
-            for row in card.select(".level-row"):
-                lbl = row.select_one(".level-label")
-                val = row.select_one(".level-val")
-                if not lbl or not val:
-                    continue
-                text_lbl = lbl.text.strip().upper()
-                if "ENTRY" in text_lbl:
-                    m = re.search(r"([\d\.]+)", val.text)
-                    if m: entry_val = float(m.group(1))
-                elif "TARGET" in text_lbl:
-                    m = re.search(r"([\d\.]+)", val.text)
-                    if m: target_val = float(m.group(1))
-                    pct_el = row.select_one(".pct-chip")
-                    if pct_el:
-                        m_pct = re.search(r"([\d\.]+)", pct_el.text)
-                        if m_pct: target_pct = float(m_pct.group(1))
-                elif "STOP LOSS" in text_lbl:
-                    m = re.search(r"([\d\.]+)", val.text)
-                    if m: stop_val = float(m.group(1))
-                    pct_el = row.select_one(".pct-chip")
-                    if pct_el:
-                        m_pct = re.search(r"([\d\.]+)", pct_el.text)
-                        if m_pct: stop_pct = float(m_pct.group(1))
-
-            rr_val = 1.5
-            kelly_val = 22.0
-            for s_item in card.select(".sizing-item"):
-                lbl = s_item.select_one(".sizing-label")
-                val = s_item.select_one(".sizing-val")
-                if not lbl or not val:
-                    continue
-                text_lbl = lbl.text.strip().upper()
-                if "R:R" in text_lbl:
-                    m = re.search(r"([\d\.]+)", val.text)
-                    if m: rr_val = float(m.group(1))
-                elif "KELLY" in text_lbl:
-                    m = re.search(r"([\d\.]+)", val.text)
-                    if m: kelly_val = float(m.group(1))
-
-            liq = "HIGH"
-            card_text = card.get_text()
-            if "MODERATE LIQUIDITY" in card_text:
-                liq = "MODERATE"
-            count += 1
-            is_avoid = "Avoid" in badge
-            is_top = not is_avoid and ("Top Pick" in badge or count <= 2)
-            if is_avoid:
-                badge_title = f"⚠️ <b>DEFENSIVE #{count}: {sym}</b>"
-            elif is_top:
-                badge_title = f"⭐ <b>TOP PICK #{count}: {sym}</b>"
-            else:
-                badge_title = f"📌 <b>#{count}: {sym}</b>"
-            comp_tag = f" ({comp})" if comp else ""
-
-            def _fmt_p(val: float) -> str:
-                if val <= 0:
-                    return "0.00"
-                if val < 0.10:
-                    return f"{val:.4f}"
-                elif val < 1.00:
-                    return f"{val:.3f}"
-                return f"{val:.2f}"
-
-            card_lines = [
-                f"{badge_title}{comp_tag}",
-                f"• <b>AI Conviction:</b> {score:.1f}%",
-                f"• <b>Entry:</b> {_fmt_p(entry_val)} EGP",
-                f"• <b>Target:</b> {_fmt_p(target_val)} (+{target_pct:.1f}%)",
-                f"• <b>Stop Loss:</b> {_fmt_p(stop_val)} (-{stop_pct:.1f}%)",
-                f"• <b>R:R Ratio:</b> {rr_val:.2f}x | <b>Half-Kelly:</b> {kelly_val:.1f}%",
-                f"• <b>Liquidity:</b> 💧 {liq}",
-            ]
-            card_str = "\n".join(card_lines)
-
-            # Ensure message stays comfortably within Telegram's 4096 character limit
-            projected_len = sum(len(b) for b in blocks) + len(card_str) + len(footer) + ((len(blocks) + 1) * 2)
-            if projected_len > 4000 and count > 1:
-                blocks.append(f"<i>... and {len(display_cards) - count + 1} more candidates in full terminal</i>")
-                break
-
-            blocks.append(card_str)
-
-            if count >= top_n:
-                break
-
-        if not count:
-            return None
-
-        blocks.append(footer)
-        return "\n\n".join(blocks)
+        return self.format_snapshot(json.loads(snapshot.group(1)), top_n) if snapshot else None
 
     def format_scanner_result(self, result: Any = None, top_n: int = 5) -> str:
-        # Try parsing dashboard.html only if result is None or if result.dashboard_report_path explicitly exists
         dashboard_path = getattr(result, "dashboard_report_path", None)
-        if result is None:
-            dashboard_path = dashboard_path or DASHBOARD_PATH
-            if not (dashboard_path and Path(dashboard_path).exists()):
-                if Path("reports/dashboard.html").exists():
-                    dashboard_path = Path("reports/dashboard.html")
-
-        if dashboard_path and Path(dashboard_path).exists():
+        if dashboard_path or result is None:
             try:
-                from_dash = self.format_from_dashboard_html(dashboard_path, top_n=top_n)
-                if from_dash:
-                    return from_dash
-            except Exception as exc:
-                logger.warning(f"Failed to format from dashboard HTML: {exc}")
+                snapshot = self.format_from_dashboard_html(dashboard_path, top_n)
+                if snapshot:
+                    return snapshot
+            except (ValueError, TypeError) as exc:
+                logger.warning("Could not read saved dashboard snapshot: %s", exc)
 
-        regime = "Unknown"
-        for item in getattr(result, "symbol_results", []) or []:
-            stock = getattr(item.opportunity_score, "stock", None)
-            if stock and stock.market_context.get("regime"):
-                regime = stock.market_context["regime"]
-                break
-        
-        gen_dt = getattr(result, "generated_at", datetime.now()) if result is not None else datetime.now()
-        if isinstance(gen_dt, str):
-            try:
-                gen_dt = datetime.fromisoformat(gen_dt.replace("Z", "+00:00"))
-            except Exception:
-                gen_dt = datetime.now()
-
-        local_dt = _to_local_time(gen_dt)
-        scan_time_str = local_dt.strftime("%Y-%m-%d %I:%M %p")
-        target_session_str = get_next_egx_trading_day_str(local_dt)
-
-        blocks = []
-        header = (
-            f"🏛 <b>PRAECURSOR-EGX QUANT SCAN</b>\n"
-            f"⚡ <b>Version:</b> v6.3 Institutional Alpha\n"
-            f"🕒 <b>Last Ran At:</b> {scan_time_str}\n"
-            f"🎯 <b>Predicted For:</b> {target_session_str} (Open)\n"
-            f"🌐 <b>Market Regime:</b> {regime}\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
-        )
-        blocks.append(header)
-
-        # Extract top next-day candidates
-        raw_candidates = getattr(result, "next_day_results", []) or []
-        if not raw_candidates and result is not None:
-            raw_candidates = getattr(result, "symbol_results", []) or []
-
-        top_candidates = [
-            item for item in raw_candidates
-            if "Avoid" not in getattr(item, "next_day_label", "")
-        ]
-        if not top_candidates and raw_candidates:
-            top_candidates = list(raw_candidates[:top_n])
-        else:
-            top_candidates = top_candidates[:top_n]
-
-        footer = "━━━━━━━━━━━━━━━━━━━━\n📊 <b>Full Terminal:</b> Open <code>reports/dashboard.html</code>"
-
-        if not top_candidates:
-            blocks.append("⚠️ <b>No qualified breakout setups found today (Defensive Mode).</b>")
-        else:
-            for idx, item in enumerate(top_candidates, start=1):
-                sym = getattr(item, "symbol", "")
-                pred = getattr(item, "next_day_prediction", None)
-                score = getattr(item, "next_day_score", 0.0)
-                label = getattr(item, "next_day_label", "")
-                reasons = getattr(item, "next_day_reasons", "") or getattr(item, "next_day_reasons_text", "")
-                if isinstance(reasons, list):
-                    reasons = " ; ".join(reasons)
-                
-                comp = ""
-                opp_score = getattr(item, "opportunity_score", None)
-                if opp_score:
-                    comp = getattr(opp_score, "company", "")
-                    latest_close = getattr(opp_score, "latest_close", 0.0)
-                else:
-                    latest_close = 0.0
-
-                target_price = 0.0
-                stop_loss = 0.0
-                kelly = 0.15
-                liq_tier = "HIGH"
-
-                if pred:
-                    latest_close = float(getattr(pred, "latest_close", latest_close))
-                    target_price = float(getattr(pred, "target_price", 0.0))
-                    stop_loss = float(getattr(pred, "stop_loss_price", 0.0))
-                    kelly = float(getattr(pred, "kelly_fraction", 0.22))
-                    liq_tier = getattr(pred, "liquidity_tier", "HIGH")
-                else:
-                    if target_price <= 0 and reasons:
-                        m_tgt = re.search(r"Target placed at ([\d\.]+)", reasons)
-                        if m_tgt:
-                            target_price = float(m_tgt.group(1))
-                        m_stp = re.search(r"Stop Loss placed at ([\d\.]+)", reasons)
-                        if m_stp:
-                            stop_loss = float(m_stp.group(1))
-                        m_kly = re.search(r"Half-Kelly:\s*([\d\.]+)%", reasons)
-                        if m_kly:
-                            kelly = float(m_kly.group(1)) / 100.0
-
-                    if target_price <= 0 and latest_close > 0:
-                        target_price = latest_close * 1.07
-                    if stop_loss <= 0 and latest_close > 0:
-                        stop_loss = latest_close * 0.95
-
-                t_pct = ((target_price - latest_close) / latest_close * 100) if latest_close > 0 else 0
-                stop_pct = ((latest_close - stop_loss) / latest_close * 100) if latest_close > 0 else 0
-                rr_ratio = (t_pct / stop_pct) if stop_pct > 0 else 0.0
-
-                if not pred and t_pct > 0 and stop_pct > 0:
-                    win_prob = max(0.40, min(0.50 + max(0.0, score - 50.0) * 0.005, 0.62))
-                    b = (t_pct / 100.0) / (stop_pct / 100.0)
-                    full_kelly = win_prob - ((1.0 - win_prob) / b)
-                    half_kelly = full_kelly * 0.5
-                    regime_mult = 1.2 if "Bull" in regime else 1.0
-                    adjusted_kelly = half_kelly * regime_mult
-                    kelly = max(0.05, min(adjusted_kelly, 0.25))
-
-                if "Thin Liquidity" in reasons or "Slippage Risk" in reasons:
-                    liq_tier = "THIN"
-                elif "Moderate Liquidity" in reasons:
-                    liq_tier = "MODERATE"
-                elif "High Liquidity" in reasons:
-                    liq_tier = "HIGH"
-
-                is_avoid = "Avoid" in label
-                is_top = not is_avoid and ("Top Pick" in label or idx <= 2)
-                if is_avoid:
-                    badge = f"⚠️ <b>DEFENSIVE #{idx}: {sym}</b>"
-                elif is_top:
-                    badge = f"⭐ <b>TOP PICK #{idx}: {sym}</b>"
-                else:
-                    badge = f"📌 <b>#{idx}: {sym}</b>"
-                comp_tag = f" ({comp})" if comp else ""
-
-                card = [
-                    f"{badge}{comp_tag}",
-                    f"• <b>AI Conviction:</b> {score:.1f}%",
-                    f"• <b>Entry:</b> {latest_close:.2f} EGP",
-                    f"• <b>Target:</b> {target_price:.2f} (+{t_pct:.1f}%)",
-                    f"• <b>Stop Loss:</b> {stop_loss:.2f} (-{stop_pct:.1f}%)",
-                    f"• <b>R:R Ratio:</b> {rr_ratio:.2f}x | <b>Half-Kelly:</b> {kelly*100:.1f}%",
-                    f"• <b>Liquidity:</b> 💧 {liq_tier}",
-                ]
-                card_str = "\n".join(card)
-
-                # Ensure message length stays well within Telegram 4096 character limit
-                projected_len = sum(len(b) for b in blocks) + len(card_str) + len(footer) + ((len(blocks) + 1) * 2)
-                if projected_len > 4000 and idx > 1:
-                    blocks.append(f"<i>... and {len(top_candidates) - idx + 1} more candidates in full terminal</i>")
-                    break
-
-                blocks.append(card_str)
-
-        blocks.append(footer)
-        return "\n\n".join(blocks)
+        from datetime import date
+        from praecursor.core.sessions import next_session
+        items = getattr(result, "next_day_results", ()) or ()
+        rows = []
+        shortlist_policy = None
+        for item in items:
+            shortlist = getattr(item, "shortlist", None)
+            if shortlist:
+                shortlist_policy = shortlist.get("policy")
+            rank = getattr(item, "candidate_rank", None)
+            if not rank:
+                continue
+            prediction = item.next_day_prediction
+            rows.append(dict(symbol=item.symbol, candidate_rank=rank,
+                next_day_score=item.next_day_score, latest_close=prediction.latest_close,
+                next_day_target=prediction.target_price, next_day_stop_loss=prediction.stop_loss_price,
+                selection_reasons=item.selection_reasons, source_status=item.source_status, shortlist=shortlist,
+                next_day_probability=prediction.probability, plans=dict(next_day=prediction.plan)))
+        price_session = getattr(result, "end_date", None)
+        if isinstance(price_session, str):
+            price_session = date.fromisoformat(price_session)
+        return self.format_snapshot(dict(signals=rows, price_session=price_session,
+            target_session=next_session(price_session) if price_session else None,
+            shortlist_policy=shortlist_policy), top_n)
 
 
 def dispatch_candidate_charts(
@@ -788,22 +504,12 @@ def dispatch_candidate_charts(
         pred = getattr(item, "next_day_prediction", None)
         opp = getattr(item, "opportunity_score", None)
         company = getattr(opp, "company", sym) if opp else sym
-        close_p = float(getattr(pred, "latest_close", 0.0) or (getattr(opp, "latest_close", 0.0) if opp else 0.0) or 0.0)
-        target_p = float(getattr(pred, "target_price", 0.0) or 0.0)
-        stop_p = float(getattr(pred, "stop_loss_price", 0.0) or 0.0)
-        label = getattr(item, "next_day_label", "")
-
-        target_pct = ((target_p - close_p) / close_p * 100) if close_p > 0 and target_p > 0 else 0.0
-        stop_pct = ((close_p - stop_p) / close_p * 100) if close_p > 0 and stop_p > 0 else 0.0
-        rr = (target_pct / stop_pct) if stop_pct > 0 else 0.0
-        kelly_frac = float(getattr(pred, "kelly_fraction", 0.0) or 0.0)
-
+        target, stop = getattr(pred, "target_price", None), getattr(pred, "stop_loss_price", None)
+        currency = (getattr(item, "shortlist", None) or {}).get("currency")
         caption = (
-            f"🎯 <b>#{rank} {sym} — {company}</b>\n"
-            f"📊 Target: <b>{target_p:.2f} EGP (+{target_pct:.1f}%)</b>\n"
-            f"🛑 Stop Loss: <b>{stop_p:.2f} EGP (-{stop_pct:.1f}%)</b>\n"
-            f"⚖️ Risk/Reward: <b>{rr:.1f} : 1</b> | Half-Kelly: <b>{kelly_frac * 100:.1f}%</b>\n"
-            f"🏷️ Setup: <i>{label}</i>"
+            f"<b>#{rank} {html_lib.escape(sym)} · {html_lib.escape(company)}</b>\n"
+            f"Target / stop: {price_text(target)} / {price_text(stop)}"
+            + (f" {html_lib.escape(currency)}" if currency else "")
         )
 
         try:

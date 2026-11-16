@@ -112,6 +112,7 @@ class SignalHistoryStore:
                 "selection_reasons TEXT",
                 "source_status TEXT",
                 "shortlist_json TEXT",
+                "plans_json TEXT",
 
             ]
             for col in new_columns:
@@ -199,14 +200,9 @@ class SignalHistoryStore:
                     if symbol_result.consensus_result
                     else 0.0
                 )
-                # Extract next-day target price from prediction
-                nd_target = 0.0
-                if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
-                    nd_target = float(getattr(symbol_result.next_day_prediction, 'target_price', 0.0) or 0.0)
-
-                nd_stop = 0.0
-                if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
-                    nd_stop = float(getattr(symbol_result.next_day_prediction, 'stop_loss_price', 0.0) or 0.0)
+                prediction = getattr(symbol_result, "next_day_prediction", None)
+                nd_target = getattr(prediction, "target_price", None)
+                nd_stop = getattr(prediction, "stop_loss_price", None)
 
                 nd_reasons = ""
                 if hasattr(symbol_result, 'next_day_prediction') and symbol_result.next_day_prediction:
@@ -223,7 +219,7 @@ class SignalHistoryStore:
 
                 swing_score = float(getattr(symbol_result, 'swing_score', 0.0))
                 swing_label = str(getattr(symbol_result, 'swing_label', ''))
-                swing_stop_loss = float(getattr(symbol_result, 'swing_stop_loss', 0.0))
+                swing_stop_loss = getattr(symbol_result, "swing_stop_loss", None)
 
                 indicator_values_json = None
                 if hasattr(score, 'indicator_values'):
@@ -302,9 +298,11 @@ class SignalHistoryStore:
                      nd.model_version, nd.probability, item.swing_prediction.target_price,
                      item.swing_prediction.probability, item.swing_prediction.model_version, run_id, item.symbol))
                 connection.execute("""UPDATE scanner_signals SET candidate_rank=?, selection_reasons=?,
-                    source_status=?, shortlist_json=? WHERE run_id=? AND symbol=?""",
+                    source_status=?, shortlist_json=?, plans_json=? WHERE run_id=? AND symbol=?""",
                     (getattr(item, "candidate_rank", None), json.dumps(getattr(item, "selection_reasons", ())),
                      getattr(item, "source_status", "Unknown"), json.dumps(getattr(item, "shortlist", None)),
+                     json.dumps(dict(next_day=getattr(nd, "plan", None),
+                                     swing=getattr(item.swing_prediction, "plan", None))),
                      run_id, item.symbol))
             connection.commit()
 

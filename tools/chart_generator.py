@@ -86,10 +86,10 @@ def generate_chart_html(symbol: str, df: pd.DataFrame, meta: dict) -> str:
     target = saved_level(meta, "next_day_target", "Target")
     stop = saved_level(meta, "next_day_stop_loss", "Stop Loss")
     levels = [reference, target, stop]
-    precision = 4 if any(value is not None and value < 1 for value in levels) else 3
+    from praecursor.scoring.price_plan import price_text
 
     def display_price(value):
-        return f"{value:,.{precision}f}" if value is not None else "—"
+        return price_text(value) if value is not None else "—"
 
     reward_risk = ""
     if target and stop and reference and 0 < stop < reference < target:
@@ -106,6 +106,14 @@ def generate_chart_html(symbol: str, df: pd.DataFrame, meta: dict) -> str:
     if isinstance(reasons, str):
         reasons = json.loads(reasons) if reasons.startswith("[") else reasons.split("; ")
     selected = [reason for reason in reasons if reason and not reason.startswith("Target/stop reward-to-risk")][:2]
+    plans = meta.get("plans") or json.loads(meta.get("plans_json") or "{}")
+    if plan := plans.get("next_day"):
+        if plan["status"] == "heuristic-active":
+            selected.insert(0, f"{plan['policy']} · {plan['target_reason']} · {plan['stop_reason']}")
+            reward_risk = (f"Reference R/R {plan['gross_reward_risk']:.2f}× gross · "
+                           f"{plan['net_reward_risk']:.2f}× at {plan['scenario_cost_bps']:g} bps")
+        else:
+            selected.insert(0, "Price plan unavailable")
     selected.extend((meta.get("adaptive_levels") or [])[:1])
     evidence = "".join(f"<p>{escape(reason)}</p>" for reason in selected)
     if evidence:
@@ -239,4 +247,8 @@ if __name__ == "__main__":
     else:
         charts = generate_top_candidates_charts(args.top, args.session)
         if args.session and not charts:
-            sys.exit(1)
+            from praecursor.analysis.published_history import original_predictions
+            with sqlite3.connect(DB_PATH) as conn:
+                run = [r for r in original_predictions(conn) if r["target_session"] == args.session]
+            if not run or not run[0]["shortlist"] or any(r["candidate_rank"] for r in run):
+                sys.exit(1)

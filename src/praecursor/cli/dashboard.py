@@ -12,7 +12,7 @@ import socket
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 import uvicorn
@@ -27,6 +27,7 @@ for stream in (sys.stdout, sys.stderr):
 from praecursor.core.settings import ScannerSettings
 from praecursor.data.symbol_mapper import SymbolMapper
 from praecursor.reporting.dashboard import DEFAULT_DASHBOARD_REPORT
+from praecursor.reporting.news import NewsFeed
 from praecursor.security.access_gate import (
     check_telegram_approval,
     get_short_node_id,
@@ -40,6 +41,7 @@ REPORTS_DIR = DEFAULT_DASHBOARD_REPORT.parent
 ARCHIVE_DIR = REPORTS_DIR / "archive"
 DATA_DIR = PROJECT_ROOT / "data"
 STATUS_FILE = DATA_DIR / "scan_status.json"
+news_feed = NewsFeed(DATA_DIR / "news-cache.json")
 
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1544,6 +1546,23 @@ async def get_dashboard_terminal() -> Any:
 
     from praecursor.reporting.pages import render_page
     return HTMLResponse(render_page("home.html"), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/dashboard/news", response_class=HTMLResponse)
+async def get_news_page() -> HTMLResponse:
+    if not is_machine_whitelisted():
+        return HTMLResponse(render_access_gate_html(), headers={"Cache-Control": "no-store"})
+    from praecursor.reporting.pages import render_page
+    return HTMLResponse(render_page("news.html"), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/news")
+def get_news(response: Response) -> dict:
+    if not is_machine_whitelisted():
+        raise HTTPException(403, "This machine has not been authorized")
+    response.headers["Cache-Control"] = "no-store"
+    return news_feed.read()
+
 
 
 @app.get("/api/access/status")

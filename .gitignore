@@ -40,3 +40,4 @@ models/active_*.json
 data/research_checkpoints/
 data/published_samples.csv
 data/model-state.zip
+data/news-cache.json

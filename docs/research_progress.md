@@ -200,3 +200,26 @@ backup and restore. [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions
 - Obtain authoritative exchange closure dates and corporate-action effective
   dates and factors. Keep collecting prospective evidence under the existing
   promotion gates.
+
+## November 16 research queue checkpoint
+
+- **Data coverage** — The November 15 durable audit found 213 of 235 enabled
+  symbols current, 12 conflicting or invalid observations and 42 currency
+  gaps across the configured audit universe. Current coverage counts price
+  observations before all eligibility gates. The November 12 source comparison
+  separately found 199 usable enabled symbols. Keep price and currency gates
+  in force. Full-precision independent quotes, authoritative listing status
+  and closure coverage, and verified corporate-action effective dates and
+  factors remain open. [Source comparison](data_sources.md)
+- **Prospective tests** — The restored cloud release held two adaptive cohorts
+  per horizon, one resolved next-day and zero resolved swing. The disclosure
+  study was deployed after the two preceding scans, so it had zero registered
+  pairs. Existing scanner, learning and weekly jobs collect and report the
+  next qualifying observations. [Adaptive protocol](adaptive_levels.md) · [Disclosure protocol](disclosure_study.md)
+- **Promotion and calibration** — Both challengers report insufficient
+  history and the liquidity paper filter remains collecting. The current
+  freeze, calibration and approval gates continue to apply as outcomes resolve.
+  [Weekly preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43802489392)
+- **News** — The separate cloud job collects official exchange notices and
+  economic RSS links without reading the production database. The local
+  dashboard exposes the News view. [Operation and sources](news.md)

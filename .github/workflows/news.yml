@@ -1,0 +1,64 @@
+name: Praecursor News
+
+on:
+  schedule:
+    - cron: '20 6,12,18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news-publish
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install beautifulsoup4 tzdata
+      - name: Restore previous index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p news-output
+          status=0
+          gh release view news-latest --json assets > news-output/release.json 2> news-output/error || status=$?
+          if [ "$status" = 0 ]; then
+            touch news-output/release-exists
+            assets=$(jq -r '.assets[].name' news-output/release.json)
+            for asset in news.json news-backup.json; do
+              if grep -Fxq "$asset" <<< "$assets"; then
+                gh release download news-latest --pattern "$asset" --dir news-output
+                mv "news-output/$asset" news-output/previous.json
+                break
+              fi
+            done
+          elif ! grep -qx 'release not found' news-output/error; then
+            cat news-output/error >&2
+            exit "$status"
+          fi
+      - name: Collect public links
+        run: |
+          args=()
+          [ ! -f news-output/previous.json ] || args+=(--previous news-output/previous.json)
+          python tools/collect_news.py "${args[@]}" --output news-output/news.json
+      - name: Publish news index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f news-output/release-exists ]; then
+            gh release create news-latest --title 'News link index' --notes 'Rolling public-source link index for the Praecursor News tab.' --latest=false --target "$GITHUB_SHA"
+          fi
+          if [ -f news-output/previous.json ]; then
+            cp news-output/previous.json news-output/news-backup.json
+            gh release upload news-latest news-output/news-backup.json --clobber
+          fi
+          gh release upload news-latest news-output/news.json --clobber

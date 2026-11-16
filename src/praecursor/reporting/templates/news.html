@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b0b0b"><title>News · Praecursor EGX research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<!-- shared-style --></head><body>
+<a class="skip-link" href="#main">Skip to news</a>
+<header class="site-header"><div class="wrap header-inner">
+  <a class="brand" href="/" aria-label="Praecursor home"><svg class="brand-mark" viewBox="0 0 32 36" aria-hidden="true"><path d="M3 32V4h17l9 9-9 9H10v10H3Zm7-17h10l2-2-2-2H10v4Z"/></svg>PRAECURSOR</a>
+  <nav class="header-nav" aria-label="Main navigation">
+    <a class="nav-link news-nav" href="/dashboard">Workspace</a>
+    <a class="nav-link news-nav" href="/dashboard/news" aria-current="page">News</a>
+  </nav>
+</div></header>
+<main id="main" class="wrap dashboard-main news-main">
+  <div class="intro">
+    <div><h1>Market news</h1><p>Exchange notices and Egyptian economic coverage.</p></div>
+    <button id="news-refresh" type="button">Refresh view</button>
+  </div>
+  <p class="notice news-notice" id="news-status" role="status">Loading the latest news index…</p>
+  <div class="news-layout">
+    <section aria-label="Latest news">
+      <div class="controls news-controls">
+        <label>Search news<input id="news-search" type="search" placeholder="Headline or ticker"></label>
+        <label>Category<select id="news-category"><option value="">All categories</option></select></label>
+        <label>Source<select id="news-source"><option value="">All sources</option></select></label>
+      </div>
+      <p class="small news-count" id="news-count" role="status"></p>
+      <ol id="news-items" class="news-items" aria-label="Latest articles"></ol>
+      <button id="news-more" class="hidden" type="button">Show more</button>
+    </section>
+    <aside class="news-sources" aria-labelledby="news-feeds-heading">
+      <h2 id="news-feeds-heading">Source status</h2>
+      <ul id="news-feeds"></ul>
+      <p>All times are Cairo time. The index covers recent items from each source.</p>
+    </aside>
+  </div>
+</main>
+<!-- news-script --></body></html>

@@ -229,6 +229,17 @@ def test_watchdog_uses_utc_schedule_skips_previews_and_bounds_retries():
     assert needs_recovery([dict(preview,display_title="Watchdog recovery - scanner",head_branch="test")],due)
 
 
+def test_watchdog_uses_preceding_evening_after_midnight_until_cairo_cutoff():
+    overnight = datetime(2026,11,16,1,22,tzinfo=timezone.utc)
+    due = dict(due_workflows(overnight))["daily_scan.yml"]
+    assert due == datetime(2026,11,15,18,30,tzinfo=timezone.utc)
+    delayed = dict(created_at="2026-11-16T00:50:00Z", head_branch="main",
+                   event="schedule", status="completed", conclusion="success")
+    assert not needs_recovery([delayed], due)
+    assert needs_recovery([], due)
+    assert due_workflows(overnight.replace(hour=7)) == []
+
+
 def test_watchdog_defers_for_off_schedule_writer_then_dispatches_once(monkeypatch):
     saturday = datetime(2026, 11, 14, 22, tzinfo=timezone.utc)
     monkeypatch.setattr(automation_watchdog, "datetime", Mock(

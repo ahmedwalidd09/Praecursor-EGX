@@ -59,7 +59,7 @@ jobs:
           python tools/weekly_review.py $FLAGS
           cat reports/weekly_review.md >> "$GITHUB_STEP_SUMMARY"
       - name: Persist Outcomes and Delivery Receipt
-        if: always() && steps.restore.outcome == 'success'
+        if: always() && steps.restore.outcome == 'success' && inputs.dry_run != true
         run: |
           python tools/database_state.py backup
           gzip -c database/backup.db > database/praecursor.db.gz

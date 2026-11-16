@@ -77,33 +77,60 @@ def deliver_owner_briefing(conn, session, charts_dir: Path, *, preview=False, re
         print("Cloud and local configured owner settings match.")
     conn.execute("""CREATE TABLE IF NOT EXISTS telegram_owner_receipts (
         session TEXT PRIMARY KEY, run_id INTEGER NOT NULL, message_id INTEGER NOT NULL, accepted_at TEXT NOT NULL)""")
-    if conn.execute("SELECT 1 FROM telegram_owner_receipts WHERE session=?", (session,)).fetchone():
-        print(f"Telegram owner briefing for {session} already accepted. Receipt reused.")
-        return 0
+    conn.execute("""CREATE TABLE IF NOT EXISTS telegram_owner_charts (
+        session TEXT NOT NULL, symbol TEXT NOT NULL, status TEXT NOT NULL,
+        PRIMARY KEY(session,symbol))""")
+    receipt = conn.execute("SELECT message_id,run_id FROM telegram_owner_receipts WHERE session=?", (session,)).fetchone()
     client = TelegramClient(settings)
-    try:
-        message_id = accepted_message(client.send_message(message, max_retries=1), settings.chat_id)
-    except Exception:
-        print("Telegram owner briefing request failed.")
-        return 1
-    if not message_id:
-        print("Telegram did not confirm a message ID for the configured owner chat.")
-        return 1
-    conn.execute("INSERT INTO telegram_owner_receipts VALUES (?,?,?,?)",
-                 (session, picks[0]["run_id"], message_id, datetime.now(timezone.utc).isoformat()))
-    conn.commit()
-    print(f"Telegram accepted owner briefing for {session}: 1 recipient, message ID and chat verified.", flush=True)
-    charts_sent = 0
+    if receipt:
+        if receipt["run_id"] != picks[0]["run_id"]:
+            print(f"Saved briefing and original shortlist disagree for {session}.")
+            return 1
+        message_id = receipt["message_id"]
+        if not conn.execute("SELECT 1 FROM telegram_owner_charts WHERE session=?", (session,)).fetchone():
+            print(f"Telegram owner briefing for {session} already accepted. Legacy receipt reused.")
+            return 0
+    else:
+        try:
+            message_id = accepted_message(client.send_message(message, max_retries=1), settings.chat_id)
+        except Exception:
+            print("Telegram briefing acceptance is uncertain.")
+            return 1
+        if not message_id:
+            print("Telegram did not confirm a message ID for the configured owner chat.")
+            return 1
+        conn.execute("INSERT INTO telegram_owner_receipts VALUES (?,?,?,?)",
+                     (session, picks[0]["run_id"], message_id, datetime.now(timezone.utc).isoformat()))
+        conn.executemany("INSERT INTO telegram_owner_charts VALUES (?,?,'pending')",
+                         ((session, row["symbol"]) for row in picks))
+        conn.commit()
+        print(f"Telegram accepted owner briefing for {session}: 1 recipient, message ID and chat verified.", flush=True)
+
+    statuses = dict(conn.execute("SELECT symbol,status FROM telegram_owner_charts WHERE session=?", (session,)))
     for row in picks:
         symbol = row["symbol"]
         chart = charts_dir / f"{session}_{symbol}_chart.png"
-        if not chart.is_file():
+        if statuses.get(symbol) != "pending" or not chart.is_file():
             continue
+        # A crash or timeout after beginning a request can leave its result unknown.
+        conn.execute("UPDATE telegram_owner_charts SET status='uncertain' WHERE session=? AND symbol=?", (session,symbol))
+        conn.commit()
+        statuses[symbol] = "uncertain"
         try:
             response = client.send_photo(chart, caption=f"{escape(symbol)} · Price history through {row['feature_session']}",
                                          reply_to_message_id=message_id)
-            charts_sent += bool(accepted_message(response, settings.chat_id))
         except Exception:
-            print(f"Telegram chart request failed for {symbol}.")
-    print(f"Telegram accepted {charts_sent}/{len(picks)} original candidate charts for {session}.")
-    return 0
+            print(f"Telegram chart acceptance uncertain for {symbol}.")
+            continue
+        if accepted_message(response, settings.chat_id):
+            statuses[symbol] = "accepted"
+        elif response.get("ok") is False:
+            statuses[symbol] = "pending"
+        conn.execute("UPDATE telegram_owner_charts SET status=? WHERE session=? AND symbol=?",
+                     (statuses[symbol],session,symbol))
+        conn.commit()
+    accepted = sum(statuses.get(row["symbol"]) == "accepted" for row in picks)
+    uncertain = sum(status == "uncertain" for status in statuses.values())
+    print(f"Telegram accepted {accepted}/{len(picks)} original candidate charts for {session}. "
+          f"Uncertain chart requests: {uncertain}.")
+    return int(accepted != len(picks))

@@ -1,5 +1,21 @@
 # Automated operation
 
+The watchdog checks the preceding UTC evening cycle when GitHub starts it
+after midnight and before 09:00 Cairo. Its log includes a JSON status record
+with due times, the latest successful run timestamps and the recovery decision.
+Manual weekly previews restore a temporary runner copy and leave the durable
+release intact.
+
+New Telegram briefings keep separate text and per-symbol chart receipts.
+A missing chart can be sent on recovery using the saved message as its parent.
+Accepted and uncertain requests are skipped. An uncertain chart needs manual
+reconciliation. A partial chart delivery fails the stage so the ordinary
+alert and recovery paths can see it. Legacy text receipts suppress resends
+because their chart delivery state is unknown. If a runner dies after Telegram
+accepts but before the database reaches the release, acceptance may exist only
+in Telegram. Use retained artifacts and owner-visible message history to
+reconcile before any manual resend.
+
 GitHub Actions runs the scanner without the laptop being on. The existing encrypted
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` secrets supply the bot credentials.
 

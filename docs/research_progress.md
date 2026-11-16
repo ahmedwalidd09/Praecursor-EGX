@@ -157,6 +157,32 @@ These are snapshot rows and may include cross-posts. The cloud weekly preview
 reported zero prospective pairs and sent no Telegram message.
 [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43801162317) · [Weekly preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43801186234) · [EGX homepage](https://beta.egx.com.eg/en)
 
+## Cloud operations readiness
+
+The November 16 morning restore drill downloaded the durable release into a
+temporary directory and round-tripped it through the SQLite backup and integrity
+checks. The frozen payloads matched across the copies. November 15 was the latest
+completed price session. Original run 53 had five pre-open November 16 picks;
+Telegram accepted the text and all five charts. The backup contained three
+owner receipts, one sent weekly report, 10,678 outcome rows and 182,859 price
+observations. November 16 evening workflows were not yet due.
+[Scanner](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43772808044) · [Outcome Learning](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43765433460) · [Weekly report](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43462631817)
+
+Adaptive levels had two registered cohorts in each horizon. One next-day
+cohort was resolved, the second next-day and both swing cohorts were pending.
+The disclosure study had zero registrations because both scans preceded its
+deployment. The learning run reported insufficient history for both horizons.
+These counts establish operational coverage and do not support promotion.
+
+A scheduled watchdog run at 01:22 UTC skipped its previous evening window.
+Recovery now checks that cycle before the Cairo prospective cutoff and logs
+machine-readable status. Partial chart delivery now fails visibly and restores
+per-chart receipts so eligible retries can deliver missing photos without
+repeating the text. Ambiguous network acceptance is logged for reconciliation.
+Weekly previews leave the release unchanged, and weekly reports include both
+experimental coverage counts.
+[Delayed watchdog](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43785871896)
+
 ## Next work
 
 - Collect prospective disclosure pairs under the frozen protocol and review

@@ -128,6 +128,42 @@ def test_owner_briefing_requires_matching_message_then_reuses_receipt(tmp_path, 
             assert sender.send_message.call_count == 2
 
 
+def test_chart_retry_after_restore_keeps_accepted_and_uncertain_photos(tmp_path, monkeypatch):
+    from tools.database_state import backup_database
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "mock-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "100")
+    source = tmp_path / "source.db"
+    saved = tmp_path / "restored.db"
+    ok = {"ok":True,"result":{"message_id":50,"chat":{"id":100}}}
+    session = "2026-11-12"
+    with sqlite3.connect(source) as conn, patch.object(owner_briefing,"TelegramClient") as client:
+        conn.executescript("""CREATE TABLE scanner_signals(run_id,symbol,generated_at,feature_session,
+            candidate_rank,next_day_score,latest_close,next_day_target,next_day_stop_loss,selection_reasons);
+            CREATE TABLE source_prices(id); INSERT INTO source_prices VALUES (1);
+            CREATE TABLE scanner_runs(id); INSERT INTO scanner_runs VALUES (1);""")
+        conn.executemany("""INSERT INTO scanner_signals VALUES
+            (1,?,'2026-11-11T18:30:00Z','2026-11-11',?,70,100,105,97,'[]')""", [("ONE",1),("TWO",2),("THREE",3)])
+        for symbol in ("ONE","THREE"):
+            (tmp_path / f"{session}_{symbol}_chart.png").touch()
+        sender = client.return_value
+        sender.send_message.return_value = ok
+        sender.send_photo.side_effect = [ok, TimeoutError]
+        # ONE accepted, TWO absent, THREE acceptance unknown.
+        assert owner_briefing.deliver_owner_briefing(conn,session,tmp_path) == 1
+        backup_database(source,saved)
+        (tmp_path / f"{session}_TWO_chart.png").touch()
+        sender.send_photo.side_effect = [ok]
+        with sqlite3.connect(saved) as restored:
+            assert owner_briefing.deliver_owner_briefing(restored,session,tmp_path) == 1
+            assert dict(restored.execute("SELECT symbol,status FROM telegram_owner_charts")) == {
+                "ONE":"accepted", "TWO":"accepted", "THREE":"uncertain"}
+            assert owner_briefing.deliver_owner_briefing(restored,session,tmp_path) == 1
+        sender.send_message.assert_called_once()
+        assert [c.args[0].name for c in sender.send_photo.call_args_list] == [
+            f"{session}_ONE_chart.png",f"{session}_THREE_chart.png",f"{session}_TWO_chart.png"]
+
+
 def test_telegram_shows_paper_decisions_only_for_matching_session():
     saved=dict(target_session="2026-11-11", signals=[dict(symbol="TEST",candidate_rank=1,next_day_score=70)],
                paper=dict(session="2026-11-11",orders=[dict(symbol="TEST",decision="watch_only",quantity=0,reasons=["Sector limit"])]))

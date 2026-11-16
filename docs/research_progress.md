@@ -150,8 +150,17 @@ one prospective consolidated-results comparison per eligible session with a
 contemporaneous same-currency technical control. Weekly and dashboard research
 report coverage and matched outcomes separately. [Review and protocol](disclosure_study.md)
 
+Deployment `adec667` passed 213 CI tests with 10 skipped. A November 16
+public homepage snapshot returned 68 archived rows with 21 distinct resolved
+tickers. Of 28 financial-results rows, 16 had parseable stated periods.
+These are snapshot rows and may include cross-posts. The cloud weekly preview
+reported zero prospective pairs and sent no Telegram message.
+[CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43801162317) · [Weekly preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43801186234) · [EGX homepage](https://beta.egx.com.eg/en)
+
 ## Next work
 
+- Collect prospective disclosure pairs under the frozen protocol and review
+  partial-feed coverage before considering any event feature.
 - Resolve remaining missing instruments using authoritative listing status and
   provider mappings. Verify a licensed independent full-precision source before
   changing close or low-price conflict rules.

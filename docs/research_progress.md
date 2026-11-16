@@ -183,6 +183,13 @@ Weekly previews leave the release unchanged, and weekly reports include both
 experimental coverage counts.
 [Delayed watchdog](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43785871896)
 
+Deployment `156591d` passed 215 CI tests with 10 skipped. The watchdog
+preview at 06:10 Cairo found the November 15 scanner, learning, and last
+disclosure runs healthy and dispatched nothing. The weekly preview validated
+the experiment counts, skipped the release write, and sent no Telegram
+message. Partial delivery recovery was exercised offline after a SQLite
+backup and restore. [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43802454787) · [Watchdog preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43802484034) · [Weekly preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43802489392)
+
 ## Next work
 
 - Collect prospective disclosure pairs under the frozen protocol and review

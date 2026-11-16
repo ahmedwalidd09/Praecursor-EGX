@@ -42,6 +42,8 @@ def build_weekly(conn, frame, end, now=None):
     audit = conn.execute("SELECT payload FROM quality_audits ORDER BY checked_at DESC LIMIT 1").fetchone()
     quality = json.loads(audit[0]) if audit else {}
     experiments = []
+    from praecursor.analysis.disclosure_study import disclosure_study_summary
+    disclosure = disclosure_study_summary(conn)
     if conn.execute("SELECT 1 FROM sqlite_master WHERE name='shadow_experiments'").fetchone():
         experiments = [dict(name=r["name"],status=r["status"],
             resolved_sessions=conn.execute("SELECT count(*) FROM shadow_sessions WHERE name=? AND result IS NOT NULL",(r["name"],)).fetchone()[0])
@@ -55,7 +57,7 @@ def build_weekly(conn, frame, end, now=None):
                    equity=paper["equity"],max_drawdown_pct=paper["max_drawdown_pct"],
                    pending_sessions=paper.get("pending_sessions",0),basis="Hypothetical daily-bar fills; cumulative drawdown"),
         data_quality={key:quality.get(key) for key in ("checked_at","expected_session","coverage_pct","market_wide_data_gap","stale_or_missing","conflicting_or_invalid","unknown_or_conflicting_currency","review_queue","calendar_status")},
-        predictions_detail=rows, experiments=experiments,
+        predictions_detail=rows, experiments=experiments, disclosure_study=disclosure,
         definitions="Hit/miss = target touched/not touched. Trade profit is net of assumed costs. Ambiguous barrier order is separate; its return is a conservative stop-first scenario. Unfilled is cash; unresolved is not a loss.")
 
 
@@ -93,4 +95,9 @@ def format_weekly(report):
         f"Frozen evaluation protocol: {report.get('protocol_hash','preview')}. No actual trades."]
     for experiment in report.get("experiments",[]):
         lines.append(f"Trial {experiment['name']}: {experiment['status']}; {experiment['resolved_sessions']}/60 resolved sessions.")
+    if study := report.get("disclosure_study"):
+        lines.append(f"Disclosure study (partial feed): {study['resolved']}/{study['pairs']} pairs resolved. "
+                     f"Mean excess {pct(study.get('mean_excess_pct'))}, stressed {pct(study.get('stressed_excess_pct'))}. "
+                     f"Feed stale or unavailable for {study.get('coverage', {}).get('feed_unavailable_or_stale', 0)}"
+                     f"/{study['sessions']} recorded sessions.")
     return "\n\n".join(lines)

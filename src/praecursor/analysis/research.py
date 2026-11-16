@@ -81,9 +81,11 @@ def event_cohorts(conn, frame):
     picks=frame[frame.candidate_rank.between(1,5) & frame.next_day_net_return_pct.notna()]
     for row in picks.itertuples():
         stamp=datetime.fromisoformat(row.published_at.replace("Z","+00:00"))
-        kinds=conn.execute("""SELECT DISTINCT event_type FROM disclosure_events WHERE symbol=?
-             AND datetime(known_at)<=datetime(?) AND datetime(known_at)>=datetime(?)""",
-             (row.symbol,stamp.isoformat(),(stamp-timedelta(days=7)).isoformat())).fetchall()
+        kinds=conn.execute("""SELECT DISTINCT event_type FROM (
+             SELECT *, ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY julianday(known_at) DESC,content_hash) AS revision
+             FROM disclosure_events WHERE julianday(known_at)<julianday(?))
+             WHERE revision=1 AND symbol=? AND julianday(published_at)>=julianday(?)""",
+             (stamp.isoformat(),row.symbol,(stamp-timedelta(days=7)).isoformat())).fetchall()
         for kind in kinds:
             cohorts[kind[0]].append((row.session,row.next_day_net_return_pct))
     return [dict(event_type=kind,selections=len(rows),sessions=len({r[0] for r in rows}),
@@ -92,10 +94,12 @@ def event_cohorts(conn, frame):
 
 
 def save_research(conn, frame):
+    from praecursor.analysis.disclosure_study import disclosure_study_summary
     conn.row_factory=sqlite3.Row
     conn.execute("CREATE TABLE IF NOT EXISTS research_snapshots (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)")
     report=dict(updated_at=datetime.now(timezone.utc).isoformat(),performance=frozen_evidence(frame),
-                data_health=data_health(conn),event_cohorts=event_cohorts(conn,frame))
+                data_health=data_health(conn),event_cohorts=event_cohorts(conn,frame),
+                disclosure_study=disclosure_study_summary(conn))
     conn.execute("INSERT OR REPLACE INTO research_snapshots VALUES (1,?)",(json.dumps(report,allow_nan=False),))
     conn.commit()
     return report

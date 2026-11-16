@@ -749,6 +749,8 @@ class ScannerWorkflow:
                 record_shadow(connection, history_run_id)
                 from praecursor.analysis.adaptive_levels import record_adaptive_levels
                 record_adaptive_levels(connection, history_run_id)
+                from praecursor.analysis.disclosure_study import record_disclosure_study
+                record_disclosure_study(connection, history_run_id)
                 resolve_paper(connection)
                 sectors = {r.symbol: getattr(r.opportunity_score.stock, "sector", "Unknown") for r in ranked_results}
                 record_plan(connection, history_run_id, sectors=sectors)

@@ -142,6 +142,14 @@ weekly preview published the new artifact with zero registered or paired
 sessions for both horizons. The first qualifying post-deployment shortlist
 starts the prospective record. [CI](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43424847651) · [Weekly preview](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43424890737)
 
+## Disclosure evidence and incremental study
+
+The collector retains explicit reporting scope, periods, spelled-out currencies
+and source excerpts from the official disclosure summaries. The scanner freezes
+one prospective consolidated-results comparison per eligible session with a
+contemporaneous same-currency technical control. Weekly and dashboard research
+report coverage and matched outcomes separately. [Review and protocol](disclosure_study.md)
+
 ## Next work
 
 - Resolve remaining missing instruments using authoritative listing status and

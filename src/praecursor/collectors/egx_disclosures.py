@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS feed_health (
 
 
 def text_only(value):
-    return BeautifulSoup(value or "", "html.parser").get_text(" ", strip=True)
+    if not isinstance(value, str) or re.fullmatch(r"\$[0-9a-f]+", value.strip(), re.I):
+        return ""
+    return BeautifulSoup(value, "html.parser").get_text(" ", strip=True)
 
 
 def parse_homepage(html):
@@ -72,20 +74,56 @@ def classify(title, group):
     return "financial_results" if group == "financialStatements" else "other"
 
 
-def facts_from_body(body):
+def facts_from_body(body, body_ar=""):
     facts = {}
-    for field, pattern in (
-        ("net_profit", r"Net Profit\s*:\s*([-\d,]+(?:\.\d+)?)"),
-        ("comparative_profit", r"Net Comparative Profit\s*:\s*([-\d,]+(?:\.\d+)?)"),
+    arabic = body_ar.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩٬٫", "0123456789,."))
+    for field, english, translated in (
+        ("net_profit", "Net Profit", "صافي الربح"),
+        ("comparative_profit", "Net Comparative Profit", "صافي ربح المقارنة|صافي الربح المقارن"),
     ):
-        match = re.search(pattern, body, re.I)
-        if match:
-            facts[field] = float(match.group(1).replace(",", ""))
-            facts[field + "_evidence"] = match.group(0)
-    currency = re.search(r"Currency\s*:\s*([A-Z]{3})\b", body)
-    if currency:
-        facts["currency"] = currency.group(1)
-    # No growth/materiality score without verified comparable periods and consolidation basis.
+        matches = [m for label, source in ((english, body), (translated, arabic))
+                   for m in re.finditer(rf"(?:{label})\s*:\s*(-?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)(?:\.\d+)?)(?![\d,.])", source, re.I)]
+        values = {m[1].replace(",", "") for m in matches}
+        if len(values) == 1 and len(next(iter(values))) <= 24:
+            facts[field] = float(next(iter(values)))
+            facts[field + "_evidence"] = matches[0][0]
+    currencies = []
+    for source, pattern in ((body, r"Currency\s*:\s*(Egyptian Pound|US Dollar|[A-Z]{3}\b)"),
+                            (arabic, r"العملة\s*:\s*(جنيه مصر[ىي]|دولار أمريكي|[A-Z]{3}\b)")):
+        currencies.extend(re.finditer(pattern, source))
+    aliases = {"Egyptian Pound": "EGP", "US Dollar": "USD", "جنيه مصرى": "EGP",
+               "جنيه مصري": "EGP", "دولار أمريكي": "USD"}
+    codes = {aliases.get(m[1], m[1]) for m in currencies}
+    if len(codes) == 1:
+        facts.update(currency=codes.pop(), currency_evidence=currencies[0][0])
+    periods = []
+    scopes = {"المجمعة": "consolidated", "المستقلة": "standalone"}
+    for source, pattern in (
+        (body, r"F/S\s*\((Consolidated|Standalone)\)\s*Period:\s*From (\d{2}/\d{2}/\d{4}) to (\d{2}/\d{2}/\d{4})"),
+        (arabic, r"(?:القوائم المالية|أرقام المقارنة)\s+(المجمعة|المستقلة)\s+عن الفترة:\s*من (\d{2}/\d{2}/\d{4}) إلى (\d{2}/\d{2}/\d{4})"),
+    ):
+        stated = []
+        for m in re.finditer(pattern, source, re.I):
+            try:
+                start, end = (datetime.strptime(s, "%d/%m/%Y").date().isoformat() for s in m.groups()[1:])
+            except ValueError:
+                continue
+            if start <= end:
+                stated.append(dict(scope=scopes.get(m[1], m[1].lower()), start=start, end=end, evidence=m[0]))
+        if stated:
+            periods.append(stated)
+    if periods:
+        primary = periods[0]
+        for index, item in enumerate(primary):
+            if any(index < len(other) and any(other[index][key] != item[key] for key in ("scope", "start", "end"))
+                   for other in periods[1:]):
+                facts["period_conflict"] = True
+                break
+        else:
+            facts["stated_periods"] = primary
+    unit = re.search(r"\b(?:Units?|Amounts in)\s*:\s*(units|thousands|millions|billions)\b", body, re.I)
+    if unit:
+        facts.update(unit=unit[1].lower(), unit_evidence=unit[0])
     return facts
 
 
@@ -110,6 +148,13 @@ def ingest_records(conn, records, now=None):
             continue
         matches = set(re.findall(r"\b([A-Z][A-Z0-9-]{1,12})\.CA\b", " ".join((title, title_ar, body, body_ar))))
         symbol = next(iter(matches)) if len(matches) == 1 else None
+        isins = set(re.findall(r"\bEG[A-Z0-9]{10}\b", " ".join((str(row.get("isin") or ""), body, body_ar))))
+        isin = next(iter(isins)) if len(isins) == 1 else None
+        if len(isins) > 1:
+            symbol = None
+        kind = classify(title + " " + title_ar, group)
+        facts = facts_from_body(body, body_ar) if kind == "financial_results" else {}
+        facts["issuer_evidence"] = dict(tickers=sorted(matches), isins=sorted(isins))
         content = json.dumps(row, sort_keys=True, ensure_ascii=False)
         digest = hashlib.sha256(content.encode()).hexdigest()
         params = dict(tab="disclosure", newsCode=code, openNewsDetails=1)
@@ -117,9 +162,9 @@ def ingest_records(conn, records, now=None):
             params["marketSessionNews"] = "true"
         url = "https://beta.egx.com.eg/en/media-center?" + urlencode(params)
         cursor = conn.execute("INSERT OR IGNORE INTO disclosure_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
-            f"{group}:{code}", digest, symbol, row.get("isin"), published.isoformat(), now.isoformat(),
-            max(now, published).isoformat(), classify(title + " " + title_ar, group), title or body[:200],
-            title_ar, body, body_ar, url, json.dumps(facts_from_body(body)), content))
+            f"{group}:{code}", digest, symbol, isin, published.isoformat(), now.isoformat(),
+            now.isoformat(), kind, title or body[:200],
+            title_ar, body, body_ar, url, json.dumps(facts), content))
         count += cursor.rowcount
     conn.commit()
     return count

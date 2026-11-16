@@ -22,6 +22,7 @@ function renderResearch(){
   if(!Object.keys(health).length)$('data-health').append(el('dd','No data audit snapshot yet.'));
   $('event-cohorts').replaceChildren();for(const c of r.event_cohorts||[])$('event-cohorts').append(el('p',c.event_type.replaceAll('_',' ')+' · '+c.selections+' selections / '+c.sessions+' sessions · '+number(c.mean_net_return_pct)+'% scenario mean. '+c.status));
   if(!(r.event_cohorts||[]).length)$('event-cohorts').append(el('p','No outcomes linked to announcements known before publication yet. Backfilled news does not count.'));
+  if(r.disclosure_study){const s=r.disclosure_study;$('event-cohorts').append(el('p','Prospective disclosure study · '+s.resolved+' / '+s.pairs+' matched pairs resolved · partial homepage coverage.'));}
   text('disclosure-status',(feed.status||'Not collected')+' · '+(feed.message||'The scheduled collector will archive the latest official records.')+(feed.last_success_at?' · Last success '+new Date(feed.last_success_at).toLocaleString('en-GB'):''));
   $('disclosure-list').replaceChildren();
   for(const event of feed.events||[]){const row=el('article','','disclosure-row'),heading=el('h3',(event.symbol?event.symbol+' · ':'')+event.title);heading.dir='auto';row.append(heading);

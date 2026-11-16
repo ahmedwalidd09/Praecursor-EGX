@@ -67,6 +67,30 @@ def test_official_news_uses_disclosure_identity_and_cairo_time(monkeypatch):
     assert "newsCode=14" in item["url"]
 
 
+
+def test_egx_crossposts_consolidate_without_merging_distinct_scopes(monkeypatch):
+    row = dict(code=20, dateStamp="2026-11-16T08:00:00",
+               heading="Example (COMI.CA) Reports its Financial Results (Consolidated)",
+               headingArabic="شركة مساهمة (COMI.CA)")
+    statement = dict(row, code=19)
+    standalone = dict(row, code=18, heading=row["heading"].replace("Consolidated", "Standalone"))
+    records = [("financialStatements", statement)]
+    monkeypatch.setattr(news, "parse_homepage", lambda data: records)
+
+    def loader(source, now):
+        return list(news.official_items(b"", now)) if source == "egx" else []
+
+    previous = news.collect({}, NOW, loader=loader)
+    records += [("disclosureNews", row), ("financialStatements", standalone)]
+    refreshed = news.collect(previous, NOW + timedelta(hours=1), loader=loader)
+    assert {item["title"] for item in refreshed["items"]} == {row["heading"], standalone["heading"]}
+    primary = next(item for item in refreshed["items"] if item["title"] == row["heading"])
+    assert primary["category"] == "Financial results"
+    assert "newsCode=20" in primary["url"]
+    assert primary["first_seen_at"] == NOW.isoformat()
+    assert all("aliases" not in item for item in refreshed["items"])
+
+
 def test_rejects_untrusted_index_links_and_feed_declarations():
     state = news.collect({}, NOW, loader=only_rss)
     state["items"][0]["url"] = "https://www.arabfinance.com@localhost/article"

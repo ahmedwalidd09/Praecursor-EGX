@@ -77,21 +77,35 @@ def official_items(data, now):
         ingest_records(db, parse_homepage(data), now)
         rows = db.execute("""SELECT event_id,title,title_ar,source_url,event_type,symbol,published_at
             FROM disclosure_events ORDER BY event_id LIKE 'financialStatements:%', event_id""").fetchall()
+
+    def match_key(row):
+        return tuple(row[key] for key in ("published_at", "symbol", "title", "title_ar"))
+
+    statement_links = {
+        (match_key(row), int(row["event_id"].split(":")[1])): row["source_url"]
+        for row in rows if row["event_id"].startswith("financialStatements:") and row["symbol"]
+    }
     seen = set()
     for row in rows:
-        title = row["title"][:360]
-        if not title:
-            continue
-        # The exchange reuses its numeric notice reference in multiple homepage sections.
-        # Market-session records have a distinct link namespace.
         key = row["source_url"]
-        if key in seen:
+        if key in seen or not row["title"]:
             continue
         seen.add(key)
-        category = EGX_CATEGORIES[row["event_type"]]
-        yield dict(source="egx", title=title, title_ar=row["title_ar"][:360],
-                   url=key, category=category, symbols=[row["symbol"]] if row["symbol"] else [],
-                   published_at=row["published_at"], source_updated_at=None)
+        group, code = row["event_id"].split(":")
+        kind = row["event_type"]
+        if re.search(r"\bfinancial (?:results|statements)\b|القوائم المالية", row["title"] + " " + row["title_ar"], re.I):
+            kind = "financial_results"
+        aliases = []
+        # Paired EGX listings have adjacent references and identical bilingual titles,
+        # ticker and timestamp. Prefer the disclosure that links to the attachments.
+        if group == "disclosureNews" and kind == "financial_results":
+            alias = statement_links.get((match_key(row), int(code) - 1))
+            if alias:
+                seen.add(alias)
+                aliases.append(alias)
+        yield dict(source="egx", title=row["title"][:360], title_ar=row["title_ar"][:360],
+                   url=key, category=EGX_CATEGORIES[kind], symbols=[row["symbol"]] if row["symbol"] else [],
+                   published_at=row["published_at"], source_updated_at=None, aliases=aliases)
 
 
 def rss_items(data, source, now, *, personal=False):
@@ -160,10 +174,13 @@ def collect(previous, now, loader=read_source):
             health[source] = dict(label=label, status="ok", last_success_at=stamp, count=len(new))
             for item in new:
                 old = items.get(item["url"], {})
+                prior_aliases = [items.pop(url, {}) for url in item.pop("aliases", [])]
+                item["first_seen_at"] = min(
+                    previous_item.get("first_seen_at", stamp) for previous_item in (old, *prior_aliases)
+                )
                 # Keep one canonical copy when the publisher puts an item in both feeds.
                 if old.get("last_seen_at") == stamp:
                     continue
-                item["first_seen_at"] = old.get("first_seen_at", stamp)
                 item["last_seen_at"] = stamp
                 item["revised_at"] = old.get("revised_at")
                 if old and any(old.get(key) != item[key] for key in ("title", "title_ar", "source_updated_at")):

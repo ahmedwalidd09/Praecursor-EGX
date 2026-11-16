@@ -27,6 +27,6 @@ request an extra cloud refresh.
 
 The collector consolidates repeated canonical source links and preserves
 first-seen, last-seen, and observed revision timestamps for the retained
-window. EGX homepage rows cover a partial source window. The News workflow
+window. Matching financial-results cross-posts link to the official disclosure with attachments. EGX homepage rows cover a partial source window. The News workflow
 touches only its own release and runs separately from scanner state, research,
 training, and notifications.

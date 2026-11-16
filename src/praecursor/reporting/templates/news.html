@@ -21,8 +21,8 @@
     <section aria-label="Latest news">
       <div class="controls news-controls">
         <label>Search news<input id="news-search" type="search" placeholder="Headline or ticker"></label>
-        <label>Category<select id="news-category"><option value="">All categories</option></select></label>
-        <label>Source<select id="news-source"><option value="">All sources</option></select></label>
+        <label><span id="news-category-label">Category</span><select id="news-category" aria-labelledby="news-category-label"><option value="">All categories</option></select></label>
+        <label><span id="news-source-label">Source</span><select id="news-source" aria-labelledby="news-source-label"><option value="">All sources</option></select></label>
       </div>
       <p class="small news-count" id="news-count" role="status"></p>
       <ol id="news-items" class="news-items" aria-label="Latest articles"></ol>

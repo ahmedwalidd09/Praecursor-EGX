@@ -111,6 +111,7 @@ class SignalHistoryStore:
                 "candidate_rank INTEGER",
                 "selection_reasons TEXT",
                 "source_status TEXT",
+                "shortlist_json TEXT",
 
             ]
             for col in new_columns:
@@ -300,9 +301,11 @@ class SignalHistoryStore:
                     (FEATURE_VERSION, stock.history[-1].date.date().isoformat() if stock and stock.history else None,
                      nd.model_version, nd.probability, item.swing_prediction.target_price,
                      item.swing_prediction.probability, item.swing_prediction.model_version, run_id, item.symbol))
-                connection.execute("UPDATE scanner_signals SET candidate_rank=?, selection_reasons=?, source_status=? WHERE run_id=? AND symbol=?",
-                    (getattr(item,"candidate_rank",None), json.dumps(getattr(item,"selection_reasons",())),
-                     getattr(item,"source_status","Unknown"),run_id,item.symbol))
+                connection.execute("""UPDATE scanner_signals SET candidate_rank=?, selection_reasons=?,
+                    source_status=?, shortlist_json=? WHERE run_id=? AND symbol=?""",
+                    (getattr(item, "candidate_rank", None), json.dumps(getattr(item, "selection_reasons", ())),
+                     getattr(item, "source_status", "Unknown"), json.dumps(getattr(item, "shortlist", None)),
+                     run_id, item.symbol))
             connection.commit()
 
         return run_id

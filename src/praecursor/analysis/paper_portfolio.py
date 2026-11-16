@@ -178,10 +178,11 @@ def record_plan(conn, run_id, now=None, policy=None, sectors=None):
             reasons.append("Validated paper filter: " + research_filter["name"] + " keeps this allocation in cash")
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         currency = None
+        saved_currency = json.loads(pick.get("shortlist_json") or "null")
         if "instrument_observations" in tables:
             from praecursor.analysis.data_quality import currency_evidence
             currency = currency_evidence(conn, pick["symbol"], now)
-        if currency != "EGP":
+        if currency != "EGP" or (saved_currency is not None and saved_currency["currency"] != "EGP"):
             reasons.append("Paper book requires a recently observed EGP quote currency; foreign or unknown currency excluded")
         if "disclosure_events" in tables:
             events = conn.execute("""SELECT DISTINCT event_type FROM disclosure_events WHERE symbol=?

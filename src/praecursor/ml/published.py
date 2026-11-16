@@ -11,6 +11,8 @@ from praecursor.ml.features import FEATURES, FEATURE_VERSION, feature_row
 
 def eligible_features(r):
     """Original price, liquidity and feature gates for the matched universe."""
+    if (r.get("shortlist") or {}).get("currency", "EGP") != "EGP":
+        return None
     if (not r.get("feature_session") or r.get("feature_version") != FEATURE_VERSION
             or not r.get("indicator_values_json") or (r.get("data_quality_score") or 0) < 80
             or (r.get("latest_close") or 0) < .2):

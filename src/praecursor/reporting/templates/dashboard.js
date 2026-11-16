@@ -2,7 +2,8 @@ const snapshotNode = document.getElementById('saved-snapshot');
 const $ = id => document.getElementById(id);
 let data = null, busy = false, requesting = false, loading = false, activeTask = null;
 const number = (v,d=2) => v == null ? '—' : Number(v).toLocaleString('en-GB',{maximumFractionDigits:d,minimumFractionDigits:d});
-const price = v => v > 0 ? number(v) : '—';
+const price = v => v > 0 ? number(v,v < 1 ? 4 : 2) : '—';
+const quotePrice = (v,r) => price(v)+(v>0&&r.shortlist?.currency?' '+r.shortlist.currency:'');
 const pct = v => v == null ? '—' : number(v*100,1)+'%';
 function text(id,value) { $(id).textContent = value; }
 function el(tag,content,cls) { const n=document.createElement(tag); n.textContent=content; if(cls)n.className=cls; return n; }
@@ -36,13 +37,17 @@ function renderResearch(){
 function render() {
   if(!data)return;
   const picks=data.signals.filter(r=>r.candidate_rank).sort((a,b)=>a.candidate_rank-b.candidate_rank);
-  text('shortlist-note','For '+(data.target_session||'the next session')+' · '+picks.length+'/5 eligible candidates. Scores rank setups; they are not win probabilities.');
+  const versioned = data.signals.some(r=>r.shortlist);
+  const basis = versioned ? ' verified-EGP candidates.' : ' saved candidates.';
+  text('shortlist-note','For '+(data.target_session||'the next session')+' · '+picks.length+'/5'+basis+
+    (picks.length<5&&versioned?' Eligible rows must pass currency, liquidity, history and plan checks.':''));
+  $('quote-filter').disabled = !versioned;
   $('shortlist').replaceChildren();
   for(const r of picks){
     const card=el('article','','shortlist-row'), head=el('div','','shortlist-head');
     const button=el('button','#'+r.candidate_rank+' '+r.symbol,'row-button');button.onclick=()=>showDetail(r);
     head.append(button,el('span','Score '+number(r.next_day_score,1)+' / 100','mono'));
-    card.append(head,el('p',r.company,'muted'),el('p','Close '+price(r.latest_close)+' · Target '+price(r.next_day_target)+' · Stop '+price(r.next_day_stop_loss),'mono small'));
+    card.append(head,el('p',r.company,'muted'),el('p','Close '+quotePrice(r.latest_close,r)+' · Target '+price(r.next_day_target)+' · Stop '+price(r.next_day_stop_loss),'mono small'));
     const reasons=el('ul');for(const reason of r.selection_reasons||[])reasons.append(el('li',reason));
     card.append(reasons,el('p',r.source_status||'Source confirmation unavailable','small muted'));
     const paper=data.paper?.session===data.target_session?(data.paper.orders||[]).find(o=>o.symbol===r.symbol):null;
@@ -52,6 +57,8 @@ function render() {
   const h=$('horizon').value, f=$('filter').value;
   text('rankings-title',h==='next_day'?'Next-day opportunity list':'20-session opportunity list');
   let list=data.signals.filter(r=>(r.symbol+' '+r.company).toLowerCase().includes($('search').value.toLowerCase()));
+  const quote=$('quote-filter').value;
+  if(versioned&&quote!=='all')list=list.filter(r=>(r.shortlist?.currency==='EGP')===(quote==='egp'));
   if(f!=='all')list=list.filter(r=>(r[h+'_label']||'').toLowerCase().includes(f));
   list.sort((a,b)=>(b[h+'_score']||0)-(a[h+'_score']||0));
   const fragment=document.createDocumentFragment();
@@ -60,7 +67,7 @@ function render() {
     const b=el('button',r.symbol,'row-button'); b.onclick=()=>showDetail(r);
     b.setAttribute('aria-label','Inspect '+r.symbol+' — '+r.company);
     name.append(b,el('span',r.company,'company'));
-    tr.append(name,el('td',number(r.latest_close),'num'),el('td',number(r[h+'_score'],1),'num'),el('td',price(h==='next_day'?r.next_day_target:r.swing_target),'num'),el('td',price(r[h+'_stop_loss']),'num'));
+    tr.append(name,el('td',quotePrice(r.latest_close,r),'num'),el('td',number(r[h+'_score'],1),'num'),el('td',price(h==='next_day'?r.next_day_target:r.swing_target),'num'),el('td',price(r[h+'_stop_loss']),'num'));
     const assessment=document.createElement('td');assessment.append(el('span',r.legacy?'Legacy scan':(r[h+'_label']||'Unclassified'),'badge'));tr.append(assessment);fragment.append(tr);
   }
   $('rows').replaceChildren(fragment);$('empty').classList.toggle('hidden',list.length>0);$('table').classList.toggle('hidden',!list.length);
@@ -106,7 +113,7 @@ function loadHistory(){
 }
 function showDetail(r) {
   const h=$('horizon').value;text('detail-title',r.symbol);text('detail-company',r.company);$('levels').replaceChildren();
-  const values=[['Reference close',number(r.latest_close)],['Target',price(h==='next_day'?r.next_day_target:r.swing_target)],['Stop',price(r[h+'_stop_loss'])],['Target-touch probability',pct(h==='next_day'?r.next_day_probability:r.swing_probability)],['Data quality',number(r.data_quality_score,0)+' / 100'],['Close consensus',r.consensus_confidence>0?number(r.consensus_confidence,0)+' / 100':'Unverified'],['Feature session',r.feature_session||'Legacy record'],['Evidence',r.legacy?'Legacy · not recalibrated':(h==='next_day'?r.model_version:r.swing_model_version)||'Technical only']];
+  const values=[['Reference close',quotePrice(r.latest_close,r)],['Quote currency',r.shortlist?.currency||r.shortlist?.status||'Not recorded'],['Shortlist',r.shortlist?.exclusion||(r.shortlist?.policy||'Saved policy not recorded')],['Target',price(h==='next_day'?r.next_day_target:r.swing_target)],['Stop',price(r[h+'_stop_loss'])],['Target-touch probability',pct(h==='next_day'?r.next_day_probability:r.swing_probability)],['Data quality',number(r.data_quality_score,0)+' / 100'],['Close consensus',r.consensus_confidence>0?number(r.consensus_confidence,0)+' / 100':'Unverified'],['Feature session',r.feature_session||'Legacy record'],['Evidence',r.legacy?'Legacy · not recalibrated':(h==='next_day'?r.model_version:r.swing_model_version)||'Technical only']];
   for(const [k,v]of values){const group=document.createElement('div');group.append(el('dt',k),el('dd',v));$('levels').append(group);}
   $('reasons').replaceChildren();
   const reasons=h==='next_day'?[...(r.selection_reasons||[]),...(r.next_day_reasons||'No saved reasoning available.').split(';')]:['20-session target and stop are shown when recorded. Consult the swing validation report for independent evidence.'];
@@ -167,6 +174,7 @@ for(const id of ['history-session','history-result'])$(id).onchange=()=>renderHi
 $('history-prev').onclick=()=>{historyPage--;renderHistory();};$('history-next').onclick=()=>{historyPage++;renderHistory();};
 $('refresh').onclick=()=>load(true);$('scan').onclick=()=>action('/api/scan','scan');$('train').onclick=()=>action('/api/train','train');
 $('search').oninput=render;$('filter').onchange=render;$('horizon').onchange=render;$('close-detail').onclick=()=>$('detail').close();
+$('quote-filter').onchange=render;
 $('detail').addEventListener('click',event=>{if(event.target!==$('detail'))return;const r=$('detail').getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)$('detail').close();});
 load();
 if(snapshotNode){for(const id of ['scan','train','refresh'])$(id).classList.add('hidden');document.querySelectorAll('.live-only').forEach(n=>n.classList.add('hidden'));document.querySelector('.brand').removeAttribute('href');}

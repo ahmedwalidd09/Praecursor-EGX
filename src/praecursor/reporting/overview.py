@@ -53,6 +53,7 @@ def overview(database=DATABASE):
                     row=dict(r)
                     row["adaptive_levels"] = notes.get(row["symbol"], [])
                     row["selection_reasons"]=json.loads(row.get("selection_reasons") or "[]")
+                    row["shortlist"] = json.loads(row.pop("shortlist_json", None) or "null")
                     row["legacy"]=row.get("feature_version")!=FEATURE_VERSION
                     row["next_day_probability"]=None if row["legacy"] else row.get("next_day_probability")
                     result["signals"].append(row)

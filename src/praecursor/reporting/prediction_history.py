@@ -17,7 +17,8 @@ def prediction_history(conn):
             return reference * (1 + change / 100) if reference and change is not None else None
         history.append(dict(symbol=r["symbol"], company=r["company"],
             session=r["target_session"], session_confirmed=r["resolved_session"] is not None,
-            published_at=r["generated_at"], candidate_rank=rank,
+            published_at=(r["shortlist"] or {}).get("as_of") or r["generated_at"], candidate_rank=rank,
+            quote_currency=(r["shortlist"] or {}).get("currency"),
             reference=reference, target=r["next_day_target"],
             actual_high=actual(r["next_day_max_return"]), actual_close=actual(r["next_day_return"]),
             close_change_pct=r["next_day_return"], status=status,

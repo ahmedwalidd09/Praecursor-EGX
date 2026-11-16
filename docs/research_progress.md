@@ -230,3 +230,30 @@ producing 154 links after canonical URL and verified EGX cross-post
 deduplication. Chromium verified the published index, personal headline
 lookup, filters, paging, publisher links, and navigation at 320, 390 and
 1360 px. [News refresh](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43805080483) · [Regression checks](https://github.com/ahmedwalidd09/Praecursor-EGX/actions/runs/43805076900)
+
+## Correctness and clarity implementation
+
+1. **Verified EGP shortlist** — Implemented `verified-egp-v1`. Freeze the
+   newest observation per provider at actual selection time, use only evidence
+   at most seven days old, and require agreement on an EGP quote. Compare
+   reference close with EGP 0.20 and mean daily close-times-share-volume with
+   EGP 250,000. Both boundaries are inclusive. USD and unverified rows remain in
+   secondary research. The dimensionless market breadth calculation stays
+   equal-weighted. The paired-shortlist benchmark uses the saved eligibility
+   universe and reports legacy and new policy cohorts separately. Existing
+   paper EGP and risk gates still apply.
+2. **Active plans** — Next implementation checkpoint. Trace next-day structural
+   and ATR levels, swing levels, and saved and live consumers before changing
+   future levels.
+3. **Cloud workspace** — Pending.
+4. **News summaries and retention** — Pending.
+5. **Indicator comparison** — Pending.
+6. **Evidence maturity** — Pending.
+
+An isolated November 16 replay of saved run 53 used the original scan timestamp
+and 205 stored rows. The raw-unit technical rules qualified 199 rows. With the
+verified-EGP condition, 183 qualified; 15 lacked contemporaneous currency
+evidence and one quoted in USD. This comparison is retrospective. The original
+five picks and outcome rows were preserved. The focused stage-one checks
+passed 45 tests.
+[Price source example](https://stockanalysis.com/quote/egx/COMI/history/)

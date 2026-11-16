@@ -1,6 +1,7 @@
 """Original pre-open runs and horizon-aligned evidence for dated predictions."""
 from datetime import date, datetime, time, timezone
 from functools import cache
+import json
 import re
 import sqlite3
 
@@ -19,16 +20,20 @@ def original_predictions(conn):
               "swing_resolved_session", "swing_hit", "swing_net_return", "swing_status")
     outcomes = ",".join(f"v.{f}" if f in outcome_columns else f"NULL AS {f}" for f in fields)
     join = "LEFT JOIN verified_outcomes v ON v.run_id=s.run_id AND v.symbol=s.symbol" if outcome_columns else ""
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(scanner_signals)")}
+    order_time = ("COALESCE(json_extract(s.shortlist_json, '$.as_of'), s.generated_at)"
+                  if "shortlist_json" in columns else "s.generated_at")
     rows = conn.cursor()
     rows.row_factory = sqlite3.Row
     rows.execute(f"""SELECT s.*,{outcomes} FROM scanner_signals s {join}
-        ORDER BY julianday(s.generated_at),s.run_id,s.symbol""")
+        ORDER BY julianday({order_time}),s.run_id,s.symbol""")
     first_runs, seen = {}, set()
     horizon_dates = cache(session_horizon)
     for row in rows:
         r = dict(row)
         rank = r.get("candidate_rank")
-        if rank is None:
+        r["shortlist"] = json.loads(r.pop("shortlist_json", None) or "null")
+        if rank is None and r["shortlist"] is None:
             match = re.search(r"(?:Top Pick|Daily Candidate) #([1-5])\b", r.get("next_day_label") or "")
             rank = int(match.group(1)) if match else None
         ref = r.get("feature_session") or r["signal_date"]
@@ -36,7 +41,8 @@ def original_predictions(conn):
             continue
         dates = horizon_dates(ref, 20)
         target = dates[0]
-        stamp = datetime.fromisoformat(r["generated_at"].replace("Z", "+00:00"))
+        selection_time = (r["shortlist"] or {}).get("as_of") or r["generated_at"]
+        stamp = datetime.fromisoformat(selection_time.replace("Z", "+00:00"))
         stamp = stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp
         if stamp >= datetime.combine(date.fromisoformat(target), time(9), CAIRO):
             continue

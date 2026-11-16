@@ -15,17 +15,28 @@ from praecursor.ml.rolling import block_mean_interval
 def measurement_samples(conn):
     """Keep all saved picks and their original eligible benchmark universe."""
     rows = []
-    columns = ["symbol", "session", "candidate_rank", "published_at", "benchmark_eligible",
+    columns = ["symbol", "session", "candidate_rank", "published_at", "benchmark_eligible", "selection_policy",
                "next_day_target_hit", "next_day_net_return_pct", "next_day_status"]
     for r in original_predictions(conn):
-        eligible = eligible_features(r) is not None
-        if eligible or r["candidate_rank"] in range(1, 6):
-            rows.append((r["symbol"], r["target_session"], r["candidate_rank"], r["generated_at"],
-                         eligible, r["next_day_hit"], r["next_day_net_return"], r["next_day_status"] or "pending"))
+        shortlist = r["shortlist"]
+        eligible = eligible_features(r) is not None if shortlist is None else shortlist["exclusion"] is None
+        if shortlist or eligible or r["candidate_rank"] in range(1, 6):
+            rows.append((r["symbol"], r["target_session"], r["candidate_rank"],
+                         (shortlist or {}).get("as_of") or r["generated_at"], eligible,
+                         (shortlist or {}).get("policy", "legacy-raw-units"),
+                         r["next_day_hit"], r["next_day_net_return"], r["next_day_status"] or "pending"))
     return pd.DataFrame(rows, columns=columns)
 
 
 def frozen_evidence(frame):
+    if "selection_policy" not in frame or frame.empty:
+        return _paired_evidence(frame)
+    policies = {name: _paired_evidence(rows) for name, rows in frame.groupby("selection_policy")}
+    active = frame.sort_values("session").iloc[-1]["selection_policy"]
+    return dict(policies[active], selection_policy=active, by_selection_policy=policies)
+
+
+def _paired_evidence(frame):
     daily = []
     for session, rows in frame.groupby("session"):
         selected = rows[rows.candidate_rank.between(1,5)]

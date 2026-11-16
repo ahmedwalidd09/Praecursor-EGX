@@ -24,16 +24,29 @@ CREATE TABLE IF NOT EXISTS instrument_observations (
 """
 
 
-def currency_evidence(conn, symbol, now):
-    rows = conn.execute("""SELECT source,currency,observed_at FROM instrument_observations
-        WHERE ticker=? AND datetime(observed_at)<=datetime(?) AND datetime(observed_at)>=datetime(?)
-        ORDER BY datetime(observed_at) DESC""",
-        (symbol, now.isoformat(), (now-timedelta(days=7)).isoformat())).fetchall()
+def quote_currency_snapshot(conn, symbol, now):
+    """Freeze the newest observation per source within the seven-day window."""
     latest = {}
-    for row in rows:
-        latest.setdefault(row[0], row[1])
-    currencies = set(latest.values())
-    return next(iter(currencies)) if len(currencies) == 1 else "conflicting" if currencies else None
+    cutoff = now - timedelta(days=7)
+    for source, code, observed, url in conn.execute("""SELECT source,currency,observed_at,source_url
+        FROM instrument_observations WHERE ticker=?
+        ORDER BY julianday(observed_at) DESC, observed_at DESC""", (symbol,)):
+        stamp = datetime.fromisoformat(observed.replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        if stamp <= now:
+            latest.setdefault(source, dict(source=source, currency=code, observed_at=observed,
+                                           url=url, fresh=stamp >= cutoff))
+    currencies = {row["currency"] for row in latest.values() if row["fresh"]}
+    status = "conflicting" if len(currencies) > 1 else "verified" if currencies else "stale" if latest else "unknown"
+    return dict(as_of=now.isoformat(), status=status,
+                currency=next(iter(currencies)) if status == "verified" else None,
+                observations=list(latest.values()))
+
+
+def currency_evidence(conn, symbol, now):
+    evidence = quote_currency_snapshot(conn, symbol, now)
+    return "conflicting" if evidence["status"] == "conflicting" else evidence["currency"]
 
 
 def _download(url):

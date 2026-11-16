@@ -60,6 +60,7 @@ class SymbolScanResult:
     override_next_day_label: str | None = None
     candidate_rank: int | None = None
     selection_reasons: tuple[str, ...] = ()
+    shortlist: dict | None = None
 
     @property
     def source_status(self) -> str:
@@ -685,10 +686,16 @@ class ScannerWorkflow:
         archive_markdown_report_path: Path | None = None
 
         if ranked_results and not prices_only:
-            next_day_results = sorted(ranked_results, key=lambda result: result.next_day_score, reverse=True)
-            
+            from contextlib import closing
+            from praecursor.analysis.data_quality import quote_currency_snapshot
             from praecursor.scoring.candidates import select_daily_candidates
-            ranked_results = select_daily_candidates(ranked_results)
+            from praecursor.storage.database import connect
+
+            selection_time = datetime.now(timezone.utc)
+            with closing(connect(self.price_cache.path)) as connection:
+                currencies = {item.symbol: quote_currency_snapshot(connection, item.symbol, selection_time)
+                              for item in ranked_results}
+            ranked_results = select_daily_candidates(ranked_results, currencies=currencies)
             next_day_results = sorted(ranked_results, key=lambda r: (r.candidate_rank is None, r.candidate_rank or 999, -r.next_day_score, r.symbol))
 
             saved_report_path = self.report_writer.write(ranked_results, report_path)
@@ -739,11 +746,7 @@ class ScannerWorkflow:
             from praecursor.storage.database import connect
             from praecursor.analysis.paper_portfolio import resolve_paper, record_plan
             with closing(connect(self.price_cache.path)) as connection:
-                from praecursor.analysis.data_quality import refresh_quote_currencies, audit_data
-                # Fake sources never make network requests during offline scans/tests.
-                if getattr(self.market_data_source, "name", "") in {"tradingview", "yahoo_finance", "stockanalysis"}:
-                    candidates = [r[0] for r in connection.execute("SELECT symbol FROM scanner_signals WHERE run_id=? AND candidate_rank BETWEEN 1 AND 5", (history_run_id,))]
-                    refresh_quote_currencies(connection, candidates, symbol_mapper=self.symbol_mapper)
+                from praecursor.analysis.data_quality import audit_data
                 audit_data(connection)
                 from praecursor.analysis.shadow_experiments import record_shadow
                 record_shadow(connection, history_run_id)

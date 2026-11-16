@@ -376,7 +376,8 @@ class TelegramReportFormatter:
         decisions = {o["symbol"]: o for o in paper.get("orders", [])} if paper.get("session") == saved.get("target_session") else {}
         for row in signals:
             lines.append(f"\n<b>#{row['candidate_rank']} {html_lib.escape(row['symbol'])}</b> · Score {row['next_day_score']:.1f}/100")
-            lines.append("Close / target / stop: " + " / ".join(
+            currency = (row.get("shortlist") or {}).get("currency")
+            lines.append("Close / target / stop" + (f" ({html_lib.escape(currency)})" if currency else "") + ": " + " / ".join(
                 f"{row[k]:.3f}" if row.get(k) and row[k] > 0 else "Not recorded"
                 for k in ("latest_close", "next_day_target", "next_day_stop_loss")))
             for reason in row.get("selection_reasons", []):
@@ -390,7 +391,8 @@ class TelegramReportFormatter:
             if row.get("next_day_probability") is not None:
                 lines.append(f"Validated target-touch probability: {row['next_day_probability']:.1%}")
         if len(signals) < top_n:
-            lines.append(f"\nOnly {len(signals)}/{top_n} candidates passed price, history, liquidity and risk checks.")
+            currency_gate = "quote currency, " if saved.get("shortlist_policy") else ""
+            lines.append(f"\nOnly {len(signals)}/{top_n} candidates passed {currency_gate}price, history, liquidity and plan checks.")
         return "\n".join(lines)
 
     def format_from_dashboard_html(self, dashboard_path: Path | str | None = None, top_n: int = 5) -> str | None:

@@ -23,6 +23,11 @@ class Setup:
     candidate_rank: int | None = None
     selection_reasons: tuple = ()
     override_next_day_label: str | None = None
+    shortlist: dict | None = None
+
+    @property
+    def source_status(self):
+        return "Source disagreement" if self.consensus_result and not self.consensus_result.accepted else ""
 
 
 def setup(symbol, score=65, sector="Banks"):
@@ -31,9 +36,13 @@ def setup(symbol, score=65, sector="Banks"):
         NS(score=score, target_price=105, stop_loss_price=97))
 
 
+def egp(rows):
+    return {r.symbol: {"currency": "EGP", "status": "verified"} for r in rows}
+
+
 def test_five_ranked_research_candidates_without_inventing_consensus():
     rows=[setup(str(i),80-i,"Banks" if i<4 else "Energy") for i in range(8)]
-    result=select_daily_candidates(rows)
+    result=select_daily_candidates(rows, currencies=egp(rows))
     chosen=sorted((r for r in result if r.candidate_rank),key=lambda r:r.candidate_rank)
     assert [r.symbol for r in chosen]==["0","1","4","5","2"]
     assert all(r.consensus_result is None and len(r.selection_reasons)==3 for r in chosen)
@@ -47,7 +56,8 @@ def test_quality_filters_do_not_fill_quota_with_invalid_data():
     illiquid=setup("ILLIQUID");illiquid.opportunity_score.indicator_values["AvgTurnover20"]=0
     locked=setup("LOCKED");locked.opportunity_score.indicator_values["ClosedAtLimitUp"]=1
     invalid=setup("INVALID");invalid.next_day_prediction.target_price=float("nan")
-    result=select_daily_candidates([setup("VALID"),low_history,conflict,illiquid,locked,invalid])
+    rows = [setup("VALID"), low_history, conflict, illiquid, locked, invalid]
+    result = select_daily_candidates(rows, currencies=egp(rows))
     assert [r.symbol for r in result if r.candidate_rank]==["VALID"]
 
 
@@ -170,3 +180,43 @@ def test_telegram_shows_paper_decisions_only_for_matching_session():
     assert "Watch only: Sector limit" in TelegramReportFormatter().format_snapshot(saved)
     saved["paper"]["session"]="2026-11-10"
     assert "Watch only" not in TelegramReportFormatter().format_snapshot(saved)
+
+def test_egp_boundary_foreign_stale_unknown_and_conflicting_quotes():
+    from praecursor.analysis.data_quality import SCHEMA, quote_currency_snapshot
+    from praecursor.scoring.candidates import SHORTLIST_POLICY
+
+    now = datetime(2026, 11, 16, 20, tzinfo=timezone.utc)
+    symbols = ["EGP", "USD", "STALE", "UNKNOWN", "CONFLICT", "LOW_TURNOVER"]
+    rows = [setup(symbol) for symbol in symbols]
+    for row in rows:
+        row.opportunity_score.latest_close = .20
+        row.opportunity_score.indicator_values["AvgTurnover20"] = 250_000
+        row.next_day_prediction.target_price = .21
+        row.next_day_prediction.stop_loss_price = .19
+    # USD may have equivalent or greater EGP economic liquidity. It stays outside this universe.
+    rows[1].opportunity_score.indicator_values["AvgTurnover20"] = 1_000_000
+    rows[-1].opportunity_score.indicator_values["AvgTurnover20"] = 249_999.99
+    with sqlite3.connect(":memory:") as conn:
+        conn.executescript(SCHEMA)
+        for ticker, source, observed, code in [
+            ("EGP", "a", now-timedelta(days=7), "EGP"),
+            ("EGP", "a", now+timedelta(milliseconds=1), "USD"),
+            ("USD", "a", now, "USD"),
+            ("STALE", "a", now-timedelta(days=7, milliseconds=1), "EGP"),
+            ("UNKNOWN", "a", now+timedelta(hours=1), "EGP"),
+            ("CONFLICT", "a", now, "EGP"),
+            ("CONFLICT", "b", now, "USD"),
+            ("LOW_TURNOVER", "a", now, "EGP"),
+        ]:
+            conn.execute("INSERT INTO instrument_observations VALUES (?,?,?,?,?)",
+                         (ticker, source, observed.isoformat(), code, "https://example.com"))
+        currencies = {ticker: quote_currency_snapshot(conn, ticker, now) for ticker in symbols}
+    selected = select_daily_candidates(rows, currencies=currencies)
+    assert [r.symbol for r in selected if r.candidate_rank] == ["EGP"]
+    assert [r.shortlist["status"] for r in selected] == [
+        "verified", "verified", "stale", "unknown", "conflicting", "verified"]
+    assert selected[0].shortlist["policy"] == SHORTLIST_POLICY
+    assert len(selected[0].shortlist["observations"]) == 1
+    assert selected[-1].shortlist["exclusion"] == "Average turnover below EGP 250,000"
+    assert rows[1].opportunity_score.latest_close == .20
+    assert all(r.candidate_rank is None and r.shortlist is None for r in rows)

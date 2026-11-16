@@ -40,22 +40,26 @@ def owner_settings_proof(settings, nonce):
 
 
 def deliver_owner_briefing(conn, session, charts_dir: Path, *, preview=False, refresh_incomplete=False):
-    picks = original_shortlist(conn, session)
-    if not picks:
+    run = [r for r in original_predictions(conn) if r["target_session"] == session]
+    picks = sorted((r for r in run if r["candidate_rank"] in range(1, 6)), key=lambda r: r["candidate_rank"])
+    if not run or (not picks and not run[0]["shortlist"]):
         print(f"Telegram briefing unavailable for {session}: no original pre-open shortlist.")
         return 1
+    saved = run[0]
+    run_id, feature_session = saved["run_id"], saved["feature_session"]
     for row in picks:
         row["selection_reasons"] = json.loads(row.get("selection_reasons") or "[]")
     conn.row_factory = sqlite3.Row
     message = TelegramReportFormatter().format_snapshot(dict(
-        target_session=session, price_session=picks[0]["feature_session"], signals=picks, paper=paper_summary(conn)))
+        target_session=session, price_session=feature_session, signals=picks, paper=paper_summary(conn),
+        shortlist_policy=(saved["shortlist"] or {}).get("policy")))
     message += "\n\nOriginal pre-open shortlist. Levels and reasons are from the saved scan."
     from praecursor.analysis.adaptive_levels import adaptive_notes
-    if adaptive_notes(conn, picks[0]["run_id"]):
+    if adaptive_notes(conn, run_id):
         message += "\nChart notes marked Shadow are experimental."
     if conn.execute("SELECT 1 FROM sqlite_master WHERE name='quality_audits'").fetchone():
         audit = conn.execute("SELECT payload FROM quality_audits WHERE session=? ORDER BY checked_at DESC LIMIT 1",
-                             (picks[0]["feature_session"],)).fetchone()
+                             (feature_session,)).fetchone()
         if audit:
             quality = json.loads(audit[0])
             message += f"\nLatest audit: {quality['current_symbols']}/{quality['configured_symbols']} symbols had current prices."
@@ -83,7 +87,7 @@ def deliver_owner_briefing(conn, session, charts_dir: Path, *, preview=False, re
     receipt = conn.execute("SELECT message_id,run_id FROM telegram_owner_receipts WHERE session=?", (session,)).fetchone()
     client = TelegramClient(settings)
     if receipt:
-        if receipt["run_id"] != picks[0]["run_id"]:
+        if receipt["run_id"] != run_id:
             print(f"Saved briefing and original shortlist disagree for {session}.")
             return 1
         message_id = receipt["message_id"]
@@ -100,7 +104,7 @@ def deliver_owner_briefing(conn, session, charts_dir: Path, *, preview=False, re
             print("Telegram did not confirm a message ID for the configured owner chat.")
             return 1
         conn.execute("INSERT INTO telegram_owner_receipts VALUES (?,?,?,?)",
-                     (session, picks[0]["run_id"], message_id, datetime.now(timezone.utc).isoformat()))
+                     (session, run_id, message_id, datetime.now(timezone.utc).isoformat()))
         conn.executemany("INSERT INTO telegram_owner_charts VALUES (?,?,'pending')",
                          ((session, row["symbol"]) for row in picks))
         conn.commit()
